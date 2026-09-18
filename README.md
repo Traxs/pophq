@@ -66,6 +66,24 @@ npm run build && npx -w infra cdk deploy PopHqPipeline
 
 Then approve the pending `pophq-github` connection in the AWS console (Developer Tools → Connections), limited to the `pophq` repository, and release the pipeline once.
 
+Before the first deploy of the app stack, store the budget alert email in SSM (kept out of this public repository), then confirm the two SNS subscription emails AWS sends:
+
+```bash
+aws ssm put-parameter --region eu-central-1 --name /pophq/alerts/email --type String --value "you@example.com"
+```
+
+## Cost guard
+
+- **Request cap:** API Gateway only accepts requests carrying an API key that CloudFront adds. The usage plan allows 20 requests per second and **20,000 requests per day**, which caps API cost at about $3 a month even under a flood. Calls to the execute-api URL get 403.
+- **Budget:** `pophq-monthly`, $10 a month. Email at 50 % and 100 % actual spend and at 100 % forecast.
+- **Kill switch:** at $15 actual spend, a Lambda sets `/pophq/kill-switch` to `on` and the API answers 503 to every request. Budget data lags by up to a day, so this is a backstop behind the request cap. Turn it back off by hand:
+
+```bash
+aws ssm put-parameter --region eu-central-1 --name /pophq/kill-switch --type String --value off --overwrite
+```
+
+The same command with `--value on` pauses the API manually. Changes take effect within a minute.
+
 ## Secrets
 
 Never commit secrets. The pre-commit hook and CI both run gitleaks; see [SECURITY.md](SECURITY.md).

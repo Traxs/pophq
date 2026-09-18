@@ -11,11 +11,13 @@ export interface AppStageProps extends StageProps {
 export class AppStage extends Stage {
   readonly app: AppStack;
   readonly url: CfnOutput;
+  readonly directApiUrl: CfnOutput;
 
   constructor(scope: Construct, id: string, props: AppStageProps) {
     super(scope, id, props);
     this.app = new AppStack(this, "App", { stackName: "PopHq", webAssetPath: props.webAssetPath });
     this.url = this.app.url;
+    this.directApiUrl = this.app.directApiUrl;
     // Validation plugins are registered per stage; the app's plugins don't reach inside it.
     Validations.of(this).addPlugins(new AwsSolutionsChecks(this));
   }

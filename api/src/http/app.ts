@@ -22,9 +22,11 @@ export interface AppDeps {
   now?: () => Date;
   /** Extra authenticated routes; used only by the local server for dev tools. */
   extend?: (app: Hono<Env>) => void;
+  /** Kill switch: when it returns true, every route answers 503 (FM-13). */
+  isPaused?: () => Promise<boolean>;
 }
 
-export function createApp({ repo, verifier, now = () => new Date(), extend }: AppDeps) {
+export function createApp({ repo, verifier, now = () => new Date(), extend, isPaused }: AppDeps) {
   const app = new Hono<Env>().basePath("/v1");
 
   app.use("*", async (c, next) => {
@@ -52,6 +54,18 @@ export function createApp({ repo, verifier, now = () => new Date(), extend }: Ap
       "content-type": "application/problem+json",
     }),
   );
+
+  // Runs before auth and before any database call, so a paused API costs almost nothing.
+  if (isPaused) {
+    app.use("*", async (c, next) => {
+      if (!(await isPaused())) return next();
+      return c.json(
+        { type: "about:blank#paused", title: "POP HQ is paused. Please try again later.", status: 503 },
+        503,
+        { "content-type": "application/problem+json", "retry-after": "3600" },
+      );
+    });
+  }
 
   app.get("/health", (c) => c.json({ status: "ok" }));
 

@@ -4,14 +4,17 @@ import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
+import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction, OutputFormat } from "aws-cdk-lib/aws-lambda-nodejs";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
+import * as cr from "aws-cdk-lib/custom-resources";
 import type { Construct } from "constructs";
 import { S3_GRANT_ACTIONS, acknowledge, acknowledgeEach } from "./nag.js";
-import { API_ENTRY, LOCK_FILE, REPO_ROOT } from "./config.js";
+import { ALERT_EMAIL_PARAMETER, API_ENTRY, LOCK_FILE, REPO_ROOT } from "./config.js";
+import { CostGuard } from "./cost-guard.js";
 
 export interface AppStackProps extends StackProps {
   /** Built web app (web/dist). */
@@ -24,6 +27,7 @@ export interface AppStackProps extends StackProps {
  */
 export class AppStack extends Stack {
   readonly url: CfnOutput;
+  readonly directApiUrl: CfnOutput;
 
   constructor(scope: Construct, id: string, props: AppStackProps) {
     super(scope, id, props);
@@ -60,8 +64,39 @@ export class AppStack extends Stack {
     });
     users.addDomain("Domain", { cognitoDomain: { domainPrefix: `pophq-${this.account}` } });
 
-    const api = this.api(table.tableName, users.userPoolProviderUrl);
+    const guard = new CostGuard(this, "CostGuard", {
+      monthlyBudgetUsd: 10,
+      tripAtUsd: 15,
+      alertEmailParameter: ALERT_EMAIL_PARAMETER,
+    });
+
+    const api = this.api(table.tableName, users.userPoolProviderUrl, guard.killSwitch.parameterName);
     table.grantReadWriteData(api.handler);
+    guard.killSwitch.grantRead(api.handler);
+
+    // Only CloudFront knows the API key, so calls to the execute-api URL get 403 before any
+    // Lambda runs. The usage-plan quota is a hard ceiling on API cost, even under a flood.
+    const cloudFrontKey = api.rest.addApiKey("CloudFrontKey", { description: "Sent by CloudFront only" });
+    const plan = api.rest.addUsagePlan("Plan", {
+      throttle: { rateLimit: 20, burstLimit: 40 },
+      quota: { limit: 20_000, period: apigw.Period.DAY },
+    });
+    plan.addApiKey(cloudFrontKey);
+    plan.addApiStage({ stage: api.rest.deploymentStage });
+    // The generated key value is read at deploy time; it never appears in Git or the template.
+    const cloudFrontKeyValue = new cr.AwsCustomResource(this, "CloudFrontKeyValue", {
+      onUpdate: {
+        service: "APIGateway",
+        action: "getApiKey",
+        parameters: { apiKey: cloudFrontKey.keyId, includeValue: true },
+        physicalResourceId: cr.PhysicalResourceId.of(cloudFrontKey.keyId),
+        logging: cr.Logging.withDataHidden(),
+      },
+      policy: cr.AwsCustomResourcePolicy.fromStatements([
+        new iam.PolicyStatement({ actions: ["apigateway:GET"], resources: [cloudFrontKey.keyArn] }),
+      ]),
+      installLatestAwsSdk: false,
+    }).getResponseField("value");
 
     const bucket = new s3.Bucket(this, "Web", {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
@@ -91,7 +126,7 @@ export class AppStack extends Stack {
       },
       additionalBehaviors: {
         "/v1/*": {
-          origin: new origins.RestApiOrigin(api.rest),
+          origin: new origins.RestApiOrigin(api.rest, { customHeaders: { "x-api-key": cloudFrontKeyValue } }),
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
           allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
           cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
@@ -141,13 +176,14 @@ export class AppStack extends Stack {
     shell.node.addDependency(assets);
 
     this.url = new CfnOutput(this, "Url", { value: origin });
+    this.directApiUrl = new CfnOutput(this, "DirectApiUrl", { value: api.rest.url });
     new CfnOutput(this, "UserPoolId", { value: users.userPoolId });
     new CfnOutput(this, "TableName", { value: table.tableName });
 
     this.suppressions(table, bucket);
   }
 
-  private api(tableName: string, issuer: string): { handler: NodejsFunction; rest: apigw.RestApi } {
+  private api(tableName: string, issuer: string, killSwitch: string): { handler: NodejsFunction; rest: apigw.RestApi } {
     const handler = new NodejsFunction(this, "Api", {
       entry: API_ENTRY,
       projectRoot: REPO_ROOT,
@@ -164,6 +200,7 @@ export class AppStack extends Stack {
       environment: {
         TABLE_NAME: tableName,
         OIDC_ISSUER: issuer,
+        KILL_SWITCH_PARAMETER: killSwitch,
         NODE_OPTIONS: "--enable-source-maps",
       },
       bundling: {
@@ -181,6 +218,7 @@ export class AppStack extends Stack {
     const rest = new apigw.LambdaRestApi(this, "Rest", {
       handler,
       proxy: true,
+      defaultMethodOptions: { apiKeyRequired: true },
       endpointConfiguration: { types: [apigw.EndpointType.REGIONAL] },
       cloudWatchRole: true,
       cloudWatchRoleRemovalPolicy: RemovalPolicy.RETAIN,

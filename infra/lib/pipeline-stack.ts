@@ -64,13 +64,15 @@ export class PipelineStack extends Stack {
     pipeline.addStage(prod, {
       post: [
         new pipelines.ShellStep("SmokeTest", {
-          envFromCfnOutputs: { URL: prod.url },
+          envFromCfnOutputs: { URL: prod.url, DIRECT_API: prod.directApiUrl },
           commands: [
             'curl -fsS --retry 5 --retry-all-errors "$URL/v1/health"',
             'curl -fsS -o /dev/null "$URL/"',
             'curl -fsS "$URL/config.json"',
             // Protected routes must refuse anonymous calls.
             'test "$(curl -s -o /dev/null -w "%{http_code}" "$URL/v1/me")" = "401"',
+            // API Gateway is reachable only through CloudFront (API key added by CloudFront).
+            'test "$(curl -s -o /dev/null -w "%{http_code}" "${DIRECT_API}v1/health")" = "403"',
           ],
         }),
       ],

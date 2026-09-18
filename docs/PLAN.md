@@ -32,14 +32,14 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 - [x] P1.9 Post-deploy smoke test in the pipeline: `/v1/health`, the web page, `config.json`, and `/v1/me` returns 401 without a token
 - [ ] P1.10 PR checks in GitHub Actions: `cdk synth` + cdk-nag (done); `cdk diff` against prod via a read-only OIDC role (no AWS keys in GitHub)
 - [ ] P1.11 Repo settings after the first push: `main` ruleset (PR, required checks, no force-push), secret scanning + push protection, CodeQL, dependency review, private vulnerability reporting, Actions read-only + SHA pinning, fork approval for all outside contributors
-- [ ] P1.12 Cost guard: AWS Budget ($10 alerts), kill switch as an SSM flag checked by the API (FM-13), budget excludes domain registration (FM-27)
+- [x] P1.12 Cost guard: AWS Budget ($10 alerts), kill switch as an SSM flag checked by the API and tripped at $15 (FM-13); API key only CloudFront sends + usage plan quota of 20,000 requests/day as a hard cost ceiling. Excluding domain registration from the budget (FM-27) moves to P2.1
 - [ ] P1.13 Lambda code signing and CodeDeploy canary (10% for 5 min, alarms roll back) with a pre-traffic integration hook (PLT-02, PLT-07)
 
 ## Milestone 2: Identity and edge in production
 
-- [ ] P2.1 Buy `pophq.fyi` in Route 53; hosted zone; ACM certificate (us-east-1)
-- [ ] P2.2 CloudFront on the flat-rate Free plan with WAF (5 rules), security headers policy (CSP, HSTS, frame-ancestors), origin-verify header (FM-31)
-- [ ] P2.3 Cognito user pool (Essentials): email one-time code, passkeys, self sign-up off, SMS off, deletion protection; managed login on the custom domain
+- [ ] P2.1 Buy `pophq.fyi` in Route 53; hosted zone; ACM certificate (us-east-1); exclude domain registration from the budget (FM-27)
+- [ ] P2.2 CloudFront on the flat-rate Free plan with WAF (5 rules), security headers policy (CSP, HSTS, frame-ancestors); origin verification (FM-31) is done via the CloudFront-only API key, and moves into the Lambda authorizer with P2.5
+- [ ] P2.3 Cognito user pool (Essentials): email one-time code, passkeys, self sign-up off, SMS off, deletion protection; managed login on the custom domain; limit the web client to the auth flows the hosted login needs
 - [ ] P2.4 SES: domain verification, DKIM/SPF/DMARC, production access (FM-32)
 - [ ] P2.5 Lambda authorizer: Cognito JWT (check `token_use` and `client_id`; the v0 API only checks issuer and signature), context with principal/groups/linked accounts, 60 s cache keyed on `Authorization` + `X-Account-Id` (FM-03, FM-04, FM-07); usage plans (people 10k/day)
 - [ ] P2.6 Officer MFA (TOTP), groups `player` / `officer` / `owner` (ID-06, ID-07)

@@ -124,6 +124,42 @@ describe("AppStack", () => {
       },
     });
   });
+  it("requires the CloudFront API key on every API method and caps requests per day", () => {
+    const methods = Object.values(template.findResources("AWS::ApiGateway::Method"));
+    expect(methods.length).toBeGreaterThan(0);
+    for (const m of methods) expect(m.Properties?.ApiKeyRequired).toBe(true);
+    template.hasResourceProperties("AWS::ApiGateway::UsagePlan", {
+      Quota: { Limit: 20_000, Period: "DAY" },
+      Throttle: { RateLimit: 20, BurstLimit: 40 },
+    });
+    template.resourceCountIs("AWS::ApiGateway::UsagePlanKey", 1);
+    const dist = JSON.stringify(template.findResources("AWS::CloudFront::Distribution"));
+    expect(dist).toContain('"HeaderName":"x-api-key"');
+  });
+
+  it("alerts at the $10 budget and trips the kill switch at $15", () => {
+    template.hasResourceProperties("AWS::SSM::Parameter", { Name: "/pophq/kill-switch", Value: "off" });
+    template.hasResourceProperties("AWS::Budgets::Budget", {
+      Budget: Match.objectLike({ BudgetLimit: { Amount: 10, Unit: "USD" }, TimeUnit: "MONTHLY", BudgetType: "COST" }),
+      NotificationsWithSubscribers: Match.arrayWith([
+        Match.objectLike({ Notification: Match.objectLike({ NotificationType: "FORECASTED", Threshold: 100 }) }),
+        Match.objectLike({
+          Notification: Match.objectLike({ NotificationType: "ACTUAL", Threshold: 15, ThresholdType: "ABSOLUTE_VALUE" }),
+        }),
+      ]),
+    });
+    template.hasResourceProperties("AWS::Lambda::Function", {
+      Environment: { Variables: Match.objectLike({ KILL_SWITCH_PARAMETER: Match.anyValue(), OIDC_ISSUER: Match.anyValue() }) },
+    });
+  });
+
+  it("keeps the alert email out of the template", () => {
+    const json = JSON.stringify(template.toJSON());
+    expect(json).not.toMatch(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/);
+    expect(Object.values(template.toJSON().Parameters ?? {})).toContainEqual(
+      expect.objectContaining({ Type: "AWS::SSM::Parameter::Value<String>", Default: "/pophq/alerts/email" }),
+    );
+  });
 });
 
 describe("PipelineStack", () => {
@@ -159,6 +195,7 @@ describe("PipelineStack", () => {
       expect(buildSpecs).toContain(cmd);
     }
     expect(buildSpecs).toContain("/v1/health");
+    expect(buildSpecs).toMatch(/DIRECT_API\}v1\/health.*403/);
   });
 
   it("deploys the Prod stage with self-mutation", () => {
