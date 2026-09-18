@@ -67,6 +67,8 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
+      # TypeScript 7 readiness: the code must type-check with 7 while lint (typescript-eslint) still needs 6.
+      - run: npm run typecheck:ts7
       - run: npm run test:unit
       - name: Integration tests (DynamoDB Local)
         run: npm run test:integration

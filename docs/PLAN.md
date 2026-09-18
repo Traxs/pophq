@@ -27,7 +27,7 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 - [ ] P1.4 CDK bootstrap in eu-central-1 and us-east-1
 - [ ] P1.5 GitHub connection: CodeConnections to `Traxs/pophq`, approved once in the console, limited to this repo
 - [x] P1.6 Pipeline stack: CDK Pipelines, trigger on push to `main`, synth step runs `npm ci`, lint, unit tests, `cdk synth`; self-updating
-- [x] P1.7 App stack v0: DynamoDB table (PITR, Streams, deletion protection, RETAIN), API Lambda (Node 22, arm64, Hono via `lambda.ts`), API Gateway REST, S3 web bucket + CloudFront with OAC, `/v1/*` routed to the API; default `cloudfront.net` domain until `pophq.fyi` is bought; minimal invite-only Cognito user pool so the API has a token issuer (hardened in Milestone 2)
+- [x] P1.7 App stack v0: DynamoDB table (PITR, Streams, deletion protection, RETAIN), API Lambda (Node 24, arm64, Hono via `lambda.ts`), API Gateway REST, S3 web bucket + CloudFront with OAC, `/v1/*` routed to the API; default `cloudfront.net` domain until `pophq.fyi` is bought; minimal invite-only Cognito user pool so the API has a token issuer (hardened in Milestone 2)
 - [x] P1.8 Web deploy: build `web/`, upload to S3, CloudFront invalidation; `index.html` and `config.json` revalidated, hashed assets cached for a year and never pruned (FM-15); sign-in settings from runtime `/config.json`
 - [x] P1.9 Post-deploy smoke test in the pipeline: `/v1/health`, the web page, `config.json`, and `/v1/me` returns 401 without a token
 - [ ] P1.10 PR checks in GitHub Actions: `cdk synth` + cdk-nag (done); `cdk diff` against prod via a read-only OIDC role (no AWS keys in GitHub)
@@ -124,3 +124,4 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 - [ ] Spec: local stack uses DynamoDB Local (not LocalStack); SQS/S3 emulators when the outbox and evidence arrive
 - [ ] Spec: report sort keys are `REPORT#<ulid>`; ordering by effective date happens in the domain
 - [ ] Web: move to an OpenAPI-generated API client once P9.4 exists
+- [ ] TypeScript 7: switch once typescript-eslint supports it (it allows `<6.1` today). CI already type-checks with 7 (`npm run typecheck:ts7`), so the switch is a version bump

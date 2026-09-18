@@ -5,7 +5,7 @@
   "license": "MIT",
   "type": "module",
   "engines": {
-    "node": ">=22.12 <23"
+    "node": ">=24.11 <25"
   },
   "workspaces": [
     "api",
@@ -20,6 +20,7 @@
     "dev": "node scripts/dev.mjs",
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
+    "typecheck:ts7": "for p in api web infra; do npm exec --yes --package=typescript@7.0.2 -- tsc --noEmit -p $p || exit 1; done",
     "test:unit": "npm run test:unit --workspaces --if-present",
     "test:integration": "npm run test:integration --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
@@ -30,8 +31,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/node": "^22.19.0",
-    "eslint": "^10.10.0",
+    "@types/node": "^24.13.5",
+    "eslint": "^10.11.0",
     "globals": "^17.12.0",
     "tsx": "^4.23.13",
     "typescript": "~6.0.3",

@@ -3,8 +3,8 @@ import * as codebuild from "aws-cdk-lib/aws-codebuild";
 import { PipelineType } from "aws-cdk-lib/aws-codepipeline";
 import * as codestarconnections from "aws-cdk-lib/aws-codestarconnections";
 import * as pipelines from "aws-cdk-lib/pipelines";
-import { NagSuppressions } from "cdk-nag";
 import type { Construct } from "constructs";
+import { S3_GRANT_ACTIONS, acknowledge, acknowledgeEach } from "./nag.js";
 import { AppStage } from "./app-stage.js";
 import { REPO } from "./config.js";
 
@@ -38,11 +38,12 @@ export class PipelineStack extends Stack {
       publishAssetsInParallel: false,
       codeBuildDefaults: {
         buildEnvironment: {
-          buildImage: codebuild.LinuxBuildImage.STANDARD_7_0,
+          // Amazon Linux 2023 image; Ubuntu standard:7.0 has no Node 24.
+          buildImage: codebuild.LinuxBuildImage.AMAZON_LINUX_2_5,
           computeType: codebuild.ComputeType.SMALL,
         },
         partialBuildSpec: codebuild.BuildSpec.fromObject({
-          phases: { install: { "runtime-versions": { nodejs: 22 } } },
+          phases: { install: { "runtime-versions": { nodejs: 24 } } },
         }),
       },
       synth: new pipelines.ShellStep("Synth", {
@@ -76,10 +77,33 @@ export class PipelineStack extends Stack {
     });
 
     pipeline.buildPipeline();
-    NagSuppressions.addStackSuppressions(this, [
-      { id: "AwsSolutions-IAM5", reason: "CDK Pipelines roles: wildcards are scoped to this pipeline's artifacts and bootstrap roles." },
-      { id: "AwsSolutions-S1", reason: "Pipeline artifact bucket; access logs add cost without value here." },
-      { id: "AwsSolutions-CB4", reason: "Build projects use the AWS managed key for artifacts; no customer KMS key (cost)." },
-    ]);
+
+    const { account, region } = this;
+    const projects = ["PipelineBuildSynthCdkBuildProject6BEFA8E6", "PipelineProdSmokeTestEE2CAE0A", "PipelineUpdatePipelineSelfMutationDAA41400"];
+    acknowledgeEach(
+      this,
+      "AwsSolutions-IAM5",
+      [
+        ...S3_GRANT_ACTIONS,
+        "Resource::<PipelineArtifactsBucketAEA9A052.Arn>/*",
+        ...projects.flatMap((p) => [
+          `Resource::arn:aws:logs:${region}:${account}:log-group:/aws/codebuild/<${p}>:*`,
+          `Resource::arn:aws:codebuild:${region}:${account}:report-group/<${p}>-*`,
+        ]),
+        `Resource::arn:aws:logs:${region}:${account}:log-group:/aws/codebuild/*`,
+        `Resource::arn:aws:codebuild:${region}:${account}:report-group/*`,
+      ],
+      "CDK Pipelines roles: artifact bucket objects and each build project's own logs and reports.",
+    );
+    acknowledgeEach(
+      this,
+      "AwsSolutions-IAM5",
+      [`Resource::arn:*:iam::${account}:role/*`, "Resource::*"],
+      "CDK Pipelines self-mutation and asset publishing: assume only the CDK bootstrap roles (tag condition) and describe stacks.",
+    );
+    acknowledge(this, {
+      "AwsSolutions-S1": "Pipeline artifact bucket; access logs add cost without value here.",
+      "AwsSolutions-CB4": "Build projects use the AWS managed key for artifacts; no customer KMS key (cost)."
+    });
   }
 }

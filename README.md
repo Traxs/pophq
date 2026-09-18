@@ -18,7 +18,7 @@ Alliance command center for the POP alliance in Whiteout Survival (State 2612): 
 
 ## Local development
 
-Requirements: Node 22 (`nvm use`), Docker, Python with `pre-commit`, and `gitleaks`. No AWS credentials are needed.
+Requirements: Node 24 (`nvm use`), Docker, Python with `pre-commit`, and `gitleaks`. No AWS credentials are needed.
 
 ```bash
 npm run setup      # dependencies + git hooks

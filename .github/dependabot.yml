@@ -4,8 +4,23 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: docker-compose
+    directory: /dev
+    schedule:
+      interval: weekly
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    # One PR per week for all minor and patch updates; majors stay separate.
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      # Types follow the Node runtime (Lambda nodejs24.x, CodeBuild, .nvmrc). Raise all of them together.
+      - dependency-name: "@types/node"
+        update-types: [version-update:semver-major]

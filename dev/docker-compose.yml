@@ -38,7 +38,7 @@ services:
 
   discord-sink:
     # Captures Discord webhook posts so messages can be inspected at http://localhost:8082/messages
-    image: node:22-alpine
+    image: node:24-alpine
     command: ["node", "/app/discord-sink.mjs"]
     volumes:
       - ./discord-sink.mjs:/app/discord-sink.mjs:ro

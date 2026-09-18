@@ -1,8 +1,9 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { App, Aspects, Stack } from "aws-cdk-lib";
-import { Annotations, Match, Template } from "aws-cdk-lib/assertions";
+import { App, Validations } from "aws-cdk-lib";
+import * as iam from "aws-cdk-lib/aws-iam";
+import { Match, Template } from "aws-cdk-lib/assertions";
 import { AwsSolutionsChecks } from "cdk-nag";
 import { beforeAll, describe, expect, it } from "vitest";
 import { AppStack } from "../lib/app-stack.js";
@@ -18,23 +19,36 @@ function fakeWebDist(): string {
   return dir;
 }
 
-const nagErrors = (stack: Stack) =>
-  Annotations.fromStack(stack).findError("*", Match.stringLikeRegexp("AwsSolutions-.*"));
+// Same feature flags as `cdk synth` (cdk.json), so tests check what actually deploys.
+const { context } = JSON.parse(readFileSync(new URL("../cdk.json", import.meta.url), "utf8")) as {
+  context: Record<string, unknown>;
+};
+const newApp = () => new App({ context });
+
+/** An app that runs cdk-nag like bin/pophq.ts: any unacknowledged finding makes synth throw. */
+function nagApp(): App {
+  const app = newApp();
+  Validations.of(app).addPlugins(new AwsSolutionsChecks(app));
+  return app;
+}
 
 describe("AppStack", () => {
-  let stack: AppStack;
   let template: Template;
 
   beforeAll(() => {
-    const app = new App();
-    stack = new AppStack(app, "Test", { env: PROD, webAssetPath: fakeWebDist() });
-    Aspects.of(app).add(new AwsSolutionsChecks());
-    app.synth();
+    const app = nagApp();
+    const stack = new AppStack(app, "Test", { env: PROD, webAssetPath: fakeWebDist() });
+    app.synth(); // throws on cdk-nag findings
     template = Template.fromStack(stack);
   });
 
-  it("passes cdk-nag AwsSolutions checks", () => {
-    expect(nagErrors(stack)).toEqual([]);
+  it("fails synth on a new, unacknowledged cdk-nag finding", () => {
+    const app = nagApp();
+    const stack = new AppStack(app, "Test", { env: PROD, webAssetPath: fakeWebDist() });
+    new iam.Role(stack, "TooBroad", { assumedBy: new iam.ServicePrincipal("lambda.amazonaws.com") }).addToPolicy(
+      new iam.PolicyStatement({ actions: ["dynamodb:*"], resources: ["*"] }),
+    );
+    expect(() => app.synth()).toThrow();
   });
 
   it("keeps the table schema in sync with the local table", () => {
@@ -62,9 +76,9 @@ describe("AppStack", () => {
     template.hasResource("AWS::Cognito::UserPool", { DeletionPolicy: "Retain" });
   });
 
-  it("runs the API on Node 22 arm64 without secrets in its environment", () => {
+  it("runs the API on Node 24 arm64 without secrets in its environment", () => {
     template.hasResourceProperties("AWS::Lambda::Function", {
-      Runtime: "nodejs22.x",
+      Runtime: "nodejs24.x",
       Architectures: ["arm64"],
       Environment: {
         Variables: Match.objectLike({ TABLE_NAME: Match.anyValue(), OIDC_ISSUER: Match.anyValue() }),
@@ -113,19 +127,13 @@ describe("AppStack", () => {
 });
 
 describe("PipelineStack", () => {
-  let stack: PipelineStack;
   let template: Template;
 
   beforeAll(() => {
-    const app = new App();
-    stack = new PipelineStack(app, "Pipeline", { env: PROD, webAssetPath: fakeWebDist() });
-    Aspects.of(app).add(new AwsSolutionsChecks());
-    app.synth();
+    const app = nagApp();
+    const stack = new PipelineStack(app, "PopHqPipeline", { env: PROD, webAssetPath: fakeWebDist() });
+    app.synth(); // throws on cdk-nag findings, including inside the Prod stage
     template = Template.fromStack(stack);
-  });
-
-  it("passes cdk-nag AwsSolutions checks", () => {
-    expect(nagErrors(stack)).toEqual([]);
   });
 
   it("builds from the GitHub main branch through a connection", () => {
@@ -162,10 +170,12 @@ describe("PipelineStack", () => {
 });
 
 describe("AppStage", () => {
-  it("runs cdk-nag on the app stack inside a stage", () => {
-    const stage = new AppStage(new App(), "Prod", { env: PROD, webAssetPath: fakeWebDist() });
-    stage.synth();
-    expect(nagErrors(stage.app)).toEqual([]);
-    expect(Annotations.fromStack(stage.app).findWarning("*", Match.stringLikeRegexp("AwsSolutions-.*"))).toEqual([]);
+  it("runs cdk-nag inside the stage", () => {
+    const app = newApp(); // no app-level plugin: the stage's own checks must catch it
+    const stage = new AppStage(app, "Prod", { env: PROD, webAssetPath: fakeWebDist() });
+    new iam.Role(stage.app, "TooBroad", { assumedBy: new iam.ServicePrincipal("lambda.amazonaws.com") }).addToPolicy(
+      new iam.PolicyStatement({ actions: ["s3:*"], resources: ["*"] }),
+    );
+    expect(() => app.synth()).toThrow();
   });
 });

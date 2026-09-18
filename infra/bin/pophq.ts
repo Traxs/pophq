@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { App, Aspects } from "aws-cdk-lib";
+import { App, Validations } from "aws-cdk-lib";
 import { AwsSolutionsChecks } from "cdk-nag";
 import { PROD, WEB_DIST } from "../lib/config.js";
 import { PipelineStack } from "../lib/pipeline-stack.js";
@@ -10,5 +10,5 @@ if (!existsSync(WEB_DIST)) {
 
 const app = new App();
 new PipelineStack(app, "PopHqPipeline", { env: PROD, webAssetPath: WEB_DIST });
-Aspects.of(app).add(new AwsSolutionsChecks());
+Validations.of(app).addPlugins(new AwsSolutionsChecks(app));
 app.synth();

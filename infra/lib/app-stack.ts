@@ -1,4 +1,4 @@
-import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from "aws-cdk-lib";
+import { CfnOutput, Duration, RemovalPolicy, Stack, type CfnElement, type StackProps } from "aws-cdk-lib";
 import * as apigw from "aws-cdk-lib/aws-apigateway";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
@@ -9,8 +9,8 @@ import { NodejsFunction, OutputFormat } from "aws-cdk-lib/aws-lambda-nodejs";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
-import { NagSuppressions } from "cdk-nag";
 import type { Construct } from "constructs";
+import { S3_GRANT_ACTIONS, acknowledge, acknowledgeEach } from "./nag.js";
 import { API_ENTRY, LOCK_FILE, REPO_ROOT } from "./config.js";
 
 export interface AppStackProps extends StackProps {
@@ -144,7 +144,7 @@ export class AppStack extends Stack {
     new CfnOutput(this, "UserPoolId", { value: users.userPoolId });
     new CfnOutput(this, "TableName", { value: table.tableName });
 
-    this.suppressions();
+    this.suppressions(table, bucket);
   }
 
   private api(tableName: string, issuer: string): { handler: NodejsFunction; rest: apigw.RestApi } {
@@ -152,7 +152,7 @@ export class AppStack extends Stack {
       entry: API_ENTRY,
       projectRoot: REPO_ROOT,
       depsLockFilePath: LOCK_FILE,
-      runtime: lambda.Runtime.NODEJS_22_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       architecture: lambda.Architecture.ARM_64,
       memorySize: 512,
       timeout: Duration.seconds(10),
@@ -168,7 +168,7 @@ export class AppStack extends Stack {
       },
       bundling: {
         format: OutputFormat.ESM,
-        target: "node22",
+        target: "node24",
         minify: true,
         sourceMap: true,
         mainFields: ["module", "main"],
@@ -201,29 +201,51 @@ export class AppStack extends Stack {
     return { handler, rest };
   }
 
-  private suppressions(): void {
-    NagSuppressions.addStackSuppressions(this, [
-      { id: "AwsSolutions-IAM4", reason: "AWS managed policies for Lambda basic execution and the API Gateway logging role." },
-      {
-        id: "AwsSolutions-IAM5",
-        reason: "Wildcards are CDK grants scoped to this stack's table indexes, asset buckets and the deployment helper.",
-      },
-      { id: "AwsSolutions-L1", reason: "The CDK BucketDeployment helper pins its own runtime; the API uses Node 22." },
-      { id: "AwsSolutions-S1", reason: "Web bucket holds public build output only; CloudFront logging arrives with Milestone 2." },
-      { id: "AwsSolutions-S10", reason: "Only CloudFront reads the bucket (OAC); bucket policy enforces TLS." },
-      { id: "AwsSolutions-CFR1", reason: "The alliance is international; no geo restriction." },
-      { id: "AwsSolutions-CFR2", reason: "WAF comes with the CloudFront flat-rate plan in Milestone 2 (P2.2)." },
-      { id: "AwsSolutions-CFR3", reason: "Access logging comes with Milestone 2." },
-      { id: "AwsSolutions-CFR4", reason: "Default CloudFront certificate until pophq.fyi is bought (P2.1)." },
-      { id: "AwsSolutions-CFR7", reason: "The S3 origin uses origin access control (OAC)." },
-      { id: "AwsSolutions-APIG2", reason: "The API validates every request body with zod." },
-      { id: "AwsSolutions-APIG3", reason: "WAF sits on CloudFront in Milestone 2 (P2.2)." },
-      { id: "AwsSolutions-APIG4", reason: "The API checks the Cognito token itself; the Lambda authorizer comes in P2.5." },
-      { id: "AwsSolutions-COG4", reason: "The API checks the Cognito token itself; the Lambda authorizer comes in P2.5." },
-      { id: "AwsSolutions-COG1", reason: "Length 14 without composition rules (NIST 800-63B); sign-in moves to email codes in P2.3." },
-      { id: "AwsSolutions-COG2", reason: "MFA is required for officers in P2.6; players use email codes." },
-      { id: "AwsSolutions-COG3", reason: "Threat protection needs the Plus plan; not justified for 100 users." },
-      { id: "AwsSolutions-COG8", reason: "Threat protection needs the Plus plan; not justified for 100 users." },
-    ]);
+  private suppressions(table: dynamodb.TableV2, bucket: s3.Bucket): void {
+    const arn = (c: Construct) => `<${this.getLogicalId(c.node.defaultChild as CfnElement)}.Arn>`;
+    acknowledgeEach(
+      this,
+      "AwsSolutions-IAM4",
+      [
+        "Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+        "Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs",
+      ],
+      "AWS managed policies for Lambda logging and the API Gateway logging role.",
+    );
+    acknowledgeEach(
+      this,
+      "AwsSolutions-IAM5",
+      [`Resource::${arn(table)}/index/*`],
+      "The API queries this table's own indexes (CDK grantReadWriteData).",
+    );
+    acknowledgeEach(
+      this,
+      "AwsSolutions-IAM5",
+      [
+        ...S3_GRANT_ACTIONS,
+        "Resource::*",
+        `Resource::${arn(bucket)}/*`,
+        `Resource::arn:aws:s3:::cdk-hnb659fds-assets-${this.account}-${this.region}/*`,
+      ],
+      "CDK BucketDeployment helper: copies the web build from the CDK asset bucket into the web bucket.",
+    );
+    acknowledge(this, {
+      "AwsSolutions-L1": "The CDK BucketDeployment helper pins its own runtime; the API uses Node 24.",
+      "AwsSolutions-S1": "Web bucket holds public build output only; CloudFront logging arrives with Milestone 2.",
+      "AwsSolutions-S10": "Only CloudFront reads the bucket (OAC); bucket policy enforces TLS.",
+      "AwsSolutions-CFR1": "The alliance is international; no geo restriction.",
+      "AwsSolutions-CFR2": "WAF comes with the CloudFront flat-rate plan in Milestone 2 (P2.2).",
+      "AwsSolutions-CFR3": "Access logging comes with Milestone 2.",
+      "AwsSolutions-CFR4": "Default CloudFront certificate until pophq.fyi is bought (P2.1).",
+      "AwsSolutions-CFR7": "The S3 origin uses origin access control (OAC).",
+      "AwsSolutions-APIG2": "The API validates every request body with zod.",
+      "AwsSolutions-APIG3": "WAF sits on CloudFront in Milestone 2 (P2.2).",
+      "AwsSolutions-APIG4": "The API checks the Cognito token itself; the Lambda authorizer comes in P2.5.",
+      "AwsSolutions-COG4": "The API checks the Cognito token itself; the Lambda authorizer comes in P2.5.",
+      "AwsSolutions-COG1": "Length 14 without composition rules (NIST 800-63B); sign-in moves to email codes in P2.3.",
+      "AwsSolutions-COG2": "MFA is required for officers in P2.6; players use email codes.",
+      "AwsSolutions-COG3": "Threat protection needs the Plus plan; not justified for 100 users.",
+      "AwsSolutions-COG8": "Threat protection needs the Plus plan; not justified for 100 users."
+    });
   }
 }
