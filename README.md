@@ -64,7 +64,7 @@ npx -w infra cdk bootstrap aws://529088263366/eu-central-1 aws://529088263366/us
 npm run build && npx -w infra cdk deploy PopHqPipeline
 ```
 
-Then approve the pending `pophq-github` connection in the AWS console (Developer Tools → Connections), limited to the `pophq` repository, and release the pipeline once.
+Install the **AWS Connector for GitHub** app on the **Traxs organization** (only the `pophq` repository). Then approve the pending `pophq-github-org` connection in the AWS console (Developer Tools → Connections) with that org installation, and release the pipeline once. An installation on a personal account can read the repo but sends no push events, so pushes would not start the pipeline.
 
 Before the first deploy of the app stack, store the budget alert email in SSM (kept out of this public repository), then confirm the two SNS subscription emails AWS sends:
 

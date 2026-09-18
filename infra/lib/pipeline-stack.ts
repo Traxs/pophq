@@ -20,8 +20,10 @@ export class PipelineStack extends Stack {
   constructor(scope: Construct, id: string, props: PipelineStackProps) {
     super(scope, id, props);
 
-    const connection = new codestarconnections.CfnConnection(this, "GitHub", {
-      connectionName: "pophq-github",
+    // Approved against the GitHub App installation on the Traxs organization (which owns the
+    // repo). An installation on a personal account can read the repo but sends no push events.
+    const connection = new codestarconnections.CfnConnection(this, "GitHubOrg", {
+      connectionName: "pophq-github-org",
       providerType: "GitHub",
     });
 
