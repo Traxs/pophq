@@ -11,6 +11,10 @@ updates:
     directory: /dev
     schedule:
       interval: weekly
+    ignore:
+      # The dev sink runs the same Node major as Lambda (24); raise it together with the runtime.
+      - dependency-name: node
+        update-types: [version-update:semver-major]
   - package-ecosystem: npm
     directory: /
     schedule:
@@ -23,4 +27,8 @@ updates:
     ignore:
       # Types follow the Node runtime (Lambda nodejs24.x, CodeBuild, .nvmrc). Raise all of them together.
       - dependency-name: "@types/node"
+        update-types: [version-update:semver-major]
+      # typescript-eslint doesn't support TypeScript 7 yet. CI already type-checks with 7
+      # (npm run typecheck:ts7); docs/PLAN.md tracks the switch.
+      - dependency-name: typescript
         update-types: [version-update:semver-major]
