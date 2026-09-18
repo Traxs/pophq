@@ -4,7 +4,7 @@ The order of work, from first commit to launch. Each milestone ends with somethi
 
 **Rules for every task:** unit tests with the change, integration tests for anything touching data or auth, runs locally first (`npm run dev:up`), no secrets in Git.
 
-## Milestone 0: First slice (done, not yet pushed)
+## Milestone 0: First slice (done)
 
 - [x] Repo scaffold: workspaces, gitleaks pre-commit hook + CI, Dependabot, CODEOWNERS, PR template, SECURITY.md
 - [x] Local stack: DynamoDB Local, mock sign-in (test personas), Discord sink; `dev:up`, `dev:reset`, `dev`
@@ -13,19 +13,19 @@ The order of work, from first commit to launch. Each milestone ends with somethi
 - [x] Race-condition tests: duplicate Player ID, double link, double correction, transferred account (FM-12)
 - [x] Web app: sign-in, account switcher, Home to-dos, Power page (trend, change, history, update sheet), officer Members table
 - [x] Dev tools (local only): add members, backfill history, report round, reset
-- [ ] **First commit and push to `main`**, then CI runs once
+- [x] **First commit and push to `main`**, then CI runs once
 
 ## Milestone 1: Deployment pipeline, GitHub push to AWS (in progress)
 
-Code is ready and tested locally (`[x]`); nothing is deployed yet. Remaining: first push, bootstrap, deploy the pipeline stack, approve the GitHub connection.
+Live: every push to `main` deploys through the pipeline to the default CloudFront URL, with a smoke test after each deploy.
 
 Goal: every merge to `main` deploys automatically to AWS account 529088263366 (eu-central-1), and the app answers on a CloudFront URL.
 
 - [ ] P1.1 Pre-build AWS check (half a day): CloudFront flat-rate plan in CDK, REST API Lambda authorizer with usage-plan keys, CodeDeploy canary + pre-traffic hook, Lambda code signing, Cognito Discord federation + pre sign-up trigger, current prices
 - [ ] P1.2 AWS account baseline (owner, in the console): root MFA, IAM Identity Center access, billing alerts, Cost Anomaly Detection, Lambda concurrency quota increase request (10 -> 1,000)
 - [x] P1.3 `infra/` CDK app (TypeScript): `PopHqPipeline` stack and a `Prod` stage with the `PopHq` app stack; cdk-nag (AwsSolutions) runs in the app and in the stage; stack tests. The `Cert` stack (us-east-1) arrives with the domain in P2.1
-- [ ] P1.4 CDK bootstrap in eu-central-1 and us-east-1
-- [ ] P1.5 GitHub connection: CodeConnections to `Traxs/pophq`, approved once in the console, limited to this repo
+- [x] P1.4 CDK bootstrap in eu-central-1 and us-east-1
+- [x] P1.5 GitHub connection: CodeConnections to `Traxs/pophq` through the AWS Connector app installed on the Traxs org (only this repo); a personal-account installation sends no push events
 - [x] P1.6 Pipeline stack: CDK Pipelines, trigger on push to `main`, synth step runs `npm ci`, lint, unit tests, `cdk synth`; self-updating
 - [x] P1.7 App stack v0: DynamoDB table (PITR, Streams, deletion protection, RETAIN), API Lambda (Node 24, arm64, Hono via `lambda.ts`), API Gateway REST, S3 web bucket + CloudFront with OAC, `/v1/*` routed to the API; default `cloudfront.net` domain until `pophq.fyi` is bought; minimal invite-only Cognito user pool so the API has a token issuer (hardened in Milestone 2)
 - [x] P1.8 Web deploy: build `web/`, upload to S3, CloudFront invalidation; `index.html` and `config.json` revalidated, hashed assets cached for a year and never pruned (FM-15); sign-in settings from runtime `/config.json`
