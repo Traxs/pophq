@@ -1,0 +1,178 @@
+// Fake demo data for local development only. Never imported by the Lambda entry point.
+import { ulid } from "ulid";
+import { parseNewAccount, type GameAccount } from "../domain/accounts.js";
+import { ConflictError } from "../domain/errors.js";
+import { parseReport } from "../domain/measurements.js";
+import type { Actor } from "../data/meta.js";
+import type { Repository } from "../data/repository.js";
+
+const DAY = 86_400_000;
+
+/** Seeded PRNG (mulberry32) so demo data is reproducible. */
+export function prng(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const NAMES = [
+  "Poppy", "Goatzilla", "IceQueen", "FrostByte", "Snowdrift", "Kilwa", "Blizzard", "Aurora",
+  "Glacier", "Polaris", "Tundra", "Permafrost", "Hailstorm", "Icicle", "Coldfront", "Whiteout",
+  "Avalanche", "Sleet", "Northwind", "Crystal", "Boreal", "Frostfire", "Snowcap", "Rime",
+  "Floe", "Chill", "Yeti", "Winterfell", "Snowfox", "Iceberg", "Driftwood", "Emberfrost",
+  "Stormcrow", "Wolfpack", "Nightfrost", "Silverpine", "Ironclad", "Coldsteel",
+];
+const EXTRA_PARTS = ["Frost", "Snow", "Ice", "Storm", "Polar", "Winter", "Hail", "Glacier", "North", "Rime"];
+const EXTRA_ENDS = ["wolf", "fang", "heart", "blade", "born", "rider", "guard", "wing", "claw", "shard"];
+const HELIOS = ["None", "Infantry", "Lancer", "Marksman", "Unknown", "Soon", "All"];
+
+/** Dev personas: login sub -> linked game accounts. The mock issuer maps client ids to these subs. */
+export const PERSONA_LINKS: Record<string, string[]> = {
+  player: ["100000001", "100000002"], // Poppy + her alt Goatzilla
+  officer: ["100000008"], // Aurora, R4
+  owner: ["100000010"], // Polaris, R5
+};
+
+const RANKS = ["R1", "R2", "R3", "R3", "R3", "R3", "R3", "R4"] as const;
+
+function values(power: number, rand: () => number, furnace: number) {
+  return [
+    { metric: "city_power", value: power },
+    { metric: "hero_power_total", value: Math.round(power * (0.25 + rand() * 0.1)) },
+    { metric: "furnace_level", value: `FC${Math.min(10, furnace)}` },
+    { metric: "helios", value: HELIOS[Math.floor(rand() * HELIOS.length)]! },
+  ];
+}
+
+async function addImported(
+  repo: Repository,
+  actor: Actor,
+  playerId: string,
+  at: Date,
+  vals: ReturnType<typeof values>,
+  now: Date,
+) {
+  const report = parseReport(
+    { effectiveAt: at.toISOString(), values: vals },
+    { playerId, reportId: ulid(at.getTime()), source: "import", now },
+  );
+  await repo.addReport(report, actor);
+}
+
+/** Runs tasks with bounded parallelism. */
+async function inBatches<T>(items: T[], size: number, fn: (item: T) => Promise<void>) {
+  for (let i = 0; i < items.length; i += size) await Promise.all(items.slice(i, i + size).map(fn));
+}
+
+/**
+ * Monthly history for one account going back `months` from `until`, growing towards `endPower`.
+ * Some months are skipped at random, like real players who forget to report.
+ */
+async function writeHistory(
+  repo: Repository,
+  actor: Actor,
+  playerId: string,
+  endPower: number,
+  until: Date,
+  months: number,
+  rand: () => number,
+  now: Date,
+) {
+  let power = endPower;
+  let furnace = 3 + Math.floor(rand() * 7);
+  for (let m = 0; m < months; m++) {
+    const at = new Date(until.getTime() - m * 30 * DAY - Math.floor(rand() * 5) * DAY);
+    if (m > 0 && rand() < 0.15) continue; // skipped month
+    await addImported(repo, actor, playerId, at, values(power, rand, furnace), now);
+    power = Math.round(power / (1 + 0.02 + rand() * 0.07));
+    if (rand() < 0.2) furnace = Math.max(1, furnace - 1);
+  }
+}
+
+/** The standard demo set: 38 POP members, 2 guests, persona links, 3 reports each. */
+export async function seedDemo(repo: Repository, now: Date, actor: Actor = { id: "seed", via: "seed" }) {
+  const rand = prng(2612);
+  const accounts: GameAccount[] = NAMES.map((name, i) =>
+    parseNewAccount({ playerId: String(100000001 + i), name, rank: i === 9 ? "R5" : RANKS[i % RANKS.length] }),
+  );
+  accounts.push(
+    parseNewAccount({ playerId: "200000001", name: "MirGuest", alliance: "MIR", status: "guest" }),
+    parseNewAccount({ playerId: "200000002", name: "GoldGuest", alliance: "24K", status: "guest" }),
+  );
+  for (const a of accounts) await repo.createAccount(a, actor);
+  for (const [sub, ids] of Object.entries(PERSONA_LINKS)) {
+    for (const id of ids) await repo.linkAccount(sub, id, actor);
+  }
+  const members = accounts.filter((a) => a.status === "active");
+  const powers = new Map(members.map((a) => [a.playerId, Math.round(20_000_000 + rand() * 80_000_000)]));
+  await inBatches(members, 8, async (a) => {
+    // Most members reported recently; about one in six is overdue.
+    const lastReport = new Date(now.getTime() - (rand() < 0.17 ? 35 + rand() * 30 : rand() * 20) * DAY);
+    await writeHistory(repo, actor, a.playerId, powers.get(a.playerId)!, lastReport, 3, prng(Number(a.playerId)), now);
+  });
+  return { accounts: accounts.length, members: members.length };
+}
+
+/** Adds `count` random new POP members, each with a few months of history. */
+export async function addRandomMembers(repo: Repository, count: number, now: Date, actor: Actor) {
+  const rand = prng(now.getTime() % 2 ** 31);
+  const created: GameAccount[] = [];
+  for (let i = 0; i < count; i++) {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const name = `${EXTRA_PARTS[Math.floor(rand() * EXTRA_PARTS.length)]}${EXTRA_ENDS[Math.floor(rand() * EXTRA_ENDS.length)]}${Math.floor(rand() * 90) + 10}`;
+      const account = parseNewAccount({
+        playerId: String(400000000 + Math.floor(rand() * 99_999_999)),
+        name,
+        rank: RANKS[Math.floor(rand() * RANKS.length)],
+      });
+      try {
+        await repo.createAccount(account, actor);
+        created.push(account);
+        break;
+      } catch (e) {
+        if (!(e instanceof ConflictError)) throw e;
+      }
+    }
+  }
+  await inBatches(created, 8, async (a) => {
+    const months = 2 + Math.floor(rand() * 6);
+    await writeHistory(repo, actor, a.playerId, Math.round(15_000_000 + rand() * 90_000_000), now, months, prng(Number(a.playerId)), now);
+  });
+  return created;
+}
+
+/** Adds `months` of older monthly reports before an account's earliest report. */
+export async function backfillHistory(repo: Repository, playerId: string, months: number, now: Date, actor: Actor) {
+  const reports = await repo.listReports(playerId);
+  const earliest = reports.toSorted((a, b) => a.effectiveAt.localeCompare(b.effectiveAt))[0];
+  const earliestPower = earliest?.values.find((v) => v.metric === "city_power")?.value;
+  const startPower = typeof earliestPower === "number" ? earliestPower : 40_000_000;
+  const until = earliest ? new Date(new Date(earliest.effectiveAt).getTime() - 30 * DAY) : now;
+  const rand = prng(Number(playerId) + reports.length);
+  await writeHistory(repo, actor, playerId, Math.round(startPower / 1.05), until, months, rand, now);
+  return months;
+}
+
+/** Everyone who's active files a fresh report today, with realistic growth; a few don't bother. */
+export async function everyoneReports(repo: Repository, now: Date, actor: Actor) {
+  const members = (await repo.listAccounts("POP")).filter((a) => a.status === "active");
+  const rand = prng(now.getTime() % 2 ** 31);
+  let reported = 0;
+  await inBatches(members, 8, async (a) => {
+    if (rand() < 0.2) return;
+    const reports = await repo.listReports(a.playerId);
+    const last = reports
+      .toSorted((x, y) => x.effectiveAt.localeCompare(y.effectiveAt))
+      .at(-1)
+      ?.values.find((v) => v.metric === "city_power")?.value;
+    const base = typeof last === "number" ? last : 30_000_000;
+    await addImported(repo, actor, a.playerId, now, values(Math.round(base * (1 + rand() * 0.06)), rand, 6), now);
+    reported++;
+  });
+  return { members: members.length, reported };
+}

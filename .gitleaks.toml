@@ -1,0 +1,43 @@
+# gitleaks configuration for POP HQ.
+# The repository is public: no secret may ever be committed.
+# Default rules cover AWS keys, private keys, generic API tokens, etc.;
+# the rules below add the secrets specific to this project.
+
+title = "POP HQ gitleaks config"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "pophq-agent-token"
+description = "POP HQ agent token (s26_<id>_<secret>)"
+regex = '''\bs26_[A-Za-z0-9]{8,}_[A-Za-z0-9_\-]{32,}\b'''
+keywords = ["s26_"]
+
+[[rules]]
+id = "discord-webhook-url"
+description = "Discord webhook URL (grants posting to a channel)"
+regex = '''https://(?:(?:canary|ptb)\.)?discord(?:app)?\.com/api/webhooks/\d{15,25}/[A-Za-z0-9_\-]{40,}'''
+keywords = ["discord.com/api/webhooks", "discordapp.com/api/webhooks"]
+
+[[rules]]
+id = "google-apps-script-url"
+description = "Google Apps Script web app URL (legacy Sheets push endpoint)"
+regex = '''https://script\.google\.com/macros/s/[A-Za-z0-9_\-]{30,}/exec'''
+keywords = ["script.google.com/macros"]
+
+[[rules]]
+id = "cloudfront-origin-verify"
+description = "Origin-verify header value committed in code"
+regex = '''(?i)x-origin-verify["'\s:=]+[A-Za-z0-9_\-]{16,}'''
+keywords = ["origin-verify"]
+
+[allowlist]
+description = "Obviously fake fixture values only; any new entry needs a code-owner review"
+regexes = [
+  '''s26_EXAMPLE[A-Za-z0-9]*_[A-Za-z0-9_\-]*''',
+  '''https://discord\.com/api/webhooks/000000000000000000/EXAMPLE[A-Za-z0-9_\-]*''',
+]
+paths = [
+  '''(^|/)package-lock\.json$''',
+]

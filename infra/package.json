@@ -1,0 +1,22 @@
+{
+  "name": "@pophq/infra",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test:unit": "vitest run",
+    "synth": "cdk synth --quiet",
+    "diff": "cdk diff",
+    "bootstrap": "cdk bootstrap"
+  },
+  "devDependencies": {
+    "aws-cdk": "^2.1142.0",
+    "esbuild": "^0.28.2"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.270.0",
+    "cdk-nag": "^2.38.2",
+    "constructs": "^10.8.1"
+  }
+}

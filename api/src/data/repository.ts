@@ -1,0 +1,228 @@
+import { ConditionalCheckFailedException, TransactionCanceledException } from "@aws-sdk/client-dynamodb";
+import {
+  GetCommand,
+  PutCommand,
+  QueryCommand,
+  TransactWriteCommand,
+  type DynamoDBDocumentClient,
+} from "@aws-sdk/lib-dynamodb";
+import type { GameAccount } from "../domain/accounts.js";
+import { ConflictError, NotFoundError } from "../domain/errors.js";
+import { searchKey } from "../domain/identity.js";
+import type { Report } from "../domain/measurements.js";
+import { accountKey, accountLinkLockKey, allianceIndexKey, loginLinkKey, reportKey } from "./keys.js";
+import { newItemMeta, type Actor } from "./meta.js";
+
+/** Accounts that may receive new data: active members and guests (FM-12). */
+const WRITABLE_STATUSES = { ":active": "active", ":guest": "guest" };
+
+export class Repository {
+  constructor(
+    private readonly db: DynamoDBDocumentClient,
+    private readonly table: string,
+    private readonly clock: () => Date = () => new Date(),
+  ) {}
+
+  async createAccount(account: GameAccount, actor: Actor): Promise<void> {
+    const now = this.clock();
+    try {
+      await this.db.send(
+        new PutCommand({
+          TableName: this.table,
+          Item: {
+            ...accountKey(account.playerId),
+            ...allianceIndexKey(account.alliance, searchKey(account.name), account.playerId),
+            type: "account",
+            ...account,
+            ...newItemMeta(actor, now),
+          },
+          ConditionExpression: "attribute_not_exists(PK)",
+        }),
+      );
+    } catch (err) {
+      if (err instanceof ConditionalCheckFailedException) {
+        throw new ConflictError(`Player ID ${account.playerId} already exists.`);
+      }
+      throw err;
+    }
+  }
+
+  async getAccount(playerId: string): Promise<GameAccount | undefined> {
+    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: accountKey(playerId) }));
+    return res.Item ? toAccount(res.Item) : undefined;
+  }
+
+  async listAccounts(alliance: string): Promise<GameAccount[]> {
+    const items = await this.queryAll({
+      IndexName: "GSI1",
+      KeyConditionExpression: "GSI1PK = :pk",
+      ExpressionAttributeValues: { ":pk": `ALLIANCE#${alliance}` },
+    });
+    return items.map(toAccount);
+  }
+
+  /**
+   * Links a game account to a login. One transaction: the account must exist, and the lock item
+   * guarantees a Player ID is never linked to two logins, even under concurrent requests.
+   */
+  async linkAccount(sub: string, playerId: string, actor: Actor): Promise<void> {
+    const now = this.clock();
+    const meta = newItemMeta(actor, now);
+    try {
+      await this.db.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              ConditionCheck: {
+                TableName: this.table,
+                Key: accountKey(playerId),
+                ConditionExpression: "attribute_exists(PK)",
+              },
+            },
+            {
+              Put: {
+                TableName: this.table,
+                Item: { ...accountLinkLockKey(playerId), type: "link-lock", sub, ...meta },
+                ConditionExpression: "attribute_not_exists(PK)",
+              },
+            },
+            {
+              Put: {
+                TableName: this.table,
+                Item: {
+                  ...loginLinkKey(sub, playerId),
+                  GSI1PK: `ACCOUNT#${playerId}`,
+                  GSI1SK: `LOGIN#${sub}`,
+                  type: "login-link",
+                  sub,
+                  playerId,
+                  ...meta,
+                },
+              },
+            },
+          ],
+        }),
+      );
+    } catch (err) {
+      const reasons = cancellationCodes(err);
+      if (reasons?.[0] === "ConditionalCheckFailed") throw new NotFoundError(`Game account ${playerId} not found.`);
+      if (reasons?.[1] === "ConditionalCheckFailed") {
+        throw new ConflictError(`Game account ${playerId} is already linked to a login.`);
+      }
+      throw err;
+    }
+  }
+
+  async linkedAccounts(sub: string): Promise<string[]> {
+    const items = await this.queryAll({
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+      ExpressionAttributeValues: { ":pk": `LOGIN#${sub}`, ":sk": "ACCOUNT#" },
+    });
+    return items.map((i) => String(i.playerId));
+  }
+
+  /**
+   * Adds an immutable report. One transaction:
+   *  - the account must exist and accept data (active or guest; FM-12),
+   *  - the report id must be new,
+   *  - a correction marks the report it supersedes, which must belong to the same account
+   *    and not already be superseded, so two concurrent corrections can't both win.
+   */
+  async addReport(report: Report, actor: Actor): Promise<void> {
+    const now = this.clock();
+    const meta = newItemMeta(actor, now);
+    const items: NonNullable<ConstructorParameters<typeof TransactWriteCommand>[0]["TransactItems"]> = [
+      {
+        ConditionCheck: {
+          TableName: this.table,
+          Key: accountKey(report.playerId),
+          ConditionExpression: "attribute_exists(PK) AND #status IN (:active, :guest)",
+          ExpressionAttributeNames: { "#status": "status" },
+          ExpressionAttributeValues: WRITABLE_STATUSES,
+        },
+      },
+      {
+        Put: {
+          TableName: this.table,
+          Item: { ...reportKey(report.playerId, report.reportId), type: "report", ...report, ...meta },
+          ConditionExpression: "attribute_not_exists(PK)",
+        },
+      },
+    ];
+    if (report.supersedesReportId) {
+      items.push({
+        Update: {
+          TableName: this.table,
+          Key: reportKey(report.playerId, report.supersedesReportId),
+          UpdateExpression: "SET supersededBy = :by, updatedAt = :now, version = version + :one",
+          ConditionExpression: "attribute_exists(PK) AND attribute_not_exists(supersededBy)",
+          ExpressionAttributeValues: { ":by": report.reportId, ":now": now.toISOString(), ":one": 1 },
+        },
+      });
+    }
+    try {
+      await this.db.send(new TransactWriteCommand({ TransactItems: items }));
+    } catch (err) {
+      const reasons = cancellationCodes(err);
+      if (reasons?.[0] === "ConditionalCheckFailed") {
+        throw new ConflictError(`Game account ${report.playerId} doesn't exist or doesn't accept new data.`);
+      }
+      if (reasons?.[1] === "ConditionalCheckFailed") throw new ConflictError("This report was already submitted.");
+      if (reasons?.[2] === "ConditionalCheckFailed") {
+        throw new ConflictError("The report to correct doesn't exist for this account or was already corrected.");
+      }
+      throw err;
+    }
+  }
+
+  async listReports(playerId: string): Promise<Report[]> {
+    const items = await this.queryAll({
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+      ExpressionAttributeValues: { ":pk": `ACCOUNT#${playerId}`, ":sk": "REPORT#" },
+    });
+    return items.map(toReport);
+  }
+
+  private async queryAll(
+    params: Omit<ConstructorParameters<typeof QueryCommand>[0], "TableName">,
+  ): Promise<Record<string, unknown>[]> {
+    const out: Record<string, unknown>[] = [];
+    let ExclusiveStartKey: Record<string, unknown> | undefined;
+    do {
+      const res = await this.db.send(new QueryCommand({ ...params, TableName: this.table, ExclusiveStartKey }));
+      out.push(...(res.Items ?? []));
+      ExclusiveStartKey = res.LastEvaluatedKey;
+    } while (ExclusiveStartKey);
+    return out;
+  }
+}
+
+function cancellationCodes(err: unknown): (string | undefined)[] | undefined {
+  if (err instanceof TransactionCanceledException) return err.CancellationReasons?.map((r) => r.Code);
+  return undefined;
+}
+
+function toAccount(item: Record<string, unknown>): GameAccount {
+  const account: GameAccount = {
+    playerId: String(item.playerId),
+    name: String(item.name),
+    alliance: String(item.alliance),
+    status: item.status as GameAccount["status"],
+  };
+  if (item.rank) account.rank = item.rank as NonNullable<GameAccount["rank"]>;
+  return account;
+}
+
+function toReport(item: Record<string, unknown>): Report {
+  const report: Report = {
+    reportId: String(item.reportId),
+    playerId: String(item.playerId),
+    effectiveAt: String(item.effectiveAt),
+    recordedAt: String(item.recordedAt),
+    source: item.source as Report["source"],
+    values: item.values as Report["values"],
+  };
+  if (item.supersedesReportId) report.supersedesReportId = String(item.supersedesReportId);
+  if (item.note) report.note = String(item.note);
+  return report;
+}

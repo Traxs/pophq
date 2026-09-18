@@ -1,0 +1,8 @@
+# Every change needs a review from a code owner.
+# TODO: add the reviewer (current State 2612 app owner) once they have joined the Traxs organisation;
+# GitHub doesn't let authors approve their own pull requests.
+* @Traxes
+
+# Secret-scanning rules and CI need extra care.
+/.gitleaks.toml        @Traxes
+/.github/              @Traxes

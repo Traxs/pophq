@@ -1,0 +1,29 @@
+# Dependencies and builds
+node_modules/
+dist/
+build/
+coverage/
+cdk.out/
+.vite/
+*.tsbuildinfo
+
+# Secrets and local config: never commit (see SECURITY.md)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+cdk.context.json
+
+# Local tooling
+.localstack/
+playwright-report/
+test-results/
+*.log
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Local agent tooling
+.claude/

@@ -1,0 +1,41 @@
+{
+  "name": "pophq",
+  "private": true,
+  "description": "POP HQ: alliance command center for Whiteout Survival (State 2612)",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12 <23"
+  },
+  "workspaces": [
+    "api",
+    "web",
+    "infra"
+  ],
+  "scripts": {
+    "setup": "npm install && pre-commit install --install-hooks",
+    "dev:up": "docker compose -f dev/docker-compose.yml up -d --wait && npm run db:create -w api && npm run db:seed -w api",
+    "dev:down": "docker compose -f dev/docker-compose.yml down",
+    "dev:reset": "npm run db:reset -w api",
+    "dev": "node scripts/dev.mjs",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test:unit": "npm run test:unit --workspaces --if-present",
+    "test:integration": "npm run test:integration --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "hook:pre-commit": "node scripts/hooks.mjs pre-commit",
+    "hook:pre-push": "node scripts/hooks.mjs pre-push",
+    "secrets:scan": "gitleaks git --config .gitleaks.toml --redact --verbose .",
+    "secrets:scan:staged": "gitleaks git --config .gitleaks.toml --redact --staged ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^22.19.0",
+    "eslint": "^10.10.0",
+    "globals": "^17.12.0",
+    "tsx": "^4.23.13",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.70.0",
+    "vitest": "^5.0.1"
+  }
+}
