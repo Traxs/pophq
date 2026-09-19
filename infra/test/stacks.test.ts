@@ -101,6 +101,8 @@ describe("AppStack", () => {
       AllowedOAuthFlows: ["code"],
       ExplicitAuthFlows: ["ALLOW_USER_AUTH"],
       RefreshTokenRotation: { Feature: "ENABLED", RetryGracePeriodSeconds: 60 },
+      RefreshTokenValidity: 129_600, // 90 days, in minutes
+      AccessTokenValidity: 60,
       EnableTokenRevocation: true,
     });
   });

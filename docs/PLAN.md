@@ -122,7 +122,7 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 
 ## Decisions made during the build
 
-- **2026-09-19, sign-in survives reloads (changes the spec's "tokens in memory"):** tokens live in localStorage so a reload, a new tab or the next day keeps people signed in. Safeguards: strict CSP (only our own scripts), Cognito refresh-token rotation with a 60 s grace period, access tokens valid 1 hour and renewed on demand under a cross-tab lock, "Sign out" revokes the refresh token and ends the Cognito session, signing out in one tab signs out all tabs. Revisit (move to an HttpOnly-cookie session through the API) if the app ever loads third-party scripts.
+- **2026-09-19, sign-in survives reloads (changes the spec's "tokens in memory"):** tokens live in localStorage so a reload, a new tab or the next day keeps people signed in. Safeguards: strict CSP (only our own scripts), Cognito refresh-token rotation with a 60 s grace period, refresh tokens valid 90 days from the last code sign-in, access tokens valid 1 hour and renewed on demand under a cross-tab lock, "Sign out" revokes the refresh token and ends the Cognito session, signing out in one tab signs out all tabs. Revisit (move to an HttpOnly-cookie session through the API) if the app ever loads third-party scripts.
 
 ## Open follow-ups from Milestone 0
 

@@ -203,7 +203,9 @@ export class AppStack extends Stack {
       enableTokenRevocation: true,
       accessTokenValidity: Duration.hours(1),
       idTokenValidity: Duration.hours(1),
-      refreshTokenValidity: Duration.days(30),
+      // People enter an emailed code about four times a year. The expiry counts from that sign-in;
+      // rotated refresh tokens keep it. Disabling a login (ID-08) revokes its tokens at once.
+      refreshTokenValidity: Duration.days(90),
       // Every refresh returns a new refresh token; the old one works for 60 s more so several
       // open tabs refreshing at once don't sign each other out (FM-16).
       refreshTokenRotationGracePeriod: Duration.seconds(60),
