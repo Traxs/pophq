@@ -28,8 +28,11 @@ import {
 } from "./keys.js";
 import { newItemMeta, type Actor } from "./meta.js";
 
-/** Accounts that may receive new data: active members and guests (FM-12). */
-const WRITABLE_STATUSES = { ":active": "active", ":guest": "guest" };
+/**
+ * Accounts that may receive new data (FM-12): members, guests, and accounts whose membership
+ * we don't know yet (imported history). Accounts that transferred out or were archived may not.
+ */
+const WRITABLE_STATUSES = { ":active": "active", ":guest": "guest", ":unknown": "unknown" };
 
 export class Repository {
   constructor(
@@ -224,7 +227,7 @@ export class Repository {
               ConditionCheck: {
                 TableName: this.table,
                 Key: accountKey(playerId),
-                ConditionExpression: "attribute_exists(PK) AND #status IN (:active, :guest)",
+                ConditionExpression: "attribute_exists(PK) AND #status IN (:active, :guest, :unknown)",
                 ExpressionAttributeNames: { "#status": "status" },
                 ExpressionAttributeValues: WRITABLE_STATUSES,
               },
@@ -353,7 +356,7 @@ export class Repository {
         ConditionCheck: {
           TableName: this.table,
           Key: accountKey(report.playerId),
-          ConditionExpression: "attribute_exists(PK) AND #status IN (:active, :guest)",
+          ConditionExpression: "attribute_exists(PK) AND #status IN (:active, :guest, :unknown)",
           ExpressionAttributeNames: { "#status": "status" },
           ExpressionAttributeValues: WRITABLE_STATUSES,
         },

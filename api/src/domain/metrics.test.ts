@@ -85,6 +85,6 @@ describe("seriesOf", () => {
   });
 
   it("ignores reports without that metric", () => {
-    expect(seriesOf([report("a", day(1), 10)], "combat_score")).toEqual([]);
+    expect(seriesOf([report("a", day(1), 10)], "foundry_strength")).toEqual([]);
   });
 });

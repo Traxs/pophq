@@ -34,8 +34,8 @@ describe("GET /v1/metrics/alliance", () => {
   });
 
   it("can report combat score instead, and clamps the window", async () => {
-    const res = await h.call("GET", "/metrics/alliance?metric=combat_score&weeks=999", OFFICER);
-    expect(res.body).toMatchObject({ metric: "combat_score", weeks: 52 });
+    const res = await h.call("GET", "/metrics/alliance?metric=foundry_strength&weeks=999", OFFICER);
+    expect(res.body).toMatchObject({ metric: "foundry_strength", weeks: 52 });
   });
 
   it("is officer-only", async () => {

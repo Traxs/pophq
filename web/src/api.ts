@@ -132,10 +132,19 @@ export interface Mover {
   percent: number;
 }
 
+/** Strength comes in kinds; each is its own metric (city power is not Foundry strength). */
+export const STRENGTH_METRICS = [
+  { value: "city_power", label: "Power" },
+  { value: "foundry_strength", label: "Foundry" },
+] as const;
+export type StrengthMetric = (typeof STRENGTH_METRICS)[number]["value"];
+
 export interface AllianceGrowth {
-  metric: string;
+  metric: StrengthMetric;
   weeks: number;
   alliance: string;
+  cohort: "members" | "all";
+  unknownMembership: number;
   points: GrowthPoint[];
   gainers: Mover[];
   stalled: Mover[];
@@ -183,8 +192,8 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
       request<Report>("POST", `/accounts/${playerId}/reports`, { values }),
     roster: () => request<Roster>("GET", "/roster"),
     invite: (input: InviteInput) => request<InviteResult>("POST", "/invites", input),
-    growth: (weeks = 12, metric = "city_power") =>
-      request<AllianceGrowth>("GET", `/metrics/alliance?weeks=${weeks}&metric=${metric}`),
+    growth: (weeks = 12, metric: StrengthMetric = "city_power", cohort: "members" | "all" = "members") =>
+      request<AllianceGrowth>("GET", `/metrics/alliance?weeks=${weeks}&metric=${metric}&cohort=${cohort}`),
     events: () => request<{ items: EventListItem[] }>("GET", "/events"),
     event: (eventId: string) => request<EventDetail>("GET", `/events/${eventId}`),
     createEvent: (input: NewEvent) => request<AllianceEvent>("POST", "/events", input),

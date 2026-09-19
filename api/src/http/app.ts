@@ -221,9 +221,16 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
   app.get("/metrics/alliance", async (c) => {
     requireOfficer(c.get("principal"));
     const alliance = (c.req.query("alliance") ?? "POP").toUpperCase();
-    const metric = c.req.query("metric") === "combat_score" ? "combat_score" : "city_power";
+    const metric = c.req.query("metric") === "foundry_strength" ? "foundry_strength" : "city_power";
     const weeks = Math.min(Math.max(Number(c.req.query("weeks") ?? 12) || 12, 2), 52);
-    const accounts = (await repo.listAccounts(alliance)).filter((a) => a.status === "active" || a.status === "guest");
+    // Cohort: confirmed members and guests by default. Accounts whose membership is unknown
+    // (imported history) would inflate the totals, so they are counted separately and only
+    // included on request.
+    const cohort = c.req.query("cohort") === "all" ? "all" : "members";
+    const all = await repo.listAccounts(alliance);
+    const counted = all.filter((a) => a.status === "active" || a.status === "guest");
+    const unknown = all.filter((a) => a.status === "unknown");
+    const accounts = cohort === "all" ? [...counted, ...unknown] : counted;
     const series = await Promise.all(
       accounts.map(async (account) => ({
         playerId: account.playerId,
@@ -231,7 +238,13 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         points: seriesOf(await repo.listReports(account.playerId), metric),
       })),
     );
-    return c.json({ ...allianceGrowth(metric, series, buckets(now(), weeks)), weeks, alliance });
+    return c.json({
+      ...allianceGrowth(metric, series, buckets(now(), weeks)),
+      weeks,
+      alliance,
+      cohort,
+      unknownMembership: unknown.length,
+    });
   });
 
   // ---- Events (EVT-01..EVT-04) ----

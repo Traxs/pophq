@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { ApiError, type AllianceGrowth, type InviteResult, type RosterRow, type Seats } from "../api";
+import { ApiError, STRENGTH_METRICS, type AllianceGrowth, type InviteResult, type RosterRow, type Seats, type StrengthMetric } from "../api";
 import { ErrorBanner } from "../components/Chrome";
 import { LineChart } from "../components/LineChart";
 import { Sheet } from "../components/Sheet";
@@ -338,17 +338,19 @@ function AllianceChart() {
   const { api, dataVersion } = useSession();
   const [growth, setGrowth] = useState<AllianceGrowth | null>(null);
   const [weeks, setWeeks] = useState(12);
+  const [metric, setMetric] = useState<StrengthMetric>("city_power");
+  const [cohort, setCohort] = useState<"members" | "all">("members");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     api
-      .growth(weeks)
+      .growth(weeks, metric, cohort)
       .then((g) => {
         setGrowth(g);
         setError(null);
       })
       .catch((e: Error) => setError(e.message));
-  }, [api, weeks, dataVersion]);
+  }, [api, weeks, metric, cohort, dataVersion]);
 
   if (error) return <ErrorBanner message={error} onRetry={() => setWeeks((w) => w)} />;
   if (!growth) return <div className="card skeleton" style={{ height: 160 }} />;
@@ -361,7 +363,7 @@ function AllianceChart() {
     <section className="card stack" aria-labelledby="growth-title">
       <div className="event-head">
         <h2 id="growth-title" className="section-label">
-          Alliance power
+          Alliance {metric === "foundry_strength" ? "Foundry strength" : "power"}
         </h2>
         <div className="segmented" role="radiogroup" aria-label="Time range">
           {[4, 12, 26].map((w) => (
@@ -372,7 +374,18 @@ function AllianceChart() {
         </div>
       </div>
 
-      <LineChart points={growth.points.map((p) => ({ at: p.at, value: p.total }))} label="Total alliance power over time" />
+      <div className="segmented" role="radiogroup" aria-label="Kind of strength">
+        {STRENGTH_METRICS.map((m) => (
+          <button key={m.value} type="button" role="radio" aria-checked={metric === m.value} onClick={() => setMetric(m.value)}>
+            {m.label}
+          </button>
+        ))}
+      </div>
+
+      <LineChart
+        points={growth.points.map((p) => ({ at: p.at, value: p.total }))}
+        label={`Total alliance ${metric === "foundry_strength" ? "Foundry strength" : "power"} over time`}
+      />
       <p className="muted small">
         {last ? `${compact(last.total)} across ${last.members} members` : "No data yet"}
         {change !== undefined && ` · ${change >= 0 ? "+" : ""}${change.toFixed(1)}% over ${weeks} weeks`}
@@ -398,6 +411,14 @@ function AllianceChart() {
           {growth.stalled.length > 0 && growth.missing.length > 0 && " · "}
           {growth.missing.length > 0 && `${growth.missing.length} without any report`}
         </p>
+      )}
+
+      {growth.unknownMembership > 0 && (
+        <button type="button" className="text-btn" onClick={() => setCohort(cohort === "all" ? "members" : "all")}>
+          {cohort === "all"
+            ? `Counting ${growth.unknownMembership} accounts with unconfirmed membership — count members only`
+            : `${growth.unknownMembership} imported accounts are not counted — include them`}
+        </button>
       )}
     </section>
   );

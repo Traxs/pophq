@@ -122,7 +122,8 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 
 - [ ] P10.1 Playwright end-to-end tests on phone and desktop in CI
 - [ ] P10.2 Security review against OWASP LLM/agentic guidance; half-day Hermes red-team session
-- [ ] P10.3 Selective Hermes history import: verified Player IDs, manifest, dry-run, batched commit (LCH-04)
+- [x] P10.3a Hermes bundle import: dry run by default, stable ids so repeating changes nothing, accounts without a numeric Player ID reported instead of invented, imported membership stays "unknown" (LCH-04)
+- [ ] P10.3b Import the rest of a bundle: name history, alt links, events with lineups, attendance and outcomes
 - [ ] P10.4 Launch: officers first, launch post, bulk approval, first-report push (LCH-02)
 - [ ] P10.5 Archive the Cloudflare app's D1 data as CSV, then retire it with the owner's go-ahead (LCH-03)
 
@@ -135,6 +136,10 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 - **2026-09-19, event outcomes are stored:** our and the opponent's matchmaking power, opponent count, result, notes and per-player points where known, with their evidence.
 
 - **2026-09-19, sign-in survives reloads (changes the spec's "tokens in memory"):** tokens live in localStorage so a reload, a new tab or the next day keeps people signed in. Safeguards: strict CSP (only our own scripts), Cognito refresh-token rotation with a 60 s grace period, refresh tokens valid 90 days from the last code sign-in, access tokens valid 1 hour and renewed on demand under a cross-tab lock, "Sign out" revokes the refresh token and ends the Cognito session, signing out in one tab signs out all tabs. Revisit (move to an HttpOnly-cookie session through the API) if the app ever loads third-party scripts.
+
+## Strength metrics
+
+Strength is several different numbers and they are never mixed: `city_power` (overall power) and `foundry_strength` (the Foundry comparison score, which Hermes calls `combat_power`). Further kinds (SvS, rally) are added to the metric registry in `api/src/domain/measurements.ts` as they appear. Event-level matchmaking power belongs to the event, not to a player.
 
 ## Open follow-ups from Milestone 0
 

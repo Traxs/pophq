@@ -66,7 +66,7 @@ describe("parseReport", () => {
       ValidationError,
     );
     expect(() => parseReport({ values: [{ metric: "troops_lancer", value: 1.5 }] }, ctx())).toThrow(/whole number/);
-    expect(parseReport({ values: [{ metric: "combat_score", value: 1234.56 }] }, ctx()).values[0]?.value).toBe(
+    expect(parseReport({ values: [{ metric: "foundry_strength", value: 1234.56 }] }, ctx()).values[0]?.value).toBe(
       1234.56,
     );
   });

@@ -12,7 +12,8 @@
     "db:create": "tsx scripts/create-table.ts",
     "db:seed": "tsx scripts/seed.ts",
     "db:reset": "tsx scripts/create-table.ts --reset && tsx scripts/seed.ts",
-    "admin": "tsx scripts/admin.ts"
+    "admin": "tsx scripts/admin.ts",
+    "import:foundry": "tsx scripts/import-foundry.ts"
   },
   "dependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.1136.0",
