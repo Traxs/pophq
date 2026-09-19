@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { CfnOutput, Duration, RemovalPolicy, Stack, type CfnElement, type StackProps } from "aws-cdk-lib";
 import * as apigw from "aws-cdk-lib/aws-apigateway";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
@@ -13,7 +15,7 @@ import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
 import * as cr from "aws-cdk-lib/custom-resources";
 import type { Construct } from "constructs";
 import { S3_GRANT_ACTIONS, acknowledge, acknowledgeEach } from "./nag.js";
-import { ALERT_EMAIL_PARAMETER, API_ENTRY, LOCK_FILE, REPO_ROOT } from "./config.js";
+import { ALERT_EMAIL_PARAMETER, API_ENTRY, LOCK_FILE, LOGIN_ASSETS, REPO_ROOT } from "./config.js";
 import { CostGuard } from "./cost-guard.js";
 
 export interface AppStackProps extends StackProps {
@@ -161,11 +163,17 @@ export class AppStack extends Stack {
       },
     });
 
-    // Managed login style. Step 1 uses Cognito's default style; POP HQ colors follow (P2.3).
+    // Managed login in the POP HQ style: colors from web/src/styles.css, light and dark mode,
+    // snowflake logo. settings.json started from Cognito's own default settings document.
+    const loginAsset = (file: string) => readFileSync(join(LOGIN_ASSETS, file)).toString("base64");
     new cognito.CfnManagedLoginBranding(this, "LoginBranding", {
       userPoolId: users.userPoolId,
       clientId: client.userPoolClientId,
-      useCognitoProvidedValues: true,
+      settings: JSON.parse(readFileSync(join(LOGIN_ASSETS, "settings.json"), "utf8")) as unknown,
+      assets: (["LIGHT", "DARK"] as const).flatMap((colorMode) => {
+        const bytes = loginAsset(`logo-${colorMode.toLowerCase()}.svg`);
+        return ["FORM_LOGO", "FAVICON_SVG"].map((category) => ({ category, colorMode, extension: "SVG", bytes }));
+      }),
     });
 
     // Hashed assets never change: cache for a year and keep old files (prune: false) so open

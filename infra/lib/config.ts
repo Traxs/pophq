@@ -14,3 +14,4 @@ export const KILL_SWITCH_ENTRY = join(REPO_ROOT, "api", "src", "ops", "killSwitc
 export const ALERT_EMAIL_PARAMETER = "/pophq/alerts/email";
 export const WEB_DIST = join(REPO_ROOT, "web", "dist");
 export const LOCK_FILE = join(REPO_ROOT, "package-lock.json");
+export const LOGIN_ASSETS = join(REPO_ROOT, "infra", "assets", "login");

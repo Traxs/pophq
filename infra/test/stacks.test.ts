@@ -108,7 +108,10 @@ describe("AppStack", () => {
     template.hasResourceProperties("AWS::Cognito::UserPool", {
       Policies: Match.objectLike({ SignInPolicy: { AllowedFirstAuthFactors: ["PASSWORD", "EMAIL_OTP"] } }),
     });
-    template.resourceCountIs("AWS::Cognito::ManagedLoginBranding", 1);
+    template.hasResourceProperties("AWS::Cognito::ManagedLoginBranding", {
+      Settings: Match.objectLike({ categories: Match.objectLike({ global: Match.objectLike({ colorSchemeMode: "DYNAMIC" }) }) }),
+      Assets: Match.arrayWith([Match.objectLike({ Category: "FORM_LOGO", ColorMode: "LIGHT", Extension: "SVG" })]),
+    });
   });
 
   it("routes /v1/* to the API uncached and keeps the bucket private", () => {
