@@ -2,13 +2,14 @@ import { Duration, RemovalPolicy, Stack } from "aws-cdk-lib";
 import * as budgets from "aws-cdk-lib/aws-budgets";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
-import { NodejsFunction, OutputFormat } from "aws-cdk-lib/aws-lambda-nodejs";
+import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as sns from "aws-cdk-lib/aws-sns";
 import * as subs from "aws-cdk-lib/aws-sns-subscriptions";
 import * as ssm from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 import { KILL_SWITCH_ENTRY, LOCK_FILE, REPO_ROOT } from "./config.js";
+import { NODE_BUNDLING } from "./node-bundling.js";
 
 export interface CostGuardProps {
   /** Monthly budget in USD; alerts at 50 % and 100 % (actual) and 100 % (forecast). */
@@ -66,7 +67,7 @@ export class CostGuard extends Construct {
         removalPolicy: RemovalPolicy.DESTROY,
       }),
       environment: { KILL_SWITCH_PARAMETER: this.killSwitch.parameterName },
-      bundling: { format: OutputFormat.ESM, target: "node24", minify: true, externalModules: [] },
+      bundling: NODE_BUNDLING,
     });
     this.killSwitch.grantWrite(tripFn);
     trip.addSubscription(new subs.LambdaSubscription(tripFn));
