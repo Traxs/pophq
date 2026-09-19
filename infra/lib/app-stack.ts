@@ -11,7 +11,7 @@ import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import { DynamoEventSource, SqsDlq } from "aws-cdk-lib/aws-lambda-event-sources";
-import { NodejsFunction, OutputFormat } from "aws-cdk-lib/aws-lambda-nodejs";
+import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
@@ -21,6 +21,7 @@ import type { Construct } from "constructs";
 import { S3_GRANT_ACTIONS, acknowledge, acknowledgeEach } from "./nag.js";
 import { ALERT_EMAIL_PARAMETER, API_ENTRY, HISTORY_ENTRY, LOCK_FILE, LOGIN_ASSETS, REPO_ROOT } from "./config.js";
 import { CostGuard } from "./cost-guard.js";
+import { NODE_BUNDLING } from "./node-bundling.js";
 
 export interface AppStackProps extends StackProps {
   /** Built web app (web/dist). */
@@ -326,7 +327,7 @@ export class AppStack extends Stack {
         removalPolicy: RemovalPolicy.DESTROY,
       }),
       environment: { HISTORY_TABLE_NAME: history.tableName },
-      bundling: { format: OutputFormat.ESM, target: "node24", minify: true, externalModules: [] },
+      bundling: NODE_BUNDLING,
     });
     history.grantWriteData(writer);
     writer.addEventSource(
@@ -369,16 +370,7 @@ export class AppStack extends Stack {
         HISTORY_TABLE_NAME: historyTableName,
         NODE_OPTIONS: "--enable-source-maps",
       },
-      bundling: {
-        format: OutputFormat.ESM,
-        target: "node24",
-        minify: true,
-        sourceMap: true,
-        mainFields: ["module", "main"],
-        // Bundle the AWS SDK too, so the deployed version matches the tested one.
-        externalModules: [],
-        banner: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);",
-      },
+      bundling: NODE_BUNDLING,
     });
 
     /**
