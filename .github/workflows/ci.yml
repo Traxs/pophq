@@ -66,6 +66,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint
+      - name: Every imported package is declared (and ships to AWS when needed)
+        run: npm run check:deps
       - run: npm run typecheck
       # TypeScript 7 readiness: the code must type-check with 7 while lint (typescript-eslint) still needs 6.
       - run: npm run typecheck:ts7

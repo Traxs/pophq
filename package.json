@@ -19,6 +19,7 @@
     "dev:reset": "npm run db:reset -w api",
     "dev": "node scripts/dev.mjs",
     "lint": "npm run lint --workspaces --if-present",
+    "check:deps": "node scripts/check-deps.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "typecheck:ts7": "for p in api web infra; do npm exec --yes --package=typescript@7.0.2 -- tsc --noEmit -p $p || exit 1; done",
     "test:unit": "npm run test:unit --workspaces --if-present",

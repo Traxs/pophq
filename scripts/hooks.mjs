@@ -17,6 +17,11 @@ if (present.length === 0) {
   process.exit(0);
 }
 
+// Cheap repo-wide guard: an import that only resolves through the shared node_modules
+// passes locally and breaks in CI.
+const deps = spawnSync("node", ["scripts/check-deps.mjs"], { stdio: "inherit" });
+if (deps.status !== 0) process.exit(deps.status ?? 1);
+
 let targets = present;
 let scripts = ["test:unit"];
 if (stage === "pre-commit") {
