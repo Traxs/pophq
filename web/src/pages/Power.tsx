@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, type Reports } from "../api";
 import { ErrorBanner } from "../components/Chrome";
 import { Sheet } from "../components/Sheet";
-import { Sparkline } from "../components/Sparkline";
+import { LineChart } from "../components/LineChart";
 import { useToast } from "../components/Toast";
 import { change, full, formatDigitsInput, parseDigits, relativeDay, shortDate, type Change } from "../format";
 import { navigate } from "../router";
@@ -98,7 +98,7 @@ function HeroCard({ latest, previous, series }: { latest: PowerPoint; previous?:
         {delta && <ChangePill change={delta} since={previous!.effectiveAt} />}
         <span className="muted small">Updated {relativeDay(latest.effectiveAt)}</span>
       </span>
-      <Sparkline values={series.map((p) => p.power)} label={`Power trend over ${series.length} reports`} />
+      <LineChart points={series.map((p) => ({ at: p.effectiveAt, value: p.power }))} label="Your power over time" />
     </section>
   );
 }

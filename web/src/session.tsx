@@ -131,6 +131,7 @@ export function SessionProvider({
       addReport: guard(inner.addReport),
       roster: guard(inner.roster),
       invite: guard(inner.invite),
+      growth: guard(inner.growth),
       events: guard(inner.events),
       event: guard(inner.event),
       createEvent: guard(inner.createEvent),

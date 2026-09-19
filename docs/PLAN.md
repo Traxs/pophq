@@ -105,7 +105,8 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 ## Milestone 8: Metrics and exports
 
 - [ ] P8.1 Named Athena metrics with explicit cohort, denominator and baseline rules (power-growth, top-gainers, stale-reports, attendance-rate, answer-vs-actual, identity-changes, buff-history, buff-fairness)
-- [ ] P8.2 Alliance dashboard and player profile metrics (MET-01..04); async jobs for slow queries (FM-24)
+- [x] P8.2a Charts: player power over time (own page) and alliance growth with top growers, not-growing and never-reported (MET-01), officer-only; plain SVG chart with tap-for-value and a hidden data table for screen readers
+- [ ] P8.2b Attendance and event-outcome charts (need those features first); async jobs for slow queries (FM-24)
 - [ ] P8.3 Exports: sync CSV/JSONL and async bulk with `asOf`, row budget reservation (MET-05, FM-25)
 
 ## Milestone 9: Agent API and Hermes skill
