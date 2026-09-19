@@ -1,10 +1,10 @@
 import { change, compact, daysBetween, relativeDay } from "../format";
 import { navigate } from "../router";
+import { REPORT_DUE_DAYS } from "../rules";
 import { useSession } from "../session";
 import { usePower } from "../usePower";
 import { ChangePill } from "./Power";
 
-const REPORT_DUE_DAYS = 30;
 
 export function Home() {
   const { me, account } = useSession();

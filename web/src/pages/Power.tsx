@@ -6,6 +6,7 @@ import { Sparkline } from "../components/Sparkline";
 import { useToast } from "../components/Toast";
 import { change, full, formatDigitsInput, parseDigits, relativeDay, shortDate, type Change } from "../format";
 import { navigate } from "../router";
+import { LEVEL_HINT, isValidLevel } from "../rules";
 import { useSession } from "../session";
 import { usePower, type PowerPoint } from "../usePower";
 import { NoAccount } from "./Home";
@@ -176,6 +177,8 @@ function ReportForm({
   const [power, setPower] = useState(initialNumber("city_power"));
   const [hero, setHero] = useState(initialNumber("hero_power_total"));
   const [furnace, setFurnace] = useState(String(current.furnace_level?.value ?? ""));
+  const [furnaceTouched, setFurnaceTouched] = useState(false);
+  const furnaceInvalid = furnace.trim() !== "" && !isValidLevel(furnace);
   const [helios, setHelios] = useState(String(current.helios?.value ?? ""));
   const [confirmDrop, setConfirmDrop] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -188,6 +191,10 @@ function ReportForm({
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!account || powerValue === undefined) return;
+    if (furnaceInvalid) {
+      setFurnaceTouched(true);
+      return;
+    }
     if (needsConfirm) {
       setConfirmDrop(true);
       return;
@@ -252,8 +259,16 @@ function ReportForm({
           autoCapitalize="characters"
           value={furnace}
           onChange={(e) => setFurnace(e.target.value.toUpperCase())}
+          onBlur={() => setFurnaceTouched(true)}
           placeholder="e.g. 30 or FC5-2"
+          aria-invalid={furnaceInvalid && furnaceTouched}
+          aria-describedby={furnaceInvalid && furnaceTouched ? "f-furnace-error" : undefined}
         />
+        {furnaceInvalid && furnaceTouched && (
+          <span id="f-furnace-error" className="field-error" role="alert">
+            {LEVEL_HINT}
+          </span>
+        )}
       </div>
 
       <fieldset className="field">
@@ -279,7 +294,7 @@ function ReportForm({
         </p>
       )}
 
-      <button type="submit" className="btn btn-primary btn-block" disabled={busy || powerValue === undefined}>
+      <button type="submit" className="btn btn-primary btn-block" disabled={busy || powerValue === undefined || furnaceInvalid}>
         {busy ? "Saving…" : confirmDrop && drop > DROP_WARNING ? "Save anyway" : "Save report"}
       </button>
     </form>

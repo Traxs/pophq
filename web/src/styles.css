@@ -614,6 +614,13 @@ button.card {
   font-size: 0.8rem;
   color: var(--muted);
 }
+.field-error {
+  font-size: 0.8rem;
+  color: var(--down);
+}
+.field input[aria-invalid="true"] {
+  border-color: var(--down);
+}
 
 .chips {
   display: flex;

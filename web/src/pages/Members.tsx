@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import type { RosterRow } from "../api";
 import { ErrorBanner } from "../components/Chrome";
 import { change, compact, daysBetween, full, initials, relativeDay } from "../format";
+import { isReportOverdue } from "../rules";
 import { useSession } from "../session";
 
-const OVERDUE_DAYS = 30;
 type SortKey = "name" | "rank" | "power" | "change" | "lastReport";
 type Filter = "all" | "overdue" | "none";
 
@@ -45,7 +45,7 @@ export function Members() {
     return rows
       .filter((r) => !q || r.name.toLowerCase().includes(q) || r.playerId.includes(q))
       .filter((r) =>
-        filter === "overdue" ? r.lastReportAt !== null && ageDays(r) >= OVERDUE_DAYS : filter === "none" ? r.lastReportAt === null : true,
+        filter === "overdue" ? isReportOverdue(r.lastReportAt) : filter === "none" ? r.lastReportAt === null : true,
       )
       .toSorted(COMPARE[sort]);
   }, [rows, query, filter, sort]);
@@ -54,13 +54,14 @@ export function Members() {
     return (
       <section className="card empty">
         <h2>Officers only</h2>
-        <p className="muted">The member overview is for R4 and R5.</p>
+        <p className="muted">The member overview is for officers.</p>
       </section>
     );
   }
 
   const total = rows?.reduce((s, r) => s + (r.power ?? 0), 0) ?? 0;
-  const overdue = rows?.filter((r) => r.lastReportAt !== null && ageDays(r) >= OVERDUE_DAYS).length ?? 0;
+  // Overdue includes members who never reported; "No report" is the subset without any report.
+  const overdue = rows?.filter((r) => isReportOverdue(r.lastReportAt)).length ?? 0;
   const noReport = rows?.filter((r) => r.lastReportAt === null).length ?? 0;
 
   const header = (key: SortKey, label: string, className = "") => (
@@ -138,7 +139,6 @@ export function Members() {
               <tbody>
                 {visible.map((r) => {
                   const p = pct(r);
-                  const age = ageDays(r);
                   return (
                     <tr key={r.playerId}>
                       <td>
@@ -159,7 +159,7 @@ export function Members() {
                       </td>
                       <td>
                         {r.lastReportAt ? (
-                          <span className={age >= OVERDUE_DAYS ? "badge badge-warn" : "badge"}>{relativeDay(r.lastReportAt)}</span>
+                          <span className={isReportOverdue(r.lastReportAt) ? "badge badge-warn" : "badge"}>{relativeDay(r.lastReportAt)}</span>
                         ) : (
                           <span className="badge badge-none">never</span>
                         )}

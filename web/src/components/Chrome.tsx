@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { initials } from "../format";
+import { roleLabel } from "../rules";
 import { navigate, usePath } from "../router";
 import { useSession } from "../session";
 import { Sheet } from "./Sheet";
 
 export function TopBar() {
-  const { me, account, isOfficer, setActing, signOut } = useSession();
+  const { me, account, setActing, signOut } = useSession();
   const [open, setOpen] = useState(false);
 
   return (
@@ -31,7 +32,7 @@ export function TopBar() {
           </span>
           <span className="account-chip-text">
             <span className="account-chip-name">{account.name}</span>
-            <span className="account-chip-sub">{isOfficer ? "Officer" : account.rank ?? account.alliance}</span>
+            <span className="account-chip-sub">{roleLabel(me?.groups ?? [], account.rank, account.alliance)}</span>
           </span>
           <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
             <path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />

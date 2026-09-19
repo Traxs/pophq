@@ -31,6 +31,15 @@ describe("parseReport", () => {
     ]);
   });
 
+  // Same cases as the web form's check (web/src/rules.test.ts); keep both lists in step.
+  const level = (value: string) => () => parseReport({ values: [{ metric: "furnace_level", value }] }, ctx());
+  it.each(["1", "9", "25", "30", "FC1", "FC10", "FC5-2", "fc5-4", " FC3 "])("accepts level %j", (v) => {
+    expect(level(v)).not.toThrow();
+  });
+  it.each(["", "0", "31", "FC", "FC0", "FC11", "FC99", "FC5-5", "FC5-0", "5-2", "abc"])("rejects level %j", (v) => {
+    expect(level(v)).toThrow(ValidationError);
+  });
+
   it("keeps Unknown, None and Soon distinct for Helios", () => {
     for (const v of ["Unknown", "None", "Soon"]) {
       expect(parseReport({ values: [{ metric: "helios", value: v }] }, ctx()).values[0]?.value).toBe(v);
