@@ -106,6 +106,18 @@ Locally the invite flow uses a stand-in directory in DynamoDB Local, so invited 
 
 Officers schedule events (Foundry, Bear hunt, SvS, other) with a start time and an answer deadline, which defaults to one hour before the start. Members answer Yes / Maybe / No per game account, so someone with alts answers once per account, and may change their mind until the deadline. The deadline is checked in the same write as the answer, so a late answer cannot slip through (FM-09). Officers see counts and the lists behind them, including who has not answered, and may answer on someone's behalf.
 
+## Importing a Hermes bundle
+
+```bash
+npm run import:foundry -w api -- --bundle /path/to/foundry            # dry run: prints the plan
+npm run import:foundry -w api -- --bundle /path/to/foundry --apply    # writes to the local table
+npm run import:foundry -w api -- --bundle /path/to/foundry --apply --aws   # writes to the PopHq stack
+```
+
+The import keeps its distance from guesses: accounts without a numeric Player ID are listed for an officer instead of invented, imported accounts get membership `unknown` (another system's snapshot does not prove who is in the alliance today), an account POP HQ already knows keeps its name and rank, and every observation keeps its own date, precision and source. Record ids come from the bundle, so importing the same bundle twice changes nothing.
+
+Alliance charts count confirmed members and guests; accounts with unknown membership are counted separately and included only on request (`?cohort=all`).
+
 ## Change history
 
 Every write to the main table streams into a separate, put-only history table: what changed, when, who did it, through which route and why. Nothing there is ever updated or deleted, so a correction never hides the value it replaced. `GET /v1/accounts/{playerId}/timeline` returns it, newest first: members for their own accounts, officers for anyone.

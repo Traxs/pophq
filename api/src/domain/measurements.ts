@@ -16,7 +16,10 @@ type MetricDef =
 export const METRICS = {
   city_power: { kind: "integer", unit: "power", min: 0, max: 2_000_000_000 },
   hero_power_total: { kind: "integer", unit: "power", min: 0, max: 2_000_000_000 },
-  combat_score: { kind: "decimal", unit: "score", min: 0, max: 1e12 },
+  // Strength comes in several kinds; each is its own metric so they are never mixed up.
+  // foundry_strength is the Foundry comparison score (Hermes calls it combat_power),
+  // which is not city power. Further kinds (SvS, rally) are added here as they appear.
+  foundry_strength: { kind: "decimal", unit: "score", min: 0, max: 1e12 },
   troops_infantry: { kind: "integer", unit: "troops", min: 0, max: 50_000_000 },
   troops_lancer: { kind: "integer", unit: "troops", min: 0, max: 50_000_000 },
   troops_marksman: { kind: "integer", unit: "troops", min: 0, max: 50_000_000 },
@@ -26,7 +29,8 @@ export const METRICS = {
 } as const satisfies Record<string, MetricDef>;
 
 export type MetricName = keyof typeof METRICS;
-export type Precision = "exact" | "rounded" | "unknown";
+/** "date": the day is known but not the time, as with values read from a dated screenshot. */
+export type Precision = "exact" | "rounded" | "date" | "unknown";
 export type Source = "player" | "officer" | "hermes" | "import";
 
 export interface MeasurementValue {
