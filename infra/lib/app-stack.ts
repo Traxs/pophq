@@ -10,14 +10,16 @@ import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import { DynamoEventSource, SqsDlq } from "aws-cdk-lib/aws-lambda-event-sources";
 import { NodejsFunction, OutputFormat } from "aws-cdk-lib/aws-lambda-nodejs";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
+import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as cr from "aws-cdk-lib/custom-resources";
 import type { Construct } from "constructs";
 import { S3_GRANT_ACTIONS, acknowledge, acknowledgeEach } from "./nag.js";
-import { ALERT_EMAIL_PARAMETER, API_ENTRY, LOCK_FILE, LOGIN_ASSETS, REPO_ROOT } from "./config.js";
+import { ALERT_EMAIL_PARAMETER, API_ENTRY, HISTORY_ENTRY, LOCK_FILE, LOGIN_ASSETS, REPO_ROOT } from "./config.js";
 import { CostGuard } from "./cost-guard.js";
 
 export interface AppStackProps extends StackProps {
@@ -90,14 +92,32 @@ export class AppStack extends Stack {
       managedLoginVersion: cognito.ManagedLoginVersion.NEWER_MANAGED_LOGIN,
     });
 
+    // Every change to the main table is streamed here and kept for good (DATA-04). Separate
+    // table: it is written only by the stream handler and read for timelines and charts.
+    const history = new dynamodb.TableV2(this, "History", {
+      partitionKey: { name: "PK", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "SK", type: dynamodb.AttributeType.STRING },
+      billing: dynamodb.Billing.onDemand(),
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      deletionProtection: true,
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+
     const guard = new CostGuard(this, "CostGuard", {
       monthlyBudgetUsd: 10,
       tripAtUsd: 15,
       alertEmailParameter: ALERT_EMAIL_PARAMETER,
     });
 
-    const api = this.api(table.tableName, users.userPoolProviderUrl, guard.killSwitch.parameterName, users.userPoolId);
+    const api = this.api(
+      table.tableName,
+      users.userPoolProviderUrl,
+      guard.killSwitch.parameterName,
+      users.userPoolId,
+      history.tableName,
+    );
     table.grantReadWriteData(api.handler);
+    history.grantReadData(api.handler);
     guard.killSwitch.grantRead(api.handler);
     // Officer invites create and, on failure, remove logins in this pool (P4.1). No other
     // Cognito rights: the API never reads passwords, tokens or other pools.
@@ -136,6 +156,8 @@ export class AppStack extends Stack {
       ]),
       installLatestAwsSdk: false,
     }).getResponseField("value");
+
+    this.historyWriter(table, history);
 
     const bucket = new s3.Bucket(this, "Web", {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
@@ -284,11 +306,47 @@ export class AppStack extends Stack {
     this.suppressions(table, bucket);
   }
 
+  /** Stream handler: writes one history entry per change; failures park in a dead-letter queue. */
+  private historyWriter(source: dynamodb.TableV2, history: dynamodb.TableV2): void {
+    const failures = new sqs.Queue(this, "HistoryFailures", {
+      enforceSSL: true,
+      retentionPeriod: Duration.days(14),
+    });
+    const writer = new NodejsFunction(this, "HistoryWriter", {
+      entry: HISTORY_ENTRY,
+      projectRoot: REPO_ROOT,
+      depsLockFilePath: LOCK_FILE,
+      runtime: lambda.Runtime.NODEJS_24_X,
+      architecture: lambda.Architecture.ARM_64,
+      memorySize: 256,
+      timeout: Duration.seconds(30),
+      loggingFormat: lambda.LoggingFormat.JSON,
+      logGroup: new logs.LogGroup(this, "HistoryWriterLogs", {
+        retention: logs.RetentionDays.ONE_MONTH,
+        removalPolicy: RemovalPolicy.DESTROY,
+      }),
+      environment: { HISTORY_TABLE_NAME: history.tableName },
+      bundling: { format: OutputFormat.ESM, target: "node24", minify: true, externalModules: [] },
+    });
+    history.grantWriteData(writer);
+    writer.addEventSource(
+      new DynamoEventSource(source, {
+        startingPosition: lambda.StartingPosition.TRIM_HORIZON,
+        batchSize: 100,
+        maxBatchingWindow: Duration.seconds(10),
+        retryAttempts: 3,
+        bisectBatchOnError: true,
+        onFailure: new SqsDlq(failures),
+      }),
+    );
+  }
+
   private api(
     tableName: string,
     issuer: string,
     killSwitch: string,
     userPoolId: string,
+    historyTableName: string,
   ): { handler: NodejsFunction; rest: apigw.RestApi; alias: lambda.Alias } {
     const handler = new NodejsFunction(this, "Api", {
       entry: API_ENTRY,
@@ -308,6 +366,7 @@ export class AppStack extends Stack {
         OIDC_ISSUER: issuer,
         KILL_SWITCH_PARAMETER: killSwitch,
         USER_POOL_ID: userPoolId,
+        HISTORY_TABLE_NAME: historyTableName,
         NODE_OPTIONS: "--enable-source-maps",
       },
       bundling: {
@@ -408,6 +467,7 @@ export class AppStack extends Stack {
       "AwsSolutions-APIG3": "WAF sits on CloudFront in Milestone 2 (P2.2).",
       "AwsSolutions-APIG4": "The API checks the Cognito token itself; the Lambda authorizer comes in P2.5.",
       "AwsSolutions-COG4": "The API checks the Cognito token itself; the Lambda authorizer comes in P2.5.",
+      "AwsSolutions-SQS3": "This queue is the dead-letter queue for the history stream; it needs none itself.",
       "AwsSolutions-COG1": "Length 14 without composition rules (NIST 800-63B); sign-in moves to email codes in P2.3.",
       "AwsSolutions-COG2": "MFA is required for officers in P2.6; players use email codes.",
       "AwsSolutions-COG3": "Threat protection needs the Plus plan; not justified for 100 users.",

@@ -53,7 +53,9 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 
 - [ ] P3.1 Item metadata everywhere: version, updatedBy, via, changeId, reason; ETag / If-Match with 412 (DATA-03)
 - [ ] P3.2 Idempotency keys scoped to principal + route + body hash (FM-05)
-- [ ] P3.3 History pipeline: Streams -> history-writer -> put-only History table; quarantine to S3 after 3 failures (FM-01, DATA-04); version chain + nightly reconcile
+- [x] P3.3a History pipeline: every change streams into a put-only History table with who/when/how/what; retries can't duplicate; failures park in a dead-letter queue (FM-01, DATA-04). Locally the dev server polls DynamoDB Local's stream and runs the same handler
+- [x] P3.3b Timeline API: `GET /v1/accounts/:pid/timeline` (own account, or any for officers), paged
+- [ ] P3.3c Nightly reconcile of the version chain, and timelines for events and answers in the UI
 - [ ] P3.4 Firehose -> Parquet lake (long format, FM-22), Glue catalog, Athena workgroup with 50 MB scan limit; nightly incremental export
 - [ ] P3.5 `asOf` reads and timelines from the History table (DATA-02)
 - [ ] P3.6 Personal data: per-subject data keys in a separate Keys table (no PITR/exports), envelope encryption, erasure by key deletion (FM-02, DATA-05)
@@ -124,6 +126,12 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 - [ ] P10.5 Archive the Cloudflare app's D1 data as CSV, then retire it with the owner's go-ahead (LCH-03)
 
 ## Decisions made during the build
+
+- **2026-09-19, POP HQ is the record, Hermes is the reasoning:** Hermes pulls roster, power, events, attendance and history to build strategy, and writes back only as **proposals** an officer accepts (recorded as "via agent, approved by X"). Data arrives from four sources: members themselves, Hermes reading screenshots, officers typing for others, and occasional CSV import.
+- **2026-09-19, conflicting values:** the newest observation of a value wins, whoever reported it; the previous one stays in the timeline with its source and time. Ordering is by observed time, then recorded time, then record id.
+- **2026-09-19, who sees what:** members see their own timeline and charts only; officers see every member's history, the change log, notes and alt links.
+- **2026-09-19, retention:** every observation is kept in full, no summarising. At alliance size this is a few thousand records a year.
+- **2026-09-19, event outcomes are stored:** our and the opponent's matchmaking power, opponent count, result, notes and per-player points where known, with their evidence.
 
 - **2026-09-19, sign-in survives reloads (changes the spec's "tokens in memory"):** tokens live in localStorage so a reload, a new tab or the next day keeps people signed in. Safeguards: strict CSP (only our own scripts), Cognito refresh-token rotation with a 60 s grace period, refresh tokens valid 90 days from the last code sign-in, access tokens valid 1 hour and renewed on demand under a cross-tab lock, "Sign out" revokes the refresh token and ends the Cognito session, signing out in one tab signs out all tabs. Revisit (move to an HttpOnly-cookie session through the API) if the app ever loads third-party scripts.
 

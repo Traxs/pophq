@@ -6,6 +6,7 @@ import { handle } from "hono/aws-lambda";
 import { createBaseClient, createDocClient, dataConfigFromEnv } from "./data/client.js";
 import { Repository } from "./data/repository.js";
 import { createRemoteVerifier } from "./http/auth.js";
+import { HistoryStore } from "./data/history.js";
 import { createApp } from "./http/app.js";
 import { cognitoLogins } from "./ops/cognitoLogins.js";
 import { createPauseCheck } from "./ops/pause.js";
@@ -26,8 +27,13 @@ const isPaused = createPauseCheck(
 const userPoolId = process.env.USER_POOL_ID;
 if (!userPoolId) throw new Error("USER_POOL_ID is not set");
 
+const historyTable = process.env.HISTORY_TABLE_NAME;
+if (!historyTable) throw new Error("HISTORY_TABLE_NAME is not set");
+const historyDb = createDocClient(createBaseClient({ ...config, tableName: historyTable }));
+
 const app = createApp({
   repo,
+  history: new HistoryStore(historyDb, historyTable),
   verifier: createRemoteVerifier(issuer, process.env.OIDC_AUDIENCE),
   isPaused,
   logins: cognitoLogins(new CognitoIdentityProviderClient({}), userPoolId),
