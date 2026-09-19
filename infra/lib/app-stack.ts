@@ -56,13 +56,20 @@ export class AppStack extends Stack {
       signInAliases: { email: true },
       signInCaseSensitive: false,
       accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
+      // Choice-based sign-in: an emailed one-time code, or a password (Cognito requires
+      // passwords to stay allowed). Passkeys follow with the custom domain (P2.3), because a
+      // passkey is bound to the domain it was created on.
+      signInPolicy: { allowedFirstAuthFactors: { password: true, emailOtp: true } },
       mfa: cognito.Mfa.OPTIONAL,
       mfaSecondFactor: { otp: true, sms: false },
       passwordPolicy: { minLength: 14, requireSymbols: false },
       deletionProtection: true,
       removalPolicy: RemovalPolicy.RETAIN,
     });
-    users.addDomain("Domain", { cognitoDomain: { domainPrefix: `pophq-${this.account}` } });
+    users.addDomain("Domain", {
+      cognitoDomain: { domainPrefix: `pophq-${this.account}` },
+      managedLoginVersion: cognito.ManagedLoginVersion.NEWER_MANAGED_LOGIN,
+    });
 
     const guard = new CostGuard(this, "CostGuard", {
       monthlyBudgetUsd: 10,
@@ -139,6 +146,8 @@ export class AppStack extends Stack {
 
     const client = users.addClient("WebClient", {
       generateSecret: false,
+      // Only the choice-based flow the managed login page uses (plus refresh tokens).
+      authFlows: { user: true },
       preventUserExistenceErrors: true,
       enableTokenRevocation: true,
       accessTokenValidity: Duration.hours(1),
@@ -150,6 +159,13 @@ export class AppStack extends Stack {
         callbackUrls: [`${origin}/callback`],
         logoutUrls: [origin],
       },
+    });
+
+    // Managed login style. Step 1 uses Cognito's default style; POP HQ colors follow (P2.3).
+    new cognito.CfnManagedLoginBranding(this, "LoginBranding", {
+      userPoolId: users.userPoolId,
+      clientId: client.userPoolClientId,
+      useCognitoProvidedValues: true,
     });
 
     // Hashed assets never change: cache for a year and keep old files (prune: false) so open

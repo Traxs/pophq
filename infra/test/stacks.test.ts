@@ -99,7 +99,16 @@ describe("AppStack", () => {
     template.hasResourceProperties("AWS::Cognito::UserPoolClient", {
       GenerateSecret: false,
       AllowedOAuthFlows: ["code"],
+      ExplicitAuthFlows: ["ALLOW_USER_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"],
     });
+  });
+
+  it("uses managed login with emailed one-time codes", () => {
+    template.hasResourceProperties("AWS::Cognito::UserPoolDomain", { ManagedLoginVersion: 2 });
+    template.hasResourceProperties("AWS::Cognito::UserPool", {
+      Policies: Match.objectLike({ SignInPolicy: { AllowedFirstAuthFactors: ["PASSWORD", "EMAIL_OTP"] } }),
+    });
+    template.resourceCountIs("AWS::Cognito::ManagedLoginBranding", 1);
   });
 
   it("routes /v1/* to the API uncached and keeps the bucket private", () => {
