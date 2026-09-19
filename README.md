@@ -32,7 +32,7 @@ The local sign-in page shows a **test sign-in picker** (local development only).
 | --- | --- | --- |
 | Poppy | Player | 100000001 Poppy, 100000002 Goatzilla (alt) |
 | Aurora | Officer, R4 | 100000008 Aurora; sees the Members table |
-| Polaris | Owner, R5 | 100000010 Polaris |
+| Polaris | Site owner (in-game R5) | 100000010 Polaris |
 | Newcomer | Signed in, no account yet | none |
 
 The **Dev** tab (local only) loads more data while the app runs: add random members, backfill months of history for the selected account, run a report round, or reset to the demo set. Its API routes exist only on the local server, never on AWS.
@@ -71,6 +71,22 @@ Before the first deploy of the app stack, store the budget alert email in SSM (k
 ```bash
 aws ssm put-parameter --region eu-central-1 --name /pophq/alerts/email --type String --value "you@example.com"
 ```
+
+## Roles and the first owner
+
+Roles are Cognito groups defined in the stack: `player` (every signed-in person), `officer` (roster and planning tools) and `owner` (runs the site). They are app permissions, not game ranks: R1–R5 is stored on the game account.
+
+Create a login (no invitation email; sign-in uses emailed one-time codes, so the random password is never used), add it to a group, and link it to its game account:
+
+```bash
+POOL=$(aws cloudformation describe-stacks --region eu-central-1 --stack-name PopHq --query "Stacks[0].Outputs[?OutputKey=='UserPoolId'].OutputValue" --output text)
+aws cognito-idp admin-create-user --region eu-central-1 --user-pool-id "$POOL" --username you@example.com --user-attributes Name=email,Value=you@example.com Name=email_verified,Value=true --message-action SUPPRESS
+aws cognito-idp admin-set-user-password --region eu-central-1 --user-pool-id "$POOL" --username you@example.com --password "$(openssl rand -base64 30)" --permanent
+aws cognito-idp admin-add-user-to-group --region eu-central-1 --user-pool-id "$POOL" --username you@example.com --group-name owner
+npm run admin -w api -- link --email you@example.com --player-id 123456789 --name "YourName" --rank R4
+```
+
+Group changes apply at the next sign-in.
 
 ## Cost guard
 

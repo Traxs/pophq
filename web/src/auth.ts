@@ -44,7 +44,7 @@ export const DEV_PERSONAS: DevPersona[] = import.meta.env.DEV
   ? [
       { clientId: "pophq-dev-player", name: "Poppy", role: "Player", description: "Member with an alt account (Goatzilla)" },
       { clientId: "pophq-dev-officer", name: "Aurora", role: "Officer · R4", description: "Sees the Members table" },
-      { clientId: "pophq-dev-owner", name: "Polaris", role: "Owner · R5", description: "Alliance leader" },
+      { clientId: "pophq-dev-owner", name: "Polaris", role: "Site owner", description: "Runs POP HQ; owner tools" },
       { clientId: "pophq-dev-newcomer", name: "Newcomer", role: "No account yet", description: "Signed in, waiting for an officer" },
     ]
   : [];

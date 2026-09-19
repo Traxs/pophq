@@ -68,6 +68,21 @@ export class AppStack extends Stack {
       deletionProtection: true,
       removalPolicy: RemovalPolicy.RETAIN,
     });
+    // App roles, not game ranks (R1–R5 live on the game account). Every signed-in person is a
+    // player; officer adds roster tools; owner runs the site. Keep in sync with domain/principal.ts.
+    for (const [groupName, precedence, description] of [
+      ["owner", 0, "Site owner: runs POP HQ, owner tools"],
+      ["officer", 10, "Alliance officers: roster and planning tools"],
+      ["player", 20, "Alliance members (every signed-in person is treated as a player)"],
+    ] as const) {
+      new cognito.CfnUserPoolGroup(this, `Group-${groupName}`, {
+        userPoolId: users.userPoolId,
+        groupName,
+        precedence,
+        description,
+      });
+    }
+
     users.addDomain("Domain", {
       cognitoDomain: { domainPrefix: `pophq-${this.account}` },
       managedLoginVersion: cognito.ManagedLoginVersion.NEWER_MANAGED_LOGIN,

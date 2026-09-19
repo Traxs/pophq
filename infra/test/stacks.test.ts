@@ -103,6 +103,12 @@ describe("AppStack", () => {
     });
   });
 
+  it("defines the app roles as Cognito groups", () => {
+    for (const name of ["owner", "officer", "player"]) {
+      template.hasResourceProperties("AWS::Cognito::UserPoolGroup", { GroupName: name });
+    }
+  });
+
   it("uses managed login with emailed one-time codes", () => {
     template.hasResourceProperties("AWS::Cognito::UserPoolDomain", { ManagedLoginVersion: 2 });
     template.hasResourceProperties("AWS::Cognito::UserPool", {

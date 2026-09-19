@@ -2,7 +2,7 @@
 // Dev personas (pick them on the local sign-in page):
 //   player  -> 100000001 Poppy (main) and 100000002 Goatzilla (alt)
 //   officer -> 100000008 Aurora (R4)
-//   owner   -> 100000010 Polaris (R5)
+//   owner   -> 100000010 Polaris (site owner; in-game R5)
 //   anyone else -> signed in, but no game account linked yet
 import { createBaseClient, createDocClient, dataConfigFromEnv } from "../src/data/client.js";
 import { Repository } from "../src/data/repository.js";

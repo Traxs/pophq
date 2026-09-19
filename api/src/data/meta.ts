@@ -1,6 +1,6 @@
 import { ulid } from "ulid";
 
-export type Via = "web" | "agent" | "jobs" | "migration" | "seed";
+export type Via = "web" | "agent" | "jobs" | "migration" | "seed" | "admin";
 
 /** Who changed something and how; stored on every item so the change history can attribute it. */
 export interface Actor {
