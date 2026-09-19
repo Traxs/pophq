@@ -12,6 +12,7 @@ import {
   type Principal,
 } from "../domain/principal.js";
 import type { Repository } from "../data/repository.js";
+import { invite, type LoginDirectory } from "../ops/invite.js";
 import type { TokenVerifier } from "./auth.js";
 
 export type Env = { Variables: { principal: Principal; requestId: string } };
@@ -24,9 +25,11 @@ export interface AppDeps {
   extend?: (app: Hono<Env>) => void;
   /** Kill switch: when it returns true, every route answers 503 (FM-13). */
   isPaused?: () => Promise<boolean>;
+  /** Where logins live (Cognito in AWS); without it, inviting is unavailable. */
+  logins?: LoginDirectory;
 }
 
-export function createApp({ repo, verifier, now = () => new Date(), extend, isPaused }: AppDeps) {
+export function createApp({ repo, verifier, now = () => new Date(), extend, isPaused, logins }: AppDeps) {
   const app = new Hono<Env>().basePath("/v1");
 
   app.use("*", async (c, next) => {
@@ -157,8 +160,32 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         };
       }),
     );
-    return c.json({ items });
+    return c.json({ items, seats: await repo.seats() });
   });
+
+  /**
+   * Invites someone: creates the login (emailed codes, no password), the game account and the
+   * link between them (P4.1). Repeating the same invite changes nothing. Without an email it
+   * only adds the game account, for members who report through an officer.
+   */
+  if (logins) {
+    app.post("/invites", async (c) => {
+      const p = c.get("principal");
+      requireOfficer(p);
+      const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+      const result = await invite(
+        { repo, logins, actor: { id: p.sub, via: "web", reason: "invite" } },
+        {
+          ...(typeof body.email === "string" ? { email: body.email } : {}),
+          playerId: String(body.playerId ?? ""),
+          name: String(body.name ?? ""),
+          ...(typeof body.rank === "string" ? { rank: body.rank } : {}),
+          ...(typeof body.alliance === "string" ? { alliance: body.alliance } : {}),
+        },
+      );
+      return c.json(result, result.accountCreated || result.linked || result.loginCreated ? 201 : 200);
+    });
+  }
 
   app.post("/accounts/:pid/reports", async (c) => {
     const p = c.get("principal");

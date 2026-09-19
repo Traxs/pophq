@@ -88,6 +88,12 @@ npm run admin -w api -- link --email you@example.com --player-id 123456789 --nam
 
 Group changes apply at the next sign-in.
 
+## Inviting members
+
+Officers invite from the Members page: email (optional), Player ID, game name and rank. One step creates the Cognito login (sign-in by emailed code, no password), the game account and the link between them; repeating the same invite changes nothing. Without an email only the game account is created, for members who report through an officer. Logins are capped at 100 seats (FM-08); alts of the same person don't use extra seats.
+
+Locally the invite flow uses a stand-in directory in DynamoDB Local, so invited emails can't actually sign in there; the test personas cover signed-in flows.
+
 ## Cost guard
 
 - **Request cap:** API Gateway only accepts requests carrying an API key that CloudFront adds. The usage plan allows 20 requests per second and **20,000 requests per day**, which caps API cost at about $3 a month even under a flood. Calls to the execute-api URL get 403.

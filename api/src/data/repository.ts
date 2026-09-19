@@ -10,7 +10,16 @@ import type { GameAccount } from "../domain/accounts.js";
 import { ConflictError, NotFoundError } from "../domain/errors.js";
 import { searchKey } from "../domain/identity.js";
 import type { Report } from "../domain/measurements.js";
-import { accountKey, accountLinkLockKey, allianceIndexKey, loginLinkKey, reportKey } from "./keys.js";
+import { SEAT_CAP, type Seats } from "../domain/seats.js";
+import {
+  accountKey,
+  accountLinkLockKey,
+  allianceIndexKey,
+  loginLinkKey,
+  reportKey,
+  seatCounterKey,
+  seatKey,
+} from "./keys.js";
 import { newItemMeta, type Actor } from "./meta.js";
 
 /** Accounts that may receive new data: active members and guests (FM-12). */
@@ -111,6 +120,79 @@ export class Repository {
       }
       throw err;
     }
+  }
+
+  /**
+   * Takes a seat for a login, or reports that it already had one. The counter and the seat item
+   * change in one transaction, so the cap holds even when officers invite at the same time (FM-08).
+   */
+  async reserveSeat(sub: string, actor: Actor, cap: number = SEAT_CAP): Promise<"reserved" | "already"> {
+    const meta = newItemMeta(actor, this.clock());
+    try {
+      await this.db.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              Put: {
+                TableName: this.table,
+                Item: { ...seatKey(sub), type: "seat", sub, ...meta },
+                ConditionExpression: "attribute_not_exists(PK)",
+              },
+            },
+            {
+              Update: {
+                TableName: this.table,
+                Key: seatCounterKey(),
+                UpdateExpression: "SET #used = if_not_exists(#used, :zero) + :one, updatedAt = :now",
+                ConditionExpression: "attribute_not_exists(#used) OR #used < :cap",
+                ExpressionAttributeNames: { "#used": "used" },
+                ExpressionAttributeValues: { ":zero": 0, ":one": 1, ":cap": cap, ":now": meta.updatedAt },
+              },
+            },
+          ],
+        }),
+      );
+      return "reserved";
+    } catch (err) {
+      const reasons = cancellationCodes(err);
+      if (reasons?.[0] === "ConditionalCheckFailed") return "already";
+      if (reasons?.[1] === "ConditionalCheckFailed") {
+        throw new ConflictError(`All ${cap} sign-in seats are in use. Free one before inviting someone new.`);
+      }
+      throw err;
+    }
+  }
+
+  /** Gives a seat back; used when creating a login succeeded but the seat did not. */
+  async releaseSeat(sub: string): Promise<void> {
+    await this.db.send(
+      new TransactWriteCommand({
+        TransactItems: [
+          {
+            Delete: {
+              TableName: this.table,
+              Key: seatKey(sub),
+              ConditionExpression: "attribute_exists(PK)",
+            },
+          },
+          {
+            Update: {
+              TableName: this.table,
+              Key: seatCounterKey(),
+              UpdateExpression: "SET #used = #used - :one",
+              ConditionExpression: "#used > :zero",
+              ExpressionAttributeNames: { "#used": "used" },
+              ExpressionAttributeValues: { ":one": 1, ":zero": 0 },
+            },
+          },
+        ],
+      }),
+    );
+  }
+
+  async seats(cap: number = SEAT_CAP): Promise<Seats> {
+    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: seatCounterKey() }));
+    return { used: Number(res.Item?.used ?? 0), cap };
   }
 
   async linkedAccounts(sub: string): Promise<string[]> {

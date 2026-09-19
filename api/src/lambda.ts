@@ -1,11 +1,13 @@
 // AWS Lambda entry point. Configuration comes from environment variables set by CDK;
 // they hold names and URLs only, never secret values (SEC-03).
+import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
 import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
 import { handle } from "hono/aws-lambda";
 import { createBaseClient, createDocClient, dataConfigFromEnv } from "./data/client.js";
 import { Repository } from "./data/repository.js";
 import { createRemoteVerifier } from "./http/auth.js";
 import { createApp } from "./http/app.js";
+import { cognitoLogins } from "./ops/cognitoLogins.js";
 import { createPauseCheck } from "./ops/pause.js";
 
 const issuer = process.env.OIDC_ISSUER;
@@ -21,6 +23,14 @@ const isPaused = createPauseCheck(
   { onError: (err) => console.error(JSON.stringify({ level: "error", message: "kill switch read failed", err: String(err) })) },
 );
 
-const app = createApp({ repo, verifier: createRemoteVerifier(issuer, process.env.OIDC_AUDIENCE), isPaused });
+const userPoolId = process.env.USER_POOL_ID;
+if (!userPoolId) throw new Error("USER_POOL_ID is not set");
+
+const app = createApp({
+  repo,
+  verifier: createRemoteVerifier(issuer, process.env.OIDC_AUDIENCE),
+  isPaused,
+  logins: cognitoLogins(new CognitoIdentityProviderClient({}), userPoolId),
+});
 
 export const handler = handle(app);

@@ -547,6 +547,10 @@ button.card {
   border-color: var(--line);
 }
 
+.btn-small {
+  padding: 8px 14px;
+  font-size: 0.9rem;
+}
 .btn-block {
   width: 100%;
 }

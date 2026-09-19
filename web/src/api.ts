@@ -42,6 +42,32 @@ export interface RosterRow extends GameAccount {
   reports: number;
 }
 
+export interface Seats {
+  used: number;
+  cap: number;
+}
+
+export interface Roster {
+  items: RosterRow[];
+  seats: Seats;
+}
+
+export interface InviteInput {
+  email?: string;
+  playerId: string;
+  name: string;
+  rank?: string;
+}
+
+export interface InviteResult {
+  account: GameAccount;
+  accountCreated: boolean;
+  sub?: string;
+  loginCreated: boolean;
+  linked: boolean;
+  seats: Seats;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -81,6 +107,7 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
     reports: (playerId: string) => request<Reports>("GET", `/accounts/${playerId}/reports`),
     addReport: (playerId: string, values: { metric: string; value: string | number }[]) =>
       request<Report>("POST", `/accounts/${playerId}/reports`, { values }),
-    roster: () => request<{ items: RosterRow[] }>("GET", "/roster"),
+    roster: () => request<Roster>("GET", "/roster"),
+    invite: (input: InviteInput) => request<InviteResult>("POST", "/invites", input),
   };
 }

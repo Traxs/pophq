@@ -94,9 +94,22 @@ export class AppStack extends Stack {
       alertEmailParameter: ALERT_EMAIL_PARAMETER,
     });
 
-    const api = this.api(table.tableName, users.userPoolProviderUrl, guard.killSwitch.parameterName);
+    const api = this.api(table.tableName, users.userPoolProviderUrl, guard.killSwitch.parameterName, users.userPoolId);
     table.grantReadWriteData(api.handler);
     guard.killSwitch.grantRead(api.handler);
+    // Officer invites create and, on failure, remove logins in this pool (P4.1). No other
+    // Cognito rights: the API never reads passwords, tokens or other pools.
+    api.handler.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          "cognito-idp:ListUsers",
+          "cognito-idp:AdminCreateUser",
+          "cognito-idp:AdminSetUserPassword",
+          "cognito-idp:AdminDeleteUser",
+        ],
+        resources: [users.userPoolArn],
+      }),
+    );
 
     // Only CloudFront knows the API key, so calls to the execute-api URL get 403 before any
     // Lambda runs. The usage-plan quota is a hard ceiling on API cost, even under a flood.
@@ -269,7 +282,12 @@ export class AppStack extends Stack {
     this.suppressions(table, bucket);
   }
 
-  private api(tableName: string, issuer: string, killSwitch: string): { handler: NodejsFunction; rest: apigw.RestApi } {
+  private api(
+    tableName: string,
+    issuer: string,
+    killSwitch: string,
+    userPoolId: string,
+  ): { handler: NodejsFunction; rest: apigw.RestApi } {
     const handler = new NodejsFunction(this, "Api", {
       entry: API_ENTRY,
       projectRoot: REPO_ROOT,
@@ -287,6 +305,7 @@ export class AppStack extends Stack {
         TABLE_NAME: tableName,
         OIDC_ISSUER: issuer,
         KILL_SWITCH_PARAMETER: killSwitch,
+        USER_POOL_ID: userPoolId,
         NODE_OPTIONS: "--enable-source-maps",
       },
       bundling: {

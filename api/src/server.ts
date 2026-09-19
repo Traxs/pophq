@@ -4,6 +4,7 @@ import { createBaseClient, createDocClient, dataConfigFromEnv } from "./data/cli
 import { Repository } from "./data/repository.js";
 import { createTable, deleteTable } from "./data/table.js";
 import { seedDemo } from "./dev/demo.js";
+import { devLogins } from "./dev/logins.js";
 import { registerDevRoutes } from "./dev/routes.js";
 import { createRemoteVerifier } from "./http/auth.js";
 import { createApp } from "./http/app.js";
@@ -18,7 +19,8 @@ const config = dataConfigFromEnv(env);
 if (!config.endpoint) throw new Error("The local server only runs against DynamoDB Local (DYNAMODB_ENDPOINT).");
 
 const base = createBaseClient(config);
-const repo = new Repository(createDocClient(base), config.tableName);
+const db = createDocClient(base);
+const repo = new Repository(db, config.tableName);
 
 const reset = async () => {
   await deleteTable(base, config.tableName);
@@ -29,6 +31,7 @@ const reset = async () => {
 const app = createApp({
   repo,
   verifier: createRemoteVerifier(env.OIDC_ISSUER),
+  logins: devLogins(db, config.tableName),
   extend: (a) => registerDevRoutes(a, { repo, reset }),
 });
 

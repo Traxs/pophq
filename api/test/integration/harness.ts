@@ -11,7 +11,11 @@ import { registerDevRoutes } from "../../src/dev/routes.js";
 
 const ISSUER = "https://issuer.test";
 
-export async function createHarness(opts: { devTools?: boolean; isPaused?: () => Promise<boolean> } = {}) {
+import type { LoginDirectory } from "../../src/ops/invite.js";
+
+export async function createHarness(
+  opts: { devTools?: boolean; isPaused?: () => Promise<boolean>; logins?: LoginDirectory } = {},
+) {
   const config = {
     tableName: `pophq-test-${ulid().toLowerCase()}`,
     region: "eu-central-1",
@@ -30,6 +34,7 @@ export async function createHarness(opts: { devTools?: boolean; isPaused?: () =>
     verifier,
     ...(opts.devTools ? { extend: (a) => registerDevRoutes(a, { repo, reset: async () => {} }) } : {}),
     ...(opts.isPaused ? { isPaused: opts.isPaused } : {}),
+    ...(opts.logins ? { logins: opts.logins } : {}),
   });
 
   const token = (sub: string, groups: string[] = []) =>

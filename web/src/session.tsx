@@ -130,6 +130,7 @@ export function SessionProvider({
       reports: guard(inner.reports),
       addReport: guard(inner.addReport),
       roster: guard(inner.roster),
+      invite: guard(inner.invite),
     };
   }, [user, acting, endSession]);
 

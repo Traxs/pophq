@@ -61,8 +61,9 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 
 ## Milestone 4: Membership lifecycle and officer inbox
 
-- [ ] P4.1 Access requests with profile screenshot, officer approval, bulk approve (ID-01, ID-02, FM-26, LCH-01)
-- [ ] P4.2 Seat cap of 100 enabled logins with a conditional counter (FM-08)
+- [x] P4.1a Officer invites: one step creates the login (emailed codes), the game account and the link; repeating it changes nothing; officers-only; Members page form
+- [ ] P4.1b Access requests with profile screenshot, officer approval, bulk approve (ID-01, ID-02, FM-26, LCH-01) — for people who already have a login (alts, re-links); needs evidence uploads (P3.8)
+- [x] P4.2 Seat cap of 100 logins with a conditional counter (FM-08); shown on the Members page
 - [ ] P4.3 Alt linking with verification and conflict handling (ID-12)
 - [ ] P4.4 Transfer out / welcome back; login disabled only when no active account remains; Cognito calls via outbox (ID-08, ID-09, FM-07)
 - [ ] P4.5 Archive after 12 months, owner erasure (ID-10, ID-11)

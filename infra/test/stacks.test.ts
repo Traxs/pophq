@@ -120,6 +120,28 @@ describe("AppStack", () => {
     expect(dist).not.toContain("67f7725c-6f97-4210-82d7-5512b31e9d03"); // managed SecurityHeadersPolicy
   });
 
+  it("lets the API manage logins in its own user pool only", () => {
+    template.hasResourceProperties("AWS::IAM::Policy", {
+      PolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: [
+              "cognito-idp:AdminCreateUser",
+              "cognito-idp:AdminDeleteUser",
+              "cognito-idp:AdminSetUserPassword",
+              "cognito-idp:ListUsers",
+            ],
+            Effect: "Allow",
+            Resource: Match.objectLike({ "Fn::GetAtt": Match.arrayWith(["Arn"]) }),
+          }),
+        ]),
+      }),
+    });
+    const policies = JSON.stringify(template.findResources("AWS::IAM::Policy"));
+    expect(policies).not.toContain("cognito-idp:*");
+    expect(policies).not.toContain("AdminGetUser");
+  });
+
   it("defines the app roles as Cognito groups", () => {
     for (const name of ["owner", "officer", "player"]) {
       template.hasResourceProperties("AWS::Cognito::UserPoolGroup", { GroupName: name });
