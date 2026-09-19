@@ -51,6 +51,8 @@ Every change ships with tests. The pre-commit hook runs gitleaks, lint, type che
 
 ## Deployment
 
+New API code first serves 10 % of requests for five minutes. If it errors during that window, CodeDeploy sends everyone back to the previous version and the deploy fails.
+
 Merging to `main` is the only way to deploy. The pipeline in AWS (CodePipeline, eu-central-1) pulls `main` through a GitHub connection, runs lint, type checks, unit tests and the build, then synthesizes the CDK app, updates itself, deploys the `PopHq` stack and runs a smoke test against the live URL.
 
 ```bash
@@ -87,6 +89,12 @@ npm run admin -w api -- link --email you@example.com --player-id 123456789 --nam
 ```
 
 Group changes apply at the next sign-in.
+
+Logins created before seats were counted (the first owner) don't hold a seat yet; run this once:
+
+```bash
+npm run admin -w api -- backfill-seats
+```
 
 ## Inviting members
 

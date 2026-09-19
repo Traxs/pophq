@@ -3,6 +3,7 @@ import {
   GetCommand,
   PutCommand,
   QueryCommand,
+  ScanCommand,
   TransactWriteCommand,
   type DynamoDBDocumentClient,
 } from "@aws-sdk/lib-dynamodb";
@@ -397,6 +398,31 @@ export class Repository {
       ExpressionAttributeValues: { ":pk": `ACCOUNT#${playerId}`, ":sk": "REPORT#" },
     });
     return items.map(toReport);
+  }
+
+  /**
+   * Every login that has at least one game account. Used once to give seats to logins that
+   * existed before seats were counted; the table is alliance-sized, so a scan is fine.
+   */
+  async allLinkedLogins(): Promise<string[]> {
+    const subs = new Set<string>();
+    let ExclusiveStartKey: Record<string, unknown> | undefined;
+    do {
+      const res = await this.db.send(
+        new ScanCommand({
+          TableName: this.table,
+          FilterExpression: "#type = :type",
+          // "sub" is a reserved word in DynamoDB expressions.
+          ExpressionAttributeNames: { "#type": "type", "#sub": "sub" },
+          ExpressionAttributeValues: { ":type": "login-link" },
+          ProjectionExpression: "#sub",
+          ExclusiveStartKey,
+        }),
+      );
+      for (const item of res.Items ?? []) if (item.sub) subs.add(String(item.sub));
+      ExclusiveStartKey = res.LastEvaluatedKey;
+    } while (ExclusiveStartKey);
+    return [...subs];
   }
 
   private async queryAll(

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { ConflictError, ValidationError } from "../../src/domain/errors.js";
+import { backfillSeats } from "../../src/ops/backfillSeats.js";
 import { invite, parseEmail, type LoginDirectory } from "../../src/ops/invite.js";
 import { createHarness, type Harness } from "./harness.js";
 
@@ -170,5 +171,29 @@ describe("parseEmail", () => {
   });
   it.each(["", "no-at", "a@b", "a b@c.de", `${"x".repeat(250)}@example.com`])("rejects %j", (v) => {
     expect(() => parseEmail(v)).toThrow(ValidationError);
+  });
+});
+
+describe("backfillSeats", () => {
+  it("gives one seat per login that has accounts, and is safe to repeat", async () => {
+    const h = await createHarness();
+    const logins = fakeLogins();
+    const opts = { repo: h.repo, logins, actor };
+    // Two logins invited through the app, plus one linked directly (as the first owner was).
+    await invite(opts, { email: "a@example.com", playerId: "600000001", name: "Alpha" });
+    await invite(opts, { email: "b@example.com", playerId: "600000002", name: "Beta" });
+    await h.repo.createAccount(
+      { playerId: "600000003", name: "Legacy", alliance: "POP", status: "active" },
+      actor,
+    );
+    await h.repo.linkAccount("sub-legacy", "600000003", actor);
+    expect((await h.repo.seats()).used).toBe(2);
+
+    const first = await backfillSeats(h.repo, actor);
+    expect(first).toMatchObject({ logins: 3, reserved: 1, seats: { used: 3, cap: 100 } });
+
+    const again = await backfillSeats(h.repo, actor);
+    expect(again).toMatchObject({ logins: 3, reserved: 0, seats: { used: 3 } });
+    await h.cleanup();
   });
 });

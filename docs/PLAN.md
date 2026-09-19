@@ -33,7 +33,9 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 - [ ] P1.10 PR checks in GitHub Actions: `cdk synth` + cdk-nag (done); `cdk diff` against prod via a read-only OIDC role (no AWS keys in GitHub)
 - [ ] P1.11 Repo settings after the first push: `main` ruleset (PR, required checks, no force-push), secret scanning + push protection, CodeQL, dependency review, private vulnerability reporting, Actions read-only + SHA pinning, fork approval for all outside contributors
 - [x] P1.12 Cost guard: AWS Budget ($10 alerts), kill switch as an SSM flag checked by the API and tripped at $15 (FM-13); API key only CloudFront sends + usage plan quota of 20,000 requests/day as a hard cost ceiling. Excluding domain registration from the budget (FM-27) moves to P2.1
-- [ ] P1.13 Lambda code signing and CodeDeploy canary (10% for 5 min, alarms roll back) with a pre-traffic integration hook (PLT-02, PLT-07)
+- [x] P1.13a CodeDeploy canary: new API code serves 10 % of requests for 5 minutes; an error alarm rolls it back and fails the deploy (PLT-02)
+- [ ] P1.13b Lambda code signing (PLT-07): needs a signing step for the CDK asset in the pipeline (AWS Signer profile + signing job), otherwise enforcement blocks every deploy
+- [ ] P1.13c Pre-traffic hook running integration tests against the new version before it takes traffic
 
 ## Milestone 2: Identity and edge in production
 
@@ -63,7 +65,7 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 
 - [x] P4.1a Officer invites: one step creates the login (emailed codes), the game account and the link; repeating it changes nothing; officers-only; Members page form
 - [ ] P4.1b Access requests with profile screenshot, officer approval, bulk approve (ID-01, ID-02, FM-26, LCH-01) — for people who already have a login (alts, re-links); needs evidence uploads (P3.8)
-- [x] P4.2 Seat cap of 100 logins with a conditional counter (FM-08); shown on the Members page
+- [x] P4.2 Seat cap of 100 logins with a conditional counter (FM-08); shown on the Members page; `npm run admin -w api -- backfill-seats` counts logins created before seats existed
 - [ ] P4.3 Alt linking with verification and conflict handling (ID-12)
 - [ ] P4.4 Transfer out / welcome back; login disabled only when no active account remains; Cognito calls via outbox (ID-08, ID-09, FM-07)
 - [ ] P4.5 Archive after 12 months, owner erasure (ID-10, ID-11)

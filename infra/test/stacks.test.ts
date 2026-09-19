@@ -120,6 +120,27 @@ describe("AppStack", () => {
     expect(dist).not.toContain("67f7725c-6f97-4210-82d7-5512b31e9d03"); // managed SecurityHeadersPolicy
   });
 
+  it("rolls new API code out to 10% first and rolls back on errors", () => {
+    template.hasResourceProperties("AWS::Lambda::Alias", { Name: "live" });
+    template.hasResourceProperties("AWS::CodeDeploy::DeploymentGroup", {
+      DeploymentConfigName: "CodeDeployDefault.LambdaCanary10Percent5Minutes",
+      AutoRollbackConfiguration: Match.objectLike({
+        Enabled: true,
+        Events: Match.arrayWith(["DEPLOYMENT_FAILURE", "DEPLOYMENT_STOP_ON_ALARM"]),
+      }),
+      AlarmConfiguration: Match.objectLike({ Enabled: true }),
+    });
+    template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+      MetricName: "Errors",
+      Namespace: "AWS/Lambda",
+      Threshold: 1,
+      ComparisonOperator: "GreaterThanOrEqualToThreshold",
+    });
+    // API Gateway must call the alias, not the unversioned function.
+    const api = JSON.stringify(template.findResources("AWS::ApiGateway::Method"));
+    expect(api).toContain("Live");
+  });
+
   it("lets the API manage logins in its own user pool only", () => {
     template.hasResourceProperties("AWS::IAM::Policy", {
       PolicyDocument: Match.objectLike({

@@ -1,5 +1,6 @@
 // Owner admin tasks against the live AWS stack, run locally with your own AWS login.
-//   npm run admin -w api -- link --email you@example.com --player-id 123456789 --name "Name" [--rank R5] [--alliance POP]
+//   npm run admin -w api -- link --email you@example.com --player-id 123456789 --name "Name" [--rank R5]
+//   npm run admin -w api -- backfill-seats   (gives a seat to logins created before seats existed) [--alliance POP]
 // Finds the table and user pool from the PopHq stack outputs and asks before writing.
 import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
@@ -8,6 +9,7 @@ import { CognitoIdentityProviderClient, ListUsersCommand } from "@aws-sdk/client
 import { createBaseClient, createDocClient } from "../src/data/client.js";
 import { Repository } from "../src/data/repository.js";
 import { DomainError } from "../src/domain/errors.js";
+import { backfillSeats } from "../src/ops/backfillSeats.js";
 import { linkLogin } from "../src/ops/linkLogin.js";
 
 const REGION = "eu-central-1";
@@ -30,11 +32,14 @@ const fail = (message: string): never => {
   process.exit(1);
 };
 
-if (positionals[0] !== "link") fail('Usage: npm run admin -w api -- link --email <email> --player-id <id> --name "<name>" [--rank R1-R5]');
+const command = positionals[0];
+if (command !== "link" && command !== "backfill-seats") {
+  fail('Usage: npm run admin -w api -- link --email <email> --player-id <id> --name "<name>" [--rank R1-R5]\n       npm run admin -w api -- backfill-seats');
+}
 if (process.env.DYNAMODB_ENDPOINT) fail("DYNAMODB_ENDPOINT is set; this script works on the AWS stack only. Unset it first.");
 const { email, name } = values;
 const playerId = values["player-id"];
-if (!email || !playerId || !name) fail("--email, --player-id and --name are required.");
+if (command === "link" && (!email || !playerId || !name)) fail("--email, --player-id and --name are required.");
 
 const outputs = await new CloudFormationClient({ region: REGION })
   .send(new DescribeStacksCommand({ StackName: STACK }))
@@ -52,7 +57,11 @@ const findSub = async (address: string) => {
 };
 
 console.info(`Stack ${STACK}: table ${tableName}, user pool ${userPoolId}`);
-console.info(`Link login ${email} to game account ${playerId} "${name}"${values.rank ? ` (${values.rank})` : ""}.`);
+console.info(
+  command === "link"
+    ? `Link login ${email} to game account ${playerId} "${name}"${values.rank ? ` (${values.rank})` : ""}.`
+    : "Give a sign-in seat to every login that already has a game account.",
+);
 if (!values.yes) {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const answer = await rl.question("Continue? [y/N] ");
@@ -61,9 +70,15 @@ if (!values.yes) {
 }
 
 const repo = new Repository(createDocClient(createBaseClient({ tableName, region: REGION })), tableName);
+const actor = { id: "owner-admin-script", via: "admin" as const, reason: "owner bootstrap" };
 try {
+  if (command === "backfill-seats") {
+    const res = await backfillSeats(repo, actor);
+    console.info(`${res.logins} logins, ${res.reserved} new seats; ${res.seats.used} of ${res.seats.cap} seats used.`);
+    process.exit(0);
+  }
   const res = await linkLogin(
-    { repo, findSub, actor: { id: "owner-admin-script", via: "admin", reason: "owner bootstrap" } },
+    { repo, findSub, actor },
     {
       email: email!,
       playerId: playerId!,

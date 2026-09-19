@@ -2,8 +2,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CfnOutput, Duration, RemovalPolicy, Stack, type CfnElement, type StackProps } from "aws-cdk-lib";
 import * as apigw from "aws-cdk-lib/aws-apigateway";
+import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
+import * as codedeploy from "aws-cdk-lib/aws-codedeploy";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as iam from "aws-cdk-lib/aws-iam";
@@ -287,7 +289,7 @@ export class AppStack extends Stack {
     issuer: string,
     killSwitch: string,
     userPoolId: string,
-  ): { handler: NodejsFunction; rest: apigw.RestApi } {
+  ): { handler: NodejsFunction; rest: apigw.RestApi; alias: lambda.Alias } {
     const handler = new NodejsFunction(this, "Api", {
       entry: API_ENTRY,
       projectRoot: REPO_ROOT,
@@ -320,8 +322,28 @@ export class AppStack extends Stack {
       },
     });
 
+    /**
+     * New code goes live for 10 % of requests for five minutes first. If it errors, CodeDeploy
+     * puts everyone back on the previous version and the deploy fails (PLT-02).
+     */
+    const alias = new lambda.Alias(this, "Live", { aliasName: "live", version: handler.currentVersion });
+    const failing = new cloudwatch.Alarm(this, "ApiErrors", {
+      alarmDescription: "POP HQ API returned errors; rolls back a running deploy.",
+      metric: alias.metricErrors({ period: Duration.minutes(1), statistic: "Sum" }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    new codedeploy.LambdaDeploymentGroup(this, "ApiCanary", {
+      alias,
+      deploymentConfig: codedeploy.LambdaDeploymentConfig.CANARY_10PERCENT_5MINUTES,
+      alarms: [failing],
+      autoRollback: { failedDeployment: true, deploymentInAlarm: true },
+    });
+
     const rest = new apigw.LambdaRestApi(this, "Rest", {
-      handler,
+      handler: alias,
       proxy: true,
       defaultMethodOptions: { apiKeyRequired: true },
       endpointConfiguration: { types: [apigw.EndpointType.REGIONAL] },
@@ -341,7 +363,7 @@ export class AppStack extends Stack {
         accessLogFormat: apigw.AccessLogFormat.jsonWithStandardFields(),
       },
     });
-    return { handler, rest };
+    return { handler, rest, alias };
   }
 
   private suppressions(table: dynamodb.TableV2, bucket: s3.Bucket): void {
@@ -352,8 +374,9 @@ export class AppStack extends Stack {
       [
         "Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
         "Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs",
+        "Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSCodeDeployRoleForLambdaLimited",
       ],
-      "AWS managed policies for Lambda logging and the API Gateway logging role.",
+      "AWS managed policies for Lambda logging, the API Gateway logging role and the CodeDeploy canary.",
     );
     acknowledgeEach(
       this,
