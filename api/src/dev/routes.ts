@@ -5,7 +5,7 @@ import { ValidationError } from "../domain/errors.js";
 import { parsePlayerId } from "../domain/identity.js";
 import type { Principal } from "../domain/principal.js";
 import type { Repository } from "../data/repository.js";
-import { addRandomMembers, backfillHistory, everyoneReports } from "./demo.js";
+import { addDemoEvents, addRandomMembers, backfillHistory, everyoneReports, randomAnswers } from "./demo.js";
 
 type Env = { Variables: { principal: Principal; requestId: string } };
 
@@ -39,6 +39,15 @@ export function registerDevRoutes(app: Hono<Env>, { repo, reset }: DevDeps): voi
 
   app.post("/dev/report-round", async (c) => {
     return c.json(await everyoneReports(repo, new Date(), actor(c.get("principal"))));
+  });
+
+  app.post("/dev/events", async (c) => {
+    const created = await addDemoEvents(repo, new Date(), actor(c.get("principal")));
+    return c.json({ created: created.length, titles: created.map((e) => e.title) });
+  });
+
+  app.post("/dev/answers", async (c) => {
+    return c.json(await randomAnswers(repo, new Date(), actor(c.get("principal"))));
   });
 
   app.post("/dev/reset", async (c) => {

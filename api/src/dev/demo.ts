@@ -5,6 +5,7 @@ import { ConflictError } from "../domain/errors.js";
 import { parseReport } from "../domain/measurements.js";
 import type { Actor } from "../data/meta.js";
 import type { Repository } from "../data/repository.js";
+import { ANSWERS, parseNewEvent, type AllianceEvent } from "../domain/events.js";
 
 const DAY = 86_400_000;
 
@@ -175,4 +176,42 @@ export async function everyoneReports(repo: Repository, now: Date, actor: Actor)
     reported++;
   });
   return { members: members.length, reported };
+}
+
+/** Demo events a few days out, so the Events page has something to show locally. */
+export async function addDemoEvents(repo: Repository, now: Date, actor: Actor): Promise<AllianceEvent[]> {
+  const at = (days: number, hour: number) => {
+    const d = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+    d.setUTCHours(hour, 0, 0, 0);
+    return d.toISOString();
+  };
+  const planned = [
+    { kind: "foundry" as const, title: "Foundry Saturday", startsAt: at(2, 19), notes: "Two legions, be online 10 minutes early." },
+    { kind: "bear" as const, title: "Bear hunt", startsAt: at(1, 18) },
+    { kind: "svs" as const, title: "SvS preparation call", startsAt: at(5, 20), notes: "Bring your buff wishes." },
+  ];
+  const created: AllianceEvent[] = [];
+  for (const input of planned) {
+    const event = parseNewEvent(input, { eventId: ulid(now.getTime()), createdBy: actor.id, now });
+    await repo.createEvent(event, actor);
+    created.push(event);
+  }
+  return created;
+}
+
+/** Random answers from active members, so officers can see counts and lists locally. */
+export async function randomAnswers(repo: Repository, now: Date, actor: Actor) {
+  const random = prng(now.getTime() & 0xffff);
+  const events = (await repo.listEvents("POP", now.toISOString())).filter((e) => Date.parse(e.deadlineAt) > now.getTime());
+  const accounts = (await repo.listAccounts("POP")).filter((a) => a.status === "active");
+  let answered = 0;
+  for (const event of events) {
+    for (const account of accounts) {
+      if (random() < 0.25) continue; // a quarter stay silent, like real life
+      const answer = ANSWERS[random() < 0.7 ? 0 : random() < 0.5 ? 1 : 2] ?? "yes";
+      await repo.setAnswer(event, account.playerId, answer, "player", actor);
+      answered += 1;
+    }
+  }
+  return { events: events.length, answers: answered };
 }

@@ -1,4 +1,6 @@
-import { change, compact, daysBetween, relativeDay } from "../format";
+import { useEffect, useState } from "react";
+import type { EventListItem } from "../api";
+import { change, compact, dayTime, daysBetween, relativeDay, untilText } from "../format";
 import { navigate } from "../router";
 import { REPORT_DUE_DAYS } from "../rules";
 import { useSession } from "../session";
@@ -7,8 +9,22 @@ import { ChangePill } from "./Power";
 
 
 export function Home() {
-  const { me, account } = useSession();
+  const { me, account, api, dataVersion } = useSession();
   const { latest, previous, loading } = usePower();
+  const [nextEvent, setNextEvent] = useState<EventListItem | null>(null);
+
+  useEffect(() => {
+    api
+      .events()
+      .then((r) => {
+        const now = Date.now();
+        const open = r.items
+          .filter((e) => !e.closed && Date.parse(e.startsAt) >= now)
+          .toSorted((a, b) => a.startsAt.localeCompare(b.startsAt));
+        setNextEvent(open[0] ?? null);
+      })
+      .catch(() => setNextEvent(null)); // the Events page reports problems
+  }, [api, dataVersion]);
 
   if (me && me.accounts.length === 0) return <NoAccount />;
 
@@ -56,6 +72,23 @@ export function Home() {
         )}
       </section>
 
+      {nextEvent && (
+        <button type="button" className="card todo" onClick={() => navigate("/events")}>
+          <span className="todo-icon" aria-hidden="true">
+            {nextEvent.myAnswer ? "✓" : "?"}
+          </span>
+          <span className="todo-text">
+            <strong>{nextEvent.myAnswer ? nextEvent.title : `Answer: ${nextEvent.title}`}</strong>
+            <span className="muted">
+              {dayTime(nextEvent.startsAt)} · answers close {untilText(nextEvent.deadlineAt)}
+            </span>
+          </span>
+          <span className="chevron" aria-hidden="true">
+            ›
+          </span>
+        </button>
+      )}
+
       {latest && (
         <button type="button" className="card summary" onClick={() => navigate("/power")}>
           <span className="summary-label">Power</span>
@@ -64,7 +97,7 @@ export function Home() {
         </button>
       )}
 
-      <p className="muted small center">SvS buff slots, events and lineups arrive here in the next updates.</p>
+      <p className="muted small center">SvS buff slots and event lineups arrive here in the next updates.</p>
     </>
   );
 }

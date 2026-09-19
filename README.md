@@ -94,6 +94,10 @@ Officers invite from the Members page: email (optional), Player ID, game name an
 
 Locally the invite flow uses a stand-in directory in DynamoDB Local, so invited emails can't actually sign in there; the test personas cover signed-in flows.
 
+## Events
+
+Officers schedule events (Foundry, Bear hunt, SvS, other) with a start time and an answer deadline, which defaults to one hour before the start. Members answer Yes / Maybe / No per game account, so someone with alts answers once per account, and may change their mind until the deadline. The deadline is checked in the same write as the answer, so a late answer cannot slip through (FM-09). Officers see counts and the lists behind them, including who has not answered, and may answer on someone's behalf.
+
 ## Cost guard
 
 - **Request cap:** API Gateway only accepts requests carrying an API key that CloudFront adds. The usage plan allows 20 requests per second and **20,000 requests per day**, which caps API cost at about $3 a month even under a flood. Calls to the execute-api URL get 403.

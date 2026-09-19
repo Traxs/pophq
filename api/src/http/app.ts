@@ -2,9 +2,12 @@ import { Hono } from "hono";
 import { ulid } from "ulid";
 import { parseNewAccount } from "../domain/accounts.js";
 import { DomainError, NotFoundError, UnauthorizedError, ValidationError } from "../domain/errors.js";
+import { countAnswers, isClosed, parseAnswer, parseNewEvent } from "../domain/events.js";
 import { parsePlayerId } from "../domain/identity.js";
 import { currentValues, parseReport } from "../domain/measurements.js";
 import {
+  defaultActing,
+  isOfficer,
   parseGroups,
   requireCanWriteFor,
   requireOfficer,
@@ -16,6 +19,9 @@ import { invite, type LoginDirectory } from "../ops/invite.js";
 import type { TokenVerifier } from "./auth.js";
 
 export type Env = { Variables: { principal: Principal; requestId: string } };
+
+/** Events stay visible for a while after they happened, so people can see what they missed. */
+const PAST_EVENTS_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface AppDeps {
   repo: Repository;
@@ -186,6 +192,90 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       return c.json(result, result.accountCreated || result.linked || result.loginCreated ? 201 : 200);
     });
   }
+
+  // ---- Events (EVT-01..EVT-04) ----
+
+  /** Officers schedule an event; answers close at the deadline. */
+  app.post("/events", async (c) => {
+    const p = c.get("principal");
+    requireOfficer(p);
+    const event = parseNewEvent(await readJson(c.req.raw), {
+      eventId: ulid(),
+      createdBy: p.sub,
+      now: now(),
+    });
+    await repo.createEvent(event, { id: p.sub, via: "web" });
+    return c.json(event, 201);
+  });
+
+  /** Upcoming events with the answer of the account the person is acting for. */
+  app.get("/events", async (c) => {
+    const p = c.get("principal");
+    const alliance = (c.req.query("alliance") ?? "POP").toUpperCase();
+    const at = now();
+    const from = new Date(at.getTime() - PAST_EVENTS_MS).toISOString();
+    const events = await repo.listEvents(alliance, from);
+    const acting = defaultActing(p);
+    const mine = acting ? await repo.answersForAccount(acting, from) : [];
+    const byEvent = new Map(mine.map((a) => [a.eventId, a]));
+    const items = events.map((event) => ({
+      ...event,
+      closed: isClosed(event, at),
+      myAnswer: byEvent.get(event.eventId)?.answer ?? null,
+    }));
+    return c.json({ items });
+  });
+
+  /** One event with its counts; officers also see who answered what and who is missing. */
+  app.get("/events/:id", async (c) => {
+    const p = c.get("principal");
+    const event = await repo.getEvent(c.req.param("id"));
+    if (!event) throw new NotFoundError("Event not found.");
+    const answers = await repo.listAnswers(event.eventId);
+    const accounts = await repo.listAccounts(event.alliance);
+    const expected = accounts.filter((a) => a.status === "active" || a.status === "guest");
+    const counts = countAnswers(answers, expected.length);
+    const body: Record<string, unknown> = {
+      ...event,
+      closed: isClosed(event, now()),
+      counts,
+      myAnswer: (() => {
+        const acting = defaultActing(p);
+        return acting ? (answers.find((a) => a.playerId === acting)?.answer ?? null) : null;
+      })(),
+    };
+    if (isOfficer(p)) {
+      const byPlayer = new Map(answers.map((a) => [a.playerId, a]));
+      body.members = expected.map((account) => ({
+        playerId: account.playerId,
+        name: account.name,
+        rank: account.rank ?? null,
+        answer: byPlayer.get(account.playerId)?.answer ?? null,
+        answeredAt: byPlayer.get(account.playerId)?.answeredAt ?? null,
+      }));
+    }
+    return c.json(body);
+  });
+
+  /** Answers for a game account: the player for their own accounts, officers for anyone. */
+  app.put("/events/:id/answers/:pid", async (c) => {
+    const p = c.get("principal");
+    const pid = parsePlayerId(c.req.param("pid"));
+    const role = requireCanWriteFor(p, pid);
+    const event = await repo.getEvent(c.req.param("id"));
+    if (!event) throw new NotFoundError("Event not found.");
+    const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+    const answer = parseAnswer(body.answer);
+    const saved = await repo.setAnswer(
+      event,
+      pid,
+      answer,
+      role,
+      { id: p.sub, via: "web" },
+      typeof body.note === "string" ? body.note.trim().slice(0, 200) : undefined,
+    );
+    return c.json(saved);
+  });
 
   app.post("/accounts/:pid/reports", async (c) => {
     const p = c.get("principal");

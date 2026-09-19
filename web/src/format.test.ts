@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { change, compact, formatDigitsInput, initials, parseDigits, relativeDay } from "./format";
+import { change, compact, formatDigitsInput, initials, parseDigits, relativeDay, untilText } from "./format";
 
 describe("number input", () => {
   it("formats while typing and strips everything but digits", () => {
@@ -51,5 +51,18 @@ describe("initials", () => {
     expect(initials("IceQueen")).toBe("IQ");
     expect(initials("poppy")).toBe("PO");
     expect(initials("Goatzilla")).toBe("GO");
+  });
+});
+
+describe("untilText", () => {
+  const now = new Date("2026-09-19T12:00:00Z");
+  it.each([
+    ["2026-09-19T12:20:00Z", "in 20 min"],
+    ["2026-09-19T16:00:00Z", "in 4 h"],
+    ["2026-09-21T19:00:00Z", "in 2 days"],
+    ["2026-09-19T12:00:00Z", "now"],
+    ["2026-09-19T11:00:00Z", "now"],
+  ])("%s -> %s", (iso, expected) => {
+    expect(untilText(iso, now)).toBe(expected);
   });
 });

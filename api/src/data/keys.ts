@@ -13,6 +13,24 @@ export const reportKey = (playerId: string, reportId: string) => ({
   SK: `REPORT#${reportId}`,
 });
 
+export const eventKey = (eventId: string) => ({ PK: `EVENT#${eventId}`, SK: "META" });
+
+/** Events of an alliance, sorted by start time (GSI1). */
+export const eventIndexKey = (alliance: string, startsAt: string, eventId: string) => ({
+  GSI1PK: `EVENTS#${alliance}`,
+  GSI1SK: `${startsAt}#${eventId}`,
+});
+
+/** One answer per game account per event; also readable per account through GSI1. */
+export const answerKey = (eventId: string, playerId: string) => ({
+  PK: `EVENT#${eventId}`,
+  SK: `ANSWER#${playerId}`,
+});
+export const answerIndexKey = (playerId: string, startsAt: string, eventId: string) => ({
+  GSI1PK: `ACCOUNT#${playerId}`,
+  GSI1SK: `ANSWER#${startsAt}#${eventId}`,
+});
+
 /** One item per login that holds a seat, plus a counter so the cap is enforced atomically (FM-08). */
 export const seatKey = (sub: string) => ({ PK: `LOGIN#${sub}`, SK: "SEAT" });
 export const seatCounterKey = () => ({ PK: "SEATS", SK: "COUNT" });

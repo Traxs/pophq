@@ -7,14 +7,19 @@ import {
   type DynamoDBDocumentClient,
 } from "@aws-sdk/lib-dynamodb";
 import type { GameAccount } from "../domain/accounts.js";
+import type { AllianceEvent, Answer, EventAnswer } from "../domain/events.js";
 import { ConflictError, NotFoundError } from "../domain/errors.js";
 import { searchKey } from "../domain/identity.js";
 import type { Report } from "../domain/measurements.js";
 import { SEAT_CAP, type Seats } from "../domain/seats.js";
 import {
   accountKey,
+  answerIndexKey,
+  answerKey,
   accountLinkLockKey,
   allianceIndexKey,
+  eventIndexKey,
+  eventKey,
   loginLinkKey,
   reportKey,
   seatCounterKey,
@@ -117,6 +122,135 @@ export class Repository {
       if (reasons?.[0] === "ConditionalCheckFailed") throw new NotFoundError(`Game account ${playerId} not found.`);
       if (reasons?.[1] === "ConditionalCheckFailed") {
         throw new ConflictError(`Game account ${playerId} is already linked to a login.`);
+      }
+      throw err;
+    }
+  }
+
+  // ---- Events (EVT-01..EVT-03) ----
+
+  async createEvent(event: AllianceEvent, actor: Actor): Promise<void> {
+    const meta = newItemMeta(actor, this.clock());
+    try {
+      await this.db.send(
+        new PutCommand({
+          TableName: this.table,
+          Item: {
+            ...eventKey(event.eventId),
+            ...eventIndexKey(event.alliance, event.startsAt, event.eventId),
+            type: "event",
+            ...event,
+            ...meta,
+          },
+          ConditionExpression: "attribute_not_exists(PK)",
+        }),
+      );
+    } catch (err) {
+      if (err instanceof ConditionalCheckFailedException) throw new ConflictError("That event already exists.");
+      throw err;
+    }
+  }
+
+  async getEvent(eventId: string): Promise<AllianceEvent | undefined> {
+    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: eventKey(eventId) }));
+    return res.Item ? toEvent(res.Item) : undefined;
+  }
+
+  /** Events of an alliance that start at or after `from`, earliest first. */
+  async listEvents(alliance: string, from: string, limit = 50): Promise<AllianceEvent[]> {
+    const items = await this.queryAll({
+      IndexName: "GSI1",
+      KeyConditionExpression: "GSI1PK = :pk AND GSI1SK >= :from",
+      ExpressionAttributeValues: { ":pk": `EVENTS#${alliance}`, ":from": from },
+      Limit: limit,
+    });
+    return items.map(toEvent);
+  }
+
+  async listAnswers(eventId: string): Promise<EventAnswer[]> {
+    const items = await this.queryAll({
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+      ExpressionAttributeValues: { ":pk": `EVENT#${eventId}`, ":sk": "ANSWER#" },
+    });
+    return items.map(toAnswer);
+  }
+
+  /** Answers a game account has given for events starting at or after `from`. */
+  async answersForAccount(playerId: string, from: string): Promise<EventAnswer[]> {
+    const items = await this.queryAll({
+      IndexName: "GSI1",
+      KeyConditionExpression: "GSI1PK = :pk AND GSI1SK BETWEEN :from AND :to",
+      ExpressionAttributeValues: { ":pk": `ACCOUNT#${playerId}`, ":from": `ANSWER#${from}`, ":to": "ANSWER#~" },
+    });
+    return items.map(toAnswer);
+  }
+
+  /**
+   * Records an answer. The event must exist and its deadline must still be open at the moment
+   * of the write, so a late answer can't slip through between reading and writing (FM-09).
+   */
+  async setAnswer(
+    event: Pick<AllianceEvent, "eventId" | "startsAt" | "deadlineAt">,
+    playerId: string,
+    answer: Answer,
+    source: EventAnswer["source"],
+    actor: Actor,
+    note?: string,
+  ): Promise<EventAnswer> {
+    const now = this.clock();
+    const meta = newItemMeta(actor, now);
+    const record: EventAnswer = {
+      eventId: event.eventId,
+      playerId,
+      answer,
+      answeredAt: now.toISOString(),
+      source,
+      ...(note ? { note } : {}),
+    };
+    try {
+      await this.db.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              ConditionCheck: {
+                TableName: this.table,
+                Key: eventKey(event.eventId),
+                ConditionExpression: "attribute_exists(PK) AND deadlineAt > :now",
+                ExpressionAttributeValues: { ":now": now.toISOString() },
+              },
+            },
+            {
+              ConditionCheck: {
+                TableName: this.table,
+                Key: accountKey(playerId),
+                ConditionExpression: "attribute_exists(PK) AND #status IN (:active, :guest)",
+                ExpressionAttributeNames: { "#status": "status" },
+                ExpressionAttributeValues: WRITABLE_STATUSES,
+              },
+            },
+            {
+              Put: {
+                TableName: this.table,
+                Item: {
+                  ...answerKey(event.eventId, playerId),
+                  ...answerIndexKey(playerId, event.startsAt, event.eventId),
+                  type: "event-answer",
+                  ...record,
+                  ...meta,
+                },
+              },
+            },
+          ],
+        }),
+      );
+      return record;
+    } catch (err) {
+      const reasons = cancellationCodes(err);
+      if (reasons?.[0] === "ConditionalCheckFailed") {
+        throw new ConflictError("Answers for this event are closed.");
+      }
+      if (reasons?.[1] === "ConditionalCheckFailed") {
+        throw new NotFoundError(`Game account ${playerId} can't answer (unknown or no longer active).`);
       }
       throw err;
     }
@@ -307,4 +441,30 @@ function toReport(item: Record<string, unknown>): Report {
   if (item.supersedesReportId) report.supersedesReportId = String(item.supersedesReportId);
   if (item.note) report.note = String(item.note);
   return report;
+}
+
+function toEvent(item: Record<string, unknown>): AllianceEvent {
+  const event: AllianceEvent = {
+    eventId: String(item.eventId),
+    alliance: String(item.alliance),
+    kind: item.kind as AllianceEvent["kind"],
+    title: String(item.title),
+    startsAt: String(item.startsAt),
+    deadlineAt: String(item.deadlineAt),
+    createdBy: String(item.createdBy),
+  };
+  if (item.notes) event.notes = String(item.notes);
+  return event;
+}
+
+function toAnswer(item: Record<string, unknown>): EventAnswer {
+  const answer: EventAnswer = {
+    eventId: String(item.eventId),
+    playerId: String(item.playerId),
+    answer: item.answer as EventAnswer["answer"],
+    answeredAt: String(item.answeredAt),
+    source: item.source as EventAnswer["source"],
+  };
+  if (item.note) answer.note = String(item.note);
+  return answer;
 }

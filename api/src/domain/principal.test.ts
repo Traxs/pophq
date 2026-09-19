@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseGroups, requireCanWriteFor, resolveActingAccount, type Principal } from "./principal.js";
+import { defaultActing, parseGroups, requireCanWriteFor, resolveActingAccount, type Principal } from "./principal.js";
 import { ForbiddenError } from "./errors.js";
 
 const principal = (groups: string[], linked: string[]): Principal => ({
@@ -37,5 +37,25 @@ describe("parseGroups", () => {
     expect([...parseGroups(["officer", "admin", "owner"])].sort()).toEqual(["officer", "owner", "player"]);
     expect([...parseGroups(undefined)]).toEqual(["player"]);
     expect([...parseGroups("officer owner")].sort()).toEqual(["officer", "owner", "player"]);
+  });
+});
+
+describe("defaultActing", () => {
+  const withAccounts = (linked: string[], actingAs?: string): Principal => ({
+    sub: "login-1",
+    groups: new Set(["player"] as const),
+    linkedAccounts: new Set(linked),
+    ...(actingAs ? { actingAs } : {}),
+  });
+
+  it("uses the chosen account", () => {
+    expect(defaultActing(withAccounts(["1", "2"], "2"))).toBe("2");
+  });
+  it("uses the only linked account when nothing is chosen", () => {
+    expect(defaultActing(withAccounts(["7"]))).toBe("7");
+  });
+  it("stays neutral with several accounts and no choice", () => {
+    expect(defaultActing(withAccounts(["1", "2"]))).toBeUndefined();
+    expect(defaultActing(withAccounts([]))).toBeUndefined();
   });
 });

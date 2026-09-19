@@ -1,0 +1,125 @@
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { seedDemo } from "../../src/dev/demo.js";
+import { createHarness, type Harness } from "./harness.js";
+
+const OFFICER = { as: "officer", groups: ["officer"] };
+// Seeded: the player login has two accounts (100000001 Poppy, 100000002 Goatzilla), so reads
+// need an explicit account; the officer login has one and needs none.
+const PLAYER = { as: "player", headers: { "x-account-id": "100000001" } };
+const ALT = { as: "player", headers: { "x-account-id": "100000002" } };
+
+const inDays = (days: number, hour = 19) => {
+  const d = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+  d.setUTCHours(hour, 0, 0, 0);
+  return d.toISOString();
+};
+
+describe("events", () => {
+  let h: Harness;
+  let eventId: string;
+
+  beforeAll(async () => {
+    h = await createHarness();
+    await seedDemo(h.repo, new Date());
+    const res = await h.call("POST", "/events", {
+      ...OFFICER,
+      body: { kind: "foundry", title: "Foundry Saturday", startsAt: inDays(3), notes: "Bring traps" },
+    });
+    expect(res.status).toBe(201);
+    eventId = res.body.eventId as string;
+  });
+  afterAll(() => h.cleanup());
+
+  it("only lets officers create events, and validates them", async () => {
+    expect((await h.call("POST", "/events", { ...PLAYER, body: { title: "Mine", startsAt: inDays(2) } })).status).toBe(403);
+    expect((await h.call("POST", "/events", { ...OFFICER, body: { title: "No", startsAt: inDays(-2) } })).status).toBe(400);
+    expect((await h.call("POST", "/events", { ...OFFICER, body: { title: "Hi", startsAt: inDays(2) } })).status).toBe(400);
+  });
+
+  it("shows upcoming events to everyone with their own answer", async () => {
+    const list = await h.call("GET", "/events", PLAYER);
+    expect(list.status).toBe(200);
+    const items = list.body.items as { eventId: string; myAnswer: string | null; closed: boolean }[];
+    const event = items.find((i) => i.eventId === eventId)!;
+    expect(event).toMatchObject({ myAnswer: null, closed: false });
+
+    const saved = await h.call("PUT", `/events/${eventId}/answers/100000001`, { ...PLAYER, body: { answer: "YES " } });
+    expect(saved.status).toBe(200);
+    expect(saved.body).toMatchObject({ playerId: "100000001", answer: "yes", source: "player" });
+
+    const after = await h.call("GET", "/events", PLAYER);
+    expect((after.body.items as { eventId: string; myAnswer: string }[]).find((i) => i.eventId === eventId)?.myAnswer).toBe(
+      "yes",
+    );
+  });
+
+  it("keeps answers per game account, not per login", async () => {
+    await h.call("PUT", `/events/${eventId}/answers/100000002`, { ...ALT, body: { answer: "no" } });
+    const alt = await h.call("GET", "/events", ALT);
+    const main = await h.call("GET", "/events", PLAYER);
+    const answerOf = (res: { body: Record<string, unknown> }) =>
+      (res.body.items as { eventId: string; myAnswer: string }[]).find((i) => i.eventId === eventId)?.myAnswer;
+    expect(answerOf(alt)).toBe("no");
+    expect(answerOf(main)).toBe("yes");
+  });
+
+  it("lets a player change their mind until the deadline", async () => {
+    await h.call("PUT", `/events/${eventId}/answers/100000001`, { ...PLAYER, body: { answer: "maybe" } });
+    const detail = await h.call("GET", `/events/${eventId}`, PLAYER);
+    expect(detail.body.myAnswer).toBe("maybe");
+  });
+
+  it("refuses answers for accounts the player doesn't own", async () => {
+    const res = await h.call("PUT", `/events/${eventId}/answers/100000008`, { ...PLAYER, body: { answer: "yes" } });
+    expect(res.status).toBe(403);
+  });
+
+  it("lets officers answer for someone else, marked as an officer entry", async () => {
+    const res = await h.call("PUT", `/events/${eventId}/answers/100000005`, { ...OFFICER, body: { answer: "yes" } });
+    expect(res.body).toMatchObject({ source: "officer", playerId: "100000005" });
+  });
+
+  it("needs no account header when the login has just one account", async () => {
+    const res = await h.call("GET", "/events", { as: "officer", groups: ["officer"] });
+    const items = res.body.items as { eventId: string; myAnswer: string | null }[];
+    expect(items.find((i) => i.eventId === eventId)).toBeDefined();
+  });
+
+  it("gives officers counts and the list of who has not answered", async () => {
+    const detail = await h.call("GET", `/events/${eventId}`, OFFICER);
+    // Poppy changed yes -> maybe, Goatzilla said no, an officer answered yes for 100000005.
+    expect(detail.body.counts).toMatchObject({ yes: 1, no: 1, maybe: 1 });
+    const members = detail.body.members as { playerId: string; answer: string | null }[];
+    expect(members.length).toBeGreaterThan(30);
+    const counts = detail.body.counts as { yes: number; no: number; maybe: number; pending: number };
+    expect(members.filter((m) => m.answer === null).length).toBe(counts.pending);
+    expect(members.filter((m) => m.answer !== null).length).toBe(counts.yes + counts.no + counts.maybe);
+
+    const asPlayer = await h.call("GET", `/events/${eventId}`, PLAYER);
+    expect(asPlayer.body.members).toBeUndefined();
+    expect(asPlayer.body.counts).toMatchObject({ yes: 1 });
+  });
+
+  it("closes answers at the deadline (FM-09)", async () => {
+    const soon = await h.call("POST", "/events", {
+      ...OFFICER,
+      body: { title: "Closing soon", startsAt: inDays(1), deadlineAt: new Date(Date.now() + 1500).toISOString() },
+    });
+    const id = soon.body.eventId as string;
+    expect((await h.call("PUT", `/events/${id}/answers/100000001`, { ...PLAYER, body: { answer: "yes" } })).status).toBe(200);
+    await new Promise((r) => setTimeout(r, 1600));
+    const late = await h.call("PUT", `/events/${id}/answers/100000001`, { ...PLAYER, body: { answer: "no" } });
+    expect(late.status).toBe(409);
+    expect(late.body.title).toContain("closed");
+    const detail = await h.call("GET", `/events/${id}`, PLAYER);
+    expect(detail.body.closed).toBe(true);
+    expect(detail.body.myAnswer).toBe("yes"); // the answer given in time still stands
+  });
+
+  it("returns 404 for unknown events and 400 for a bad answer", async () => {
+    expect((await h.call("GET", "/events/01J000000000000000000NOPE", PLAYER)).status).toBe(404);
+    expect((await h.call("PUT", `/events/${eventId}/answers/100000001`, { ...PLAYER, body: { answer: "sure" } })).status).toBe(
+      400,
+    );
+  });
+});

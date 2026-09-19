@@ -1,6 +1,7 @@
 import { ErrorBanner, OfflineBanner, TabBar, TopBar } from "./components/Chrome";
 import { ToastProvider } from "./components/Toast";
 import { Dev } from "./pages/Dev";
+import { Events } from "./pages/Events";
 import { Home } from "./pages/Home";
 import { Members } from "./pages/Members";
 import { Power } from "./pages/Power";
@@ -40,6 +41,8 @@ function Shell() {
 
 function Page({ path }: { path: string }) {
   switch (path) {
+    case "/events":
+      return <Events />;
     case "/power":
       return <Power />;
     case "/members":

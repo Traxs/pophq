@@ -28,6 +28,15 @@ export function resolveActingAccount(header: string | undefined, linked: Readonl
   return header;
 }
 
+/**
+ * The account a read applies to: the one chosen with X-Account-Id, or the only linked account.
+ * With several alts and no choice, reads stay account-neutral rather than guessing.
+ */
+export function defaultActing(p: Principal): string | undefined {
+  if (p.actingAs) return p.actingAs;
+  return p.linkedAccounts.size === 1 ? [...p.linkedAccounts][0] : undefined;
+}
+
 /** Players may write for their own linked accounts; officers for any account. */
 export function requireCanWriteFor(p: Principal, playerId: string): "player" | "officer" {
   if (p.linkedAccounts.has(playerId)) return "player";

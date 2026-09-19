@@ -92,6 +92,11 @@ interface Tab {
 }
 
 const TAB_HOME: Tab = { path: "/", label: "Home", icon: "M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6h-6v6H5a1 1 0 0 1-1-1z" };
+const TAB_EVENTS: Tab = {
+  path: "/events",
+  label: "Events",
+  icon: "M7 3v3M17 3v3M4 8h16M5 6h14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1z",
+};
 const TAB_POWER: Tab = { path: "/power", label: "Power", icon: "M13 3L5 14h6l-1 7 8-11h-6z" };
 const TAB_MEMBERS: Tab = {
   path: "/members",
@@ -107,7 +112,7 @@ const TAB_DEV: Tab = {
 export function TabBar() {
   const path = usePath();
   const { isOfficer } = useSession();
-  const tabs = [TAB_HOME, TAB_POWER, ...(isOfficer ? [TAB_MEMBERS] : []), ...(import.meta.env.DEV ? [TAB_DEV] : [])];
+  const tabs = [TAB_HOME, TAB_EVENTS, TAB_POWER, ...(isOfficer ? [TAB_MEMBERS] : []), ...(import.meta.env.DEV ? [TAB_DEV] : [])];
   return (
     <nav className="tabbar" aria-label="Main">
       {tabs.map((t) => (

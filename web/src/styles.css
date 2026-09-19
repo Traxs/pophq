@@ -284,6 +284,9 @@ input {
 .stack {
   display: grid;
   gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .card {
@@ -1094,4 +1097,63 @@ th[aria-sort="descending"] .th-btn {
     grid-template-columns: 1fr auto;
     align-items: center;
   }
+}
+
+/* Events */
+.event {
+  display: grid;
+  gap: 8px;
+}
+.event-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.event-title {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.event-notes {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 0.9rem;
+}
+.event-past {
+  opacity: 0.7;
+}
+.answers button[aria-checked="true"] {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
+/* Four answer groups don't fit a phone row: let them wrap instead of clipping. */
+.event-breakdown .segmented {
+  flex-wrap: wrap;
+}
+.event-breakdown .segmented button {
+  flex: 1 0 45%;
+}
+.event-breakdown {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.member-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.chip-static {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.85rem;
+  background: var(--surface-2);
 }

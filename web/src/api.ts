@@ -68,6 +68,54 @@ export interface InviteResult {
   seats: Seats;
 }
 
+export type EventKind = "foundry" | "bear" | "svs" | "other";
+export type Answer = "yes" | "no" | "maybe";
+
+export interface AllianceEvent {
+  eventId: string;
+  alliance: string;
+  kind: EventKind;
+  title: string;
+  startsAt: string;
+  deadlineAt: string;
+  notes?: string;
+  createdBy: string;
+}
+
+export interface EventListItem extends AllianceEvent {
+  closed: boolean;
+  myAnswer: Answer | null;
+}
+
+export interface AnswerCounts {
+  yes: number;
+  no: number;
+  maybe: number;
+  pending: number;
+}
+
+export interface EventMember {
+  playerId: string;
+  name: string;
+  rank: string | null;
+  answer: Answer | null;
+  answeredAt: string | null;
+}
+
+export interface EventDetail extends EventListItem {
+  counts: AnswerCounts;
+  /** Officers only. */
+  members?: EventMember[];
+}
+
+export interface NewEvent {
+  kind: EventKind;
+  title: string;
+  startsAt: string;
+  deadlineAt?: string;
+  notes?: string;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -109,5 +157,10 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
       request<Report>("POST", `/accounts/${playerId}/reports`, { values }),
     roster: () => request<Roster>("GET", "/roster"),
     invite: (input: InviteInput) => request<InviteResult>("POST", "/invites", input),
+    events: () => request<{ items: EventListItem[] }>("GET", "/events"),
+    event: (eventId: string) => request<EventDetail>("GET", `/events/${eventId}`),
+    createEvent: (input: NewEvent) => request<AllianceEvent>("POST", "/events", input),
+    answer: (eventId: string, playerId: string, answer: Answer) =>
+      request<{ answer: Answer }>("PUT", `/events/${eventId}/answers/${playerId}`, { answer }),
   };
 }

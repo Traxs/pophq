@@ -13,6 +13,8 @@ export function Dev() {
         addMembers: (count: number) => request<{ created: number }>("POST", "/dev/members", { count }),
         backfill: (playerId: string, months: number) => request<{ months: number }>("POST", "/dev/history", { playerId, months }),
         reportRound: () => request<{ members: number; reported: number }>("POST", "/dev/report-round", {}),
+        events: () => request<{ created: number; titles: string[] }>("POST", "/dev/events", {}),
+        answers: () => request<{ events: number; answers: number }>("POST", "/dev/answers", {}),
         reset: () => request<{ reset: boolean }>("POST", "/dev/reset", {}),
       },
     };
@@ -81,6 +83,23 @@ export function Dev() {
       fn: async () => {
         const r = await api.dev.reportRound();
         return `${r.reported} of ${r.members} members reported`;
+      },
+    },
+    {
+      key: "events",
+      title: "Add demo events",
+      text: "Foundry, Bear and an SvS call in the next few days.",
+      label: "Add",
+      fn: async () => `Added ${(await api.dev.events()).created} events`,
+    },
+    {
+      key: "answers",
+      title: "Random answers",
+      text: "Most active members answer the open events.",
+      label: "Run",
+      fn: async () => {
+        const r = await api.dev.answers();
+        return `${r.answers} answers across ${r.events} events`;
       },
     },
     {

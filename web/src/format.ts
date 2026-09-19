@@ -54,6 +54,28 @@ export const shortDate = (iso: string): string =>
   new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 
 /** Initials for an avatar: "IceQueen" -> "IQ", "poppy" -> "PO". */
+const dayTimeFmt = new Intl.DateTimeFormat(undefined, {
+  weekday: "short",
+  day: "numeric",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+/** "Sat 21 Sep, 19:00" in the reader's own time zone. */
+export const dayTime = (iso: string): string => dayTimeFmt.format(new Date(iso));
+
+/** Rough, friendly distance to a moment: "in 3 days", "in 4 h", "in 20 min", "now". */
+export function untilText(iso: string, now: Date = new Date()): string {
+  const ms = Date.parse(iso) - now.getTime();
+  if (ms <= 0) return "now";
+  const minutes = Math.round(ms / 60_000);
+  if (minutes < 60) return `in ${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 36) return `in ${hours} h`;
+  return `in ${Math.round(hours / 24)} days`;
+}
+
 export function initials(name: string): string {
   const caps = name.match(/\p{Lu}/gu);
   if (caps && caps.length >= 2) return (caps[0]! + caps[1]!).toUpperCase();

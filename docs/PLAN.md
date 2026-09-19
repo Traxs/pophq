@@ -72,14 +72,14 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 
 ## Milestone 5: Events, lineups and attendance
 
-- [ ] P5.1 Event types (officer-defined), occurrences with legion sessions and deadlines (EVT-01, EVT-02)
-- [ ] P5.2 Answers per game account with deadline check in the same transaction (EVT-03, FM-09)
-- [ ] P5.3 Officer view: counts and lists by answer, battle time, furnace, Helios (EVT-04)
+- [x] P5.1a Events with kind (Foundry, Bear, SvS, Other), start time and answer deadline (EVT-02); officer-defined types and legion sessions still to come (EVT-01)
+- [x] P5.2 Answers per game account with the deadline checked in the same write (EVT-03, FM-09); players answer for their own accounts, officers for anyone
+- [x] P5.3a Officer view: counts and lists by answer including who has not answered (EVT-04); battle time, furnace and Helios columns still to come
 - [ ] P5.4 Lineups: one item per session, versioned, capacity 30 + 10 enforced in the write (EVT-04, EVT-05, FM-10); public view with own entry highlighted
 - [ ] P5.5 Strategy versions (Markdown + assignment table) on the event page (EVT-06)
 - [ ] P5.6 Actual attendance (Unknown default) and results (EVT-07, EVT-08); attendance score (last 10 confirmed commitments)
 - [ ] P5.7 Reminders every 15 minutes from due-reminder index, versioned keys (EVT-09, FM-18); not-answered list
-- [ ] P5.8 Dev tools: demo Foundry with 2 legions, random answers, auto-fill lineup, simulate outcome
+- [x] P5.8a Dev tools: demo events and random answers; lineup and outcome tools follow with P5.4/P5.6
 - [ ] P5.9 Foundry map with zones (EVT-10, Should)
 
 ## Milestone 6: SvS buff slots
