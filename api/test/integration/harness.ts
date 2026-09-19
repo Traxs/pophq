@@ -11,10 +11,11 @@ import { registerDevRoutes } from "../../src/dev/routes.js";
 
 const ISSUER = "https://issuer.test";
 
+import { HistoryStore } from "../../src/data/history.js";
 import type { LoginDirectory } from "../../src/ops/invite.js";
 
 export async function createHarness(
-  opts: { devTools?: boolean; isPaused?: () => Promise<boolean>; logins?: LoginDirectory } = {},
+  opts: { devTools?: boolean; isPaused?: () => Promise<boolean>; logins?: LoginDirectory; history?: boolean } = {},
 ) {
   const config = {
     tableName: `pophq-test-${ulid().toLowerCase()}`,
@@ -35,6 +36,8 @@ export async function createHarness(
     ...(opts.devTools ? { extend: (a) => registerDevRoutes(a, { repo, reset: async () => {} }) } : {}),
     ...(opts.isPaused ? { isPaused: opts.isPaused } : {}),
     ...(opts.logins ? { logins: opts.logins } : {}),
+    // The history table is separate in AWS; locally the same table serves, since the keys differ.
+    ...(opts.history ? { history: new HistoryStore(db, config.tableName) } : {}),
   });
 
   const token = (sub: string, groups: string[] = []) =>

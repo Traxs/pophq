@@ -120,6 +120,22 @@ describe("AppStack", () => {
     expect(dist).not.toContain("67f7725c-6f97-4210-82d7-5512b31e9d03"); // managed SecurityHeadersPolicy
   });
 
+  it("keeps a separate, protected history table fed by the main table's stream", () => {
+    const tables = template.findResources("AWS::DynamoDB::GlobalTable");
+    expect(Object.keys(tables)).toHaveLength(2);
+    for (const t of Object.values(tables)) {
+      expect(t.Properties?.Replicas?.[0]?.PointInTimeRecoverySpecification?.PointInTimeRecoveryEnabled).toBe(true);
+      expect(t.DeletionPolicy).toBe("Retain");
+    }
+    template.hasResourceProperties("AWS::Lambda::EventSourceMapping", {
+      StartingPosition: "TRIM_HORIZON",
+      BisectBatchOnFunctionError: true,
+      MaximumRetryAttempts: 3,
+      DestinationConfig: Match.objectLike({ OnFailure: Match.anyValue() }),
+    });
+    template.resourceCountIs("AWS::SQS::Queue", 1);
+  });
+
   it("rolls new API code out to 10% first and rolls back on errors", () => {
     template.hasResourceProperties("AWS::Lambda::Alias", { Name: "live" });
     template.hasResourceProperties("AWS::CodeDeploy::DeploymentGroup", {

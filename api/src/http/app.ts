@@ -14,6 +14,7 @@ import {
   resolveActingAccount,
   type Principal,
 } from "../domain/principal.js";
+import type { HistoryStore } from "../data/history.js";
 import type { Repository } from "../data/repository.js";
 import { invite, type LoginDirectory } from "../ops/invite.js";
 import type { TokenVerifier } from "./auth.js";
@@ -33,9 +34,11 @@ export interface AppDeps {
   isPaused?: () => Promise<boolean>;
   /** Where logins live (Cognito in AWS); without it, inviting is unavailable. */
   logins?: LoginDirectory;
+  /** Change history; without it, timelines are unavailable. */
+  history?: HistoryStore;
 }
 
-export function createApp({ repo, verifier, now = () => new Date(), extend, isPaused, logins }: AppDeps) {
+export function createApp({ repo, verifier, now = () => new Date(), extend, isPaused, logins, history }: AppDeps) {
   const app = new Hono<Env>().basePath("/v1");
 
   app.use("*", async (c, next) => {
@@ -190,6 +193,23 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         },
       );
       return c.json(result, result.accountCreated || result.linked || result.loginCreated ? 201 : 200);
+    });
+  }
+
+  /**
+   * What changed for a game account and when (DATA-02). Members see their own accounts;
+   * officers see everyone (decision: who sees what, docs/PLAN.md).
+   */
+  if (history) {
+    app.get("/accounts/:pid/timeline", async (c) => {
+      const p = c.get("principal");
+      const pid = parsePlayerId(c.req.param("pid"));
+      if (!p.linkedAccounts.has(pid)) requireOfficer(p);
+      if (!(await repo.getAccount(pid))) throw new NotFoundError(`Game account ${pid} not found.`);
+      const limit = Number(c.req.query("limit") ?? 50);
+      const before = c.req.query("before");
+      const page = await history.timeline(`ACCOUNT#${pid}`, Number.isFinite(limit) ? limit : 50, before);
+      return c.json(page);
     });
   }
 

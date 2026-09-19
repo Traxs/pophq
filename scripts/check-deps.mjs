@@ -15,7 +15,10 @@ const builtins = new Set(builtinModules);
 
 /** Tests, scripts and config files never run on AWS, so dev tooling is fine there. */
 const isDevFile = (path) =>
-  /\.test\.[jt]sx?$/.test(path) || /(^|\/)(test|tests|scripts)\//.test(path) || /\.config\.[jt]s$/.test(basename(path));
+  /\.test\.[jt]sx?$/.test(path) ||
+  /(^|\/)(test|tests|scripts|dev)\//.test(path) ||
+  /(^|\/)server\.ts$/.test(path) ||
+  /\.config\.[jt]s$/.test(basename(path));
 
 const files = (dir) =>
   readdirSync(dir, { withFileTypes: true }).flatMap((e) => {

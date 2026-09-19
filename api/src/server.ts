@@ -4,9 +4,11 @@ import { createBaseClient, createDocClient, dataConfigFromEnv } from "./data/cli
 import { Repository } from "./data/repository.js";
 import { createTable, deleteTable } from "./data/table.js";
 import { seedDemo } from "./dev/demo.js";
+import { startHistoryPoller } from "./dev/historyPoller.js";
 import { devLogins } from "./dev/logins.js";
 import { registerDevRoutes } from "./dev/routes.js";
 import { createRemoteVerifier } from "./http/auth.js";
+import { HistoryStore } from "./data/history.js";
 import { createApp } from "./http/app.js";
 
 const env = {
@@ -32,8 +34,12 @@ const app = createApp({
   repo,
   verifier: createRemoteVerifier(env.OIDC_ISSUER),
   logins: devLogins(db, config.tableName),
+  // Locally the history shares the table; the keys are prefixed, so nothing collides.
+  history: new HistoryStore(db, config.tableName),
   extend: (a) => registerDevRoutes(a, { repo, reset }),
 });
+
+startHistoryPoller(base, db, config.tableName, { endpoint: config.endpoint });
 
 const port = Number(process.env.API_PORT ?? 3000);
 serve({ fetch: app.fetch, port }, () => {
