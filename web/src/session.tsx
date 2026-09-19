@@ -1,7 +1,7 @@
 import type { User } from "oidc-client-ts";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ApiError, createApi, type GameAccount, type Me } from "./api";
-import { startSignIn, userManager } from "./auth";
+import { currentUser, forgetSignIn, signOutEverywhere, startSignIn, userManager } from "./auth";
 import { navigate } from "./router";
 
 const ACTING_KEY = "pophq.actingAs";
@@ -61,13 +61,17 @@ export function useAuth(): [AuthState, (s: AuthState) => void] {
         setState({ status: "signedIn", user: u });
         return;
       }
-      const u = await userManager().getUser();
-      setState(u && !u.expired ? { status: "signedIn", user: u } : { status: "signedOut" });
+      // Restores the sign-in from storage, renewing the access token if it expired.
+      const u = await currentUser();
+      setState(u ? { status: "signedIn", user: u } : { status: "signedOut" });
     };
     run().catch(() => setState({ status: "signedOut" }));
   }, []);
   return [state, setState];
 }
+
+/** Access token for API calls, renewed first when it is about to expire. */
+export const freshToken = async (): Promise<string | undefined> => (await currentUser())?.access_token;
 
 export const signIn = (clientId?: string, returnTo = window.location.pathname) =>
   void startSignIn(returnTo, clientId);
@@ -87,12 +91,29 @@ export function SessionProvider({
   const [attempt, setAttempt] = useState(0);
   const [dataVersion, setDataVersion] = useState(0);
 
+  // The API rejected the token: forget it here and show sign-in again.
+  const endSession = useCallback(() => {
+    void forgetSignIn().then(onSignedOut);
+  }, [onSignedOut]);
+
+  // "Sign out" in the menu: revoke tokens and end the Cognito session too.
   const signOut = useCallback(() => {
-    void userManager().removeUser().then(onSignedOut);
+    void signOutEverywhere().then((redirecting) => {
+      if (!redirecting) onSignedOut();
+    });
+  }, [onSignedOut]);
+
+  // Signing out in one tab signs out the others (they share the stored tokens).
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key?.startsWith("oidc.user:") && e.newValue === null) onSignedOut();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, [onSignedOut]);
 
   const api = useMemo(() => {
-    const inner = createApi(() => user.access_token, acting);
+    const inner = createApi(freshToken, acting);
     // Any 401 means the session ended: go back to sign-in instead of showing errors.
     const guard =
       <A extends unknown[], R>(fn: (...a: A) => Promise<R>) =>
@@ -100,7 +121,7 @@ export function SessionProvider({
         try {
           return await fn(...a);
         } catch (e) {
-          if (e instanceof ApiError && e.status === 401) signOut();
+          if (e instanceof ApiError && e.status === 401) endSession();
           throw e;
         }
       };
@@ -110,11 +131,11 @@ export function SessionProvider({
       addReport: guard(inner.addReport),
       roster: guard(inner.roster),
     };
-  }, [user, acting, signOut]);
+  }, [user, acting, endSession]);
 
   useEffect(() => {
     // Fetch without the acting header first: the remembered account may no longer be linked.
-    createApi(() => user.access_token)
+    createApi(freshToken)
       .me()
       .then((m) => {
         setMe(m);
@@ -124,10 +145,10 @@ export function SessionProvider({
         );
       })
       .catch((e: Error) => {
-        if (e instanceof ApiError && e.status === 401) signOut();
+        if (e instanceof ApiError && e.status === 401) endSession();
         else setError(e.message);
       });
-  }, [user, attempt, dataVersion, signOut]);
+  }, [user, attempt, dataVersion, endSession]);
 
   const setActing = useCallback((id: string) => {
     setActingState(id);

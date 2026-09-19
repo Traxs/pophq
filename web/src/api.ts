@@ -51,10 +51,12 @@ export class ApiError extends Error {
   }
 }
 
-export function createRequest(getToken: () => string | undefined, actingAs?: string) {
+export type TokenSource = () => string | undefined | Promise<string | undefined>;
+
+export function createRequest(getToken: TokenSource, actingAs?: string) {
   return async <T>(method: string, path: string, body?: unknown): Promise<T> => {
     const headers: Record<string, string> = {};
-    const token = getToken();
+    const token = await getToken();
     if (token) headers.authorization = `Bearer ${token}`;
     if (actingAs) headers["x-account-id"] = actingAs;
     if (body !== undefined) headers["content-type"] = "application/json";
@@ -72,7 +74,7 @@ export function createRequest(getToken: () => string | undefined, actingAs?: str
   };
 }
 
-export function createApi(getToken: () => string | undefined, actingAs?: string) {
+export function createApi(getToken: TokenSource, actingAs?: string) {
   const request = createRequest(getToken, actingAs);
   return {
     me: () => request<Me>("GET", "/me"),

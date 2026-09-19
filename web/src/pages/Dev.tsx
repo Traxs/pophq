@@ -1,13 +1,13 @@
 import { useMemo, useState } from "react";
 import { createRequest } from "../api";
 import { useToast } from "../components/Toast";
-import { useSession } from "../session";
+import { freshToken, useSession } from "../session";
 
 /** Local-only tools for loading demo data. The tab and the API routes exist only in local development. */
 export function Dev() {
   const { user, account, dataChanged } = useSession();
   const api = useMemo(() => {
-    const request = createRequest(() => user.access_token);
+    const request = createRequest(freshToken);
     return {
       dev: {
         addMembers: (count: number) => request<{ created: number }>("POST", "/dev/members", { count }),

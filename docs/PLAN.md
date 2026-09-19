@@ -44,7 +44,8 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 - [ ] P2.5 Lambda authorizer: Cognito JWT (check `token_use` and `client_id`; the v0 API only checks issuer and signature), context with principal/groups/linked accounts, 60 s cache keyed on `Authorization` + `X-Account-Id` (FM-03, FM-04, FM-07); usage plans (people 10k/day)
 - [ ] P2.6 Officer MFA (TOTP), groups `player` / `officer` / `owner` (ID-06, ID-07)
 - [ ] P2.7 Log in with Discord: OIDC wrapper Lambda, Pre sign-up trigger rejects unlinked identities (FM-06), account linking from a signed-in session (ID-04)
-- [ ] P2.8 Web: Cognito sign-in in production, refresh-token handling with one tab refreshing at a time (FM-16)
+- [x] P2.8 Web: Cognito sign-in in production, refresh-token handling with one tab refreshing at a time (FM-16)
+- [x] P2.2a Strict Content Security Policy and security headers on CloudFront (brought forward from P2.2 with the decision below)
 
 ## Milestone 3: Data foundation
 
@@ -118,6 +119,10 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 - [ ] P10.3 Selective Hermes history import: verified Player IDs, manifest, dry-run, batched commit (LCH-04)
 - [ ] P10.4 Launch: officers first, launch post, bulk approval, first-report push (LCH-02)
 - [ ] P10.5 Archive the Cloudflare app's D1 data as CSV, then retire it with the owner's go-ahead (LCH-03)
+
+## Decisions made during the build
+
+- **2026-09-19, sign-in survives reloads (changes the spec's "tokens in memory"):** tokens live in localStorage so a reload, a new tab or the next day keeps people signed in. Safeguards: strict CSP (only our own scripts), Cognito refresh-token rotation with a 60 s grace period, access tokens valid 1 hour and renewed on demand under a cross-tab lock, "Sign out" revokes the refresh token and ends the Cognito session, signing out in one tab signs out all tabs. Revisit (move to an HttpOnly-cookie session through the API) if the app ever loads third-party scripts.
 
 ## Open follow-ups from Milestone 0
 

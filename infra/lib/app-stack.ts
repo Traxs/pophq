@@ -83,7 +83,7 @@ export class AppStack extends Stack {
       });
     }
 
-    users.addDomain("Domain", {
+    const loginDomain = users.addDomain("Domain", {
       cognitoDomain: { domainPrefix: `pophq-${this.account}` },
       managedLoginVersion: cognito.ManagedLoginVersion.NEWER_MANAGED_LOGIN,
     });
@@ -137,6 +137,40 @@ export class AppStack extends Stack {
       ),
     });
 
+    // Strict CSP: only our own scripts and styles run, which is what makes keeping the sign-in in
+    // localStorage acceptable (decision in docs/PLAN.md). Sign-in talks to Cognito only.
+    const authDomain = loginDomain.baseUrl();
+    const headers = new cloudfront.ResponseHeadersPolicy(this, "Headers", {
+      comment: "POP HQ security headers",
+      securityHeadersBehavior: {
+        contentSecurityPolicy: {
+          contentSecurityPolicy: [
+            "default-src 'self'",
+            "script-src 'self'",
+            "style-src 'self'",
+            "img-src 'self' data:",
+            "font-src 'self'",
+            `connect-src 'self' https://cognito-idp.${this.region}.amazonaws.com ${authDomain}`,
+            "frame-ancestors 'none'",
+            "form-action 'self'",
+            "base-uri 'self'",
+            "object-src 'none'",
+            "upgrade-insecure-requests",
+          ].join("; "),
+          override: true,
+        },
+        strictTransportSecurity: { accessControlMaxAge: Duration.days(365), includeSubdomains: true, override: true },
+        contentTypeOptions: { override: true },
+        frameOptions: { frameOption: cloudfront.HeadersFrameOption.DENY, override: true },
+        referrerPolicy: { referrerPolicy: cloudfront.HeadersReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN, override: true },
+      },
+      customHeadersBehavior: {
+        customHeaders: [
+          { header: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=()", override: true },
+        ],
+      },
+    });
+
     const cdn = new cloudfront.Distribution(this, "Cdn", {
       comment: "POP HQ",
       defaultRootObject: "index.html",
@@ -145,7 +179,7 @@ export class AppStack extends Stack {
         origin: origins.S3BucketOrigin.withOriginAccessControl(bucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
-        responseHeadersPolicy: cloudfront.ResponseHeadersPolicy.SECURITY_HEADERS,
+        responseHeadersPolicy: headers,
         functionAssociations: [{ function: spaRewrite, eventType: cloudfront.FunctionEventType.VIEWER_REQUEST }],
       },
       additionalBehaviors: {
@@ -155,7 +189,7 @@ export class AppStack extends Stack {
           allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
           cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
           originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
-          responseHeadersPolicy: cloudfront.ResponseHeadersPolicy.SECURITY_HEADERS,
+          responseHeadersPolicy: headers,
         },
       },
     });
@@ -163,13 +197,16 @@ export class AppStack extends Stack {
 
     const client = users.addClient("WebClient", {
       generateSecret: false,
-      // Only the choice-based flow the managed login page uses (plus refresh tokens).
+      // Only the choice-based flow the managed login page uses; see the override below.
       authFlows: { user: true },
       preventUserExistenceErrors: true,
       enableTokenRevocation: true,
       accessTokenValidity: Duration.hours(1),
       idTokenValidity: Duration.hours(1),
       refreshTokenValidity: Duration.days(30),
+      // Every refresh returns a new refresh token; the old one works for 60 s more so several
+      // open tabs refreshing at once don't sign each other out (FM-16).
+      refreshTokenRotationGracePeriod: Duration.seconds(60),
       oAuth: {
         flows: { authorizationCodeGrant: true },
         scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL],
@@ -177,6 +214,10 @@ export class AppStack extends Stack {
         logoutUrls: [origin],
       },
     });
+
+    // Refresh-token rotation doesn't work with ALLOW_REFRESH_TOKEN_AUTH, which CDK always adds.
+    // Tokens are refreshed through the OAuth token endpoint instead, which rotation supports.
+    (client.node.defaultChild as cognito.CfnUserPoolClient).addPropertyOverride("ExplicitAuthFlows", ["ALLOW_USER_AUTH"]);
 
     // Managed login in the POP HQ style: colors from web/src/styles.css, light and dark mode,
     // snowflake logo. settings.json started from Cognito's own default settings document.
@@ -204,7 +245,11 @@ export class AppStack extends Stack {
       destinationBucket: bucket,
       sources: [
         s3deploy.Source.asset(props.webAssetPath, { exclude: ["*", "!index.html"] }),
-        s3deploy.Source.jsonData("config.json", { issuer: users.userPoolProviderUrl, clientId: client.userPoolClientId }),
+        s3deploy.Source.jsonData("config.json", {
+          issuer: users.userPoolProviderUrl,
+          clientId: client.userPoolClientId,
+          authDomain,
+        }),
       ],
       cacheControl: [s3deploy.CacheControl.fromString("no-cache")],
       prune: false,

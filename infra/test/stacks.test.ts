@@ -99,8 +99,23 @@ describe("AppStack", () => {
     template.hasResourceProperties("AWS::Cognito::UserPoolClient", {
       GenerateSecret: false,
       AllowedOAuthFlows: ["code"],
-      ExplicitAuthFlows: ["ALLOW_USER_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"],
+      ExplicitAuthFlows: ["ALLOW_USER_AUTH"],
+      RefreshTokenRotation: { Feature: "ENABLED", RetryGracePeriodSeconds: 60 },
+      EnableTokenRevocation: true,
     });
+  });
+
+  it("sends a strict Content Security Policy and other security headers", () => {
+    const policy = JSON.stringify(template.findResources("AWS::CloudFront::ResponseHeadersPolicy"));
+    for (const directive of ["default-src 'self'", "script-src 'self'", "frame-ancestors 'none'", "object-src 'none'"]) {
+      expect(policy).toContain(directive);
+    }
+    expect(policy).not.toContain("unsafe-inline");
+    expect(policy).not.toContain("unsafe-eval");
+    expect(policy).toContain("Permissions-Policy");
+    const dist = JSON.stringify(template.findResources("AWS::CloudFront::Distribution"));
+    expect(dist).toContain("ResponseHeadersPolicyId");
+    expect(dist).not.toContain("67f7725c-6f97-4210-82d7-5512b31e9d03"); // managed SecurityHeadersPolicy
   });
 
   it("defines the app roles as Cognito groups", () => {
