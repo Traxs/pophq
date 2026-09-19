@@ -116,6 +116,32 @@ export interface NewEvent {
   notes?: string;
 }
 
+export interface GrowthPoint {
+  at: string;
+  total: number;
+  average: number;
+  members: number;
+}
+
+export interface Mover {
+  playerId: string;
+  name: string;
+  from: number;
+  to: number;
+  change: number;
+  percent: number;
+}
+
+export interface AllianceGrowth {
+  metric: string;
+  weeks: number;
+  alliance: string;
+  points: GrowthPoint[];
+  gainers: Mover[];
+  stalled: Mover[];
+  missing: { playerId: string; name: string }[];
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -157,6 +183,8 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
       request<Report>("POST", `/accounts/${playerId}/reports`, { values }),
     roster: () => request<Roster>("GET", "/roster"),
     invite: (input: InviteInput) => request<InviteResult>("POST", "/invites", input),
+    growth: (weeks = 12, metric = "city_power") =>
+      request<AllianceGrowth>("GET", `/metrics/alliance?weeks=${weeks}&metric=${metric}`),
     events: () => request<{ items: EventListItem[] }>("GET", "/events"),
     event: (eventId: string) => request<EventDetail>("GET", `/events/${eventId}`),
     createEvent: (input: NewEvent) => request<AllianceEvent>("POST", "/events", input),

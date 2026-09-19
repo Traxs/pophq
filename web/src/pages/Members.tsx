@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { ApiError, type InviteResult, type RosterRow, type Seats } from "../api";
+import { ApiError, type AllianceGrowth, type InviteResult, type RosterRow, type Seats } from "../api";
 import { ErrorBanner } from "../components/Chrome";
+import { LineChart } from "../components/LineChart";
 import { Sheet } from "../components/Sheet";
 import { useToast } from "../components/Toast";
 import { change, compact, daysBetween, full, initials, relativeDay } from "../format";
@@ -104,6 +105,8 @@ export function Members() {
           <span className="tile-value">{rows ? overdue : "–"}</span>
         </button>
       </div>
+
+      <AllianceChart />
 
       {seats && (
         <p className="muted small">
@@ -327,5 +330,75 @@ function InviteForm({ onDone }: { onDone: () => void }) {
         {busy ? "Inviting…" : "Invite"}
       </button>
     </form>
+  );
+}
+
+/** Alliance growth over time with the movers behind it (MET-01, officers only). */
+function AllianceChart() {
+  const { api, dataVersion } = useSession();
+  const [growth, setGrowth] = useState<AllianceGrowth | null>(null);
+  const [weeks, setWeeks] = useState(12);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .growth(weeks)
+      .then((g) => {
+        setGrowth(g);
+        setError(null);
+      })
+      .catch((e: Error) => setError(e.message));
+  }, [api, weeks, dataVersion]);
+
+  if (error) return <ErrorBanner message={error} onRetry={() => setWeeks((w) => w)} />;
+  if (!growth) return <div className="card skeleton" style={{ height: 160 }} />;
+
+  const last = growth.points.at(-1);
+  const first = growth.points[0];
+  const change = first && last && first.total > 0 ? ((last.total - first.total) / first.total) * 100 : undefined;
+
+  return (
+    <section className="card stack" aria-labelledby="growth-title">
+      <div className="event-head">
+        <h2 id="growth-title" className="section-label">
+          Alliance power
+        </h2>
+        <div className="segmented" role="radiogroup" aria-label="Time range">
+          {[4, 12, 26].map((w) => (
+            <button key={w} type="button" role="radio" aria-checked={weeks === w} onClick={() => setWeeks(w)}>
+              {w}w
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <LineChart points={growth.points.map((p) => ({ at: p.at, value: p.total }))} label="Total alliance power over time" />
+      <p className="muted small">
+        {last ? `${compact(last.total)} across ${last.members} members` : "No data yet"}
+        {change !== undefined && ` · ${change >= 0 ? "+" : ""}${change.toFixed(1)}% over ${weeks} weeks`}
+      </p>
+
+      {growth.gainers.length > 0 && (
+        <>
+          <h3 className="section-label">Top growth</h3>
+          <ul className="movers">
+            {growth.gainers.slice(0, 5).map((m) => (
+              <li key={m.playerId} className="mover">
+                <span>{m.name}</span>
+                <span className="pill pill-up">+{m.percent}%</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {(growth.stalled.length > 0 || growth.missing.length > 0) && (
+        <p className="muted small">
+          {growth.stalled.length > 0 && `${growth.stalled.length} not growing`}
+          {growth.stalled.length > 0 && growth.missing.length > 0 && " · "}
+          {growth.missing.length > 0 && `${growth.missing.length} without any report`}
+        </p>
+      )}
+    </section>
   );
 }

@@ -4,6 +4,7 @@ import { parseNewAccount } from "../domain/accounts.js";
 import { DomainError, NotFoundError, UnauthorizedError, ValidationError } from "../domain/errors.js";
 import { countAnswers, isClosed, parseAnswer, parseNewEvent } from "../domain/events.js";
 import { parsePlayerId } from "../domain/identity.js";
+import { allianceGrowth, buckets, seriesOf } from "../domain/metrics.js";
 import { currentValues, parseReport } from "../domain/measurements.js";
 import {
   defaultActing,
@@ -212,6 +213,26 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       return c.json(page);
     });
   }
+
+  /**
+   * Alliance growth for the officer charts (MET-01): totals over time, who grew, who stalled
+   * and who never reported. Officer-only, like the roster.
+   */
+  app.get("/metrics/alliance", async (c) => {
+    requireOfficer(c.get("principal"));
+    const alliance = (c.req.query("alliance") ?? "POP").toUpperCase();
+    const metric = c.req.query("metric") === "combat_score" ? "combat_score" : "city_power";
+    const weeks = Math.min(Math.max(Number(c.req.query("weeks") ?? 12) || 12, 2), 52);
+    const accounts = (await repo.listAccounts(alliance)).filter((a) => a.status === "active" || a.status === "guest");
+    const series = await Promise.all(
+      accounts.map(async (account) => ({
+        playerId: account.playerId,
+        name: account.name,
+        points: seriesOf(await repo.listReports(account.playerId), metric),
+      })),
+    );
+    return c.json({ ...allianceGrowth(metric, series, buckets(now(), weeks)), weeks, alliance });
+  });
 
   // ---- Events (EVT-01..EVT-04) ----
 
