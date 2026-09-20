@@ -13,6 +13,7 @@ import type { AllianceEvent, Answer, EventAnswer } from "../domain/events.js";
 import type { EventType } from "../domain/eventTypes.js";
 import type { Lineup } from "../domain/lineups.js";
 import type { Strategy } from "../domain/strategy.js";
+import type { EventResult } from "../domain/results.js";
 import { ConflictError, NotFoundError } from "../domain/errors.js";
 import { searchKey } from "../domain/identity.js";
 import type { Report } from "../domain/measurements.js";
@@ -31,6 +32,7 @@ import {
   lineupKey,
   loginLinkKey,
   reportKey,
+  resultKey,
   seatCounterKey,
   seatKey,
   strategyKey,
@@ -358,6 +360,37 @@ export class Repository {
       ExpressionAttributeValues: { ":pk": `EVENT#${eventId}`, ":sk": "STRATEGY#" },
     });
     return items.map(toStrategy);
+  }
+
+  // ---- Event results (P5.6b) ----
+
+  async putResult(result: EventResult, actor: Actor): Promise<void> {
+    try {
+      await this.db.send(new PutCommand({
+        TableName: this.table,
+        Item: { ...resultKey(result.eventId, result.sessionId), type: "event-result", ...newItemMeta(actor, this.clock()), ...result },
+        ConditionExpression: "attribute_not_exists(SK) OR version = :previous",
+        ExpressionAttributeValues: { ":previous": result.version - 1 },
+      }));
+    } catch (err) {
+      if (err instanceof ConditionalCheckFailedException) {
+        throw new ConflictError("Someone else saved this result while you were editing. Reload and try again.");
+      }
+      throw err;
+    }
+  }
+
+  async getResult(eventId: string, sessionId: string): Promise<EventResult | undefined> {
+    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: resultKey(eventId, sessionId) }));
+    return res.Item ? toResult(res.Item) : undefined;
+  }
+
+  async listResults(eventId: string): Promise<EventResult[]> {
+    const items = await this.queryAll({
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+      ExpressionAttributeValues: { ":pk": `EVENT#${eventId}`, ":sk": "RESULT#" },
+    });
+    return items.map(toResult);
   }
 
   async listAnswers(eventId: string): Promise<EventAnswer[]> {
@@ -695,6 +728,25 @@ function toStrategy(item: Record<string, unknown>): Strategy {
     publishedAt: String(item.publishedAt),
     publishedBy: String(item.publishedBy),
   };
+}
+
+function toResult(item: Record<string, unknown>): EventResult {
+  const result: EventResult = {
+    eventId: String(item.eventId),
+    sessionId: String(item.sessionId),
+    version: Number(item.version),
+    outcome: item.outcome as EventResult["outcome"],
+    ourScore: Number(item.ourScore),
+    opponentScore: Number(item.opponentScore),
+    playerPoints: Array.isArray(item.playerPoints) ? (item.playerPoints as EventResult["playerPoints"]) : [],
+    recordedAt: String(item.recordedAt),
+    recordedBy: String(item.recordedBy),
+  };
+  if (item.ourMatchmakingPower !== undefined) result.ourMatchmakingPower = Number(item.ourMatchmakingPower);
+  if (item.opponentMatchmakingPower !== undefined) result.opponentMatchmakingPower = Number(item.opponentMatchmakingPower);
+  if (item.opponentCombatants !== undefined) result.opponentCombatants = Number(item.opponentCombatants);
+  if (item.notes) result.notes = String(item.notes);
+  return result;
 }
 
 function toEvent(item: Record<string, unknown>): AllianceEvent {
