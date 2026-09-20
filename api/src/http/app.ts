@@ -12,8 +12,9 @@ import {
   rankSignUps,
   standingFor,
 } from "../domain/events.js";
-import { parseEventType } from "../domain/eventTypes.js";
+import { parseEventType, STARTER_TYPES } from "../domain/eventTypes.js";
 import { parseLineup, placeIn } from "../domain/lineups.js";
+import { parseStrategy } from "../domain/strategy.js";
 import { listEventTypes } from "../ops/eventTypes.js";
 import { parsePlayerId } from "../domain/identity.js";
 import { allianceGrowth, buckets, currentOf, seriesOf } from "../domain/metrics.js";
@@ -389,6 +390,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     // Foundry strength and reliability of everyone who signed up, for the estimate.
     const yesAnswers = answers.filter((a) => a.answer === "yes");
     const lineups = new Map((await repo.listLineups(event.eventId)).map((l) => [l.sessionId, l]));
+    const strategies = new Map((await repo.listStrategies(event.eventId)).map((strategy) => [strategy.sessionId, strategy]));
     // People in a published lineup need their strength shown too, even if an officer put someone
     // there who never answered.
     const needStrength = [
@@ -444,6 +446,21 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           }
         : null;
       const myPlace = acting ? placeIn(published, acting) : undefined;
+      const publishedStrategy = strategies.get(session.id);
+      const strategy = publishedStrategy
+        ? {
+            version: publishedStrategy.version,
+            body: publishedStrategy.body,
+            publishedAt: publishedStrategy.publishedAt,
+            assignments: publishedStrategy.assignments.map((assignment) => ({
+              ...assignment,
+              name: byName.get(assignment.playerId) ?? assignment.playerId,
+            })),
+          }
+        : null;
+      const yourAssignment = acting
+        ? strategy?.assignments.find((assignment) => assignment.playerId === acting)
+        : undefined;
       return {
         ...session,
         signedUp: entries.length,
@@ -451,10 +468,22 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           session.starters === undefined ? null : Math.max(0, session.starters + (session.subs ?? 0) - entries.length),
         signedUpList: ranked,
         lineup,
+        strategy,
         ...(myPlace ? { yourPlace: { role: myPlace.role, position: myPlace.position } } : {}),
+        ...(yourAssignment
+          ? {
+              yourAssignment: {
+                role: yourAssignment.role,
+                ...(yourAssignment.duty ? { duty: yourAssignment.duty } : {}),
+                ...(yourAssignment.note ? { note: yourAssignment.note } : {}),
+              },
+            }
+          : {}),
         ...(standing ? { yourStanding: standing } : {}),
       };
     });
+
+    const eventType = (await repo.getEventType(event.kind)) ?? STARTER_TYPES.find((type) => type.typeId === event.kind);
 
     const body: Record<string, unknown> = {
       ...event,
@@ -469,6 +498,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         const acting = defaultActing(p);
         return acting ? (answers.find((a) => a.playerId === acting)?.sessionId ?? null) : null;
       })(),
+      ...(eventType?.strategyTemplate ? { strategyTemplate: eventType.strategyTemplate } : {}),
     };
     if (isOfficer(p)) {
       const byPlayer = new Map(answers.map((a) => [a.playerId, a]));
@@ -538,6 +568,38 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
 
     await repo.putLineup(lineup, { id: p.sub, via: "web", reason: "lineup published" });
     return c.json(lineup, 201);
+  });
+
+  /** Publishes the plan and assignments for one event part (P5.5). */
+  app.post("/events/:id/sessions/:sid/strategy", async (c) => {
+    requireOfficer(c.get("principal"));
+    const p = c.get("principal");
+    const event = await repo.getEvent(c.req.param("id"));
+    if (!event) throw new NotFoundError("Event not found.");
+    const session = event.sessions.find((candidate) => candidate.id === c.req.param("sid"));
+    if (!session) throw new NotFoundError("That part of the event doesn't exist.");
+
+    const current = await repo.getStrategy(event.eventId, session.id);
+    const strategy = parseStrategy(await readJson(c.req.raw), session, {
+      eventId: event.eventId,
+      sessionId: session.id,
+      publishedBy: p.sub,
+      now: now(),
+      currentVersion: current?.version ?? 0,
+    });
+
+    // Assignments describe the published lineup; a strategy may still contain body-only guidance
+    // before a lineup exists, but it cannot quietly assign someone who was not selected.
+    if (strategy.assignments.length > 0) {
+      const lineup = await repo.getLineup(event.eventId, session.id);
+      if (!lineup) throw new ValidationError("Publish the lineup before assigning strategy roles.");
+      const selected = new Set(lineup.entries.map((entry) => entry.playerId));
+      const outside = strategy.assignments.filter((assignment) => !selected.has(assignment.playerId)).map((assignment) => assignment.playerId);
+      if (outside.length > 0) throw new ValidationError(`Not in the published ${session.label} lineup: ${outside.join(", ")}.`);
+    }
+
+    await repo.putStrategy(strategy, { id: p.sub, via: "web", reason: "strategy published" });
+    return c.json(strategy, 201);
   });
 
   /** Answers for a game account: the player for their own accounts, officers for anyone. */

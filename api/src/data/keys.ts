@@ -58,3 +58,9 @@ export const lineupKey = (eventId: string, sessionId: string) => ({
   PK: `EVENT#${eventId}`,
   SK: `LINEUP#${sessionId}`,
 });
+
+/** The published strategy for one part of an event (P5.5); replaced and versioned on publish. */
+export const strategyKey = (eventId: string, sessionId: string) => ({
+  PK: `EVENT#${eventId}`,
+  SK: `STRATEGY#${sessionId}`,
+});

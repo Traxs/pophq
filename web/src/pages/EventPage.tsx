@@ -7,7 +7,10 @@ import {
   type EventMember,
   type LineupEntryView,
   type PublishedLineup,
+  type PublishedStrategy,
   type SessionView,
+  STRATEGY_ROLES,
+  type StrategyRole,
 } from "../api";
 import { ErrorBanner } from "../components/Chrome";
 import { useToast } from "../components/Toast";
@@ -16,6 +19,7 @@ import { compact, dayTime, full, relativeDay, shortTime, untilText } from "../fo
 import { countDraft, draftFor, entriesToPublish, type LineupDraftRow } from "../lineup";
 import { navigate } from "../router";
 import { useSession } from "../session";
+import { assignmentsToPublish, StrategyText, strategyDraftFor, type StrategyDraftAssignment } from "../strategy";
 
 /** One event in full: the parts you can join, who signed up, and the officer table. */
 export function EventPage({ eventId }: { eventId: string }) {
@@ -64,6 +68,29 @@ export function EventPage({ eventId }: { eventId: string }) {
     }
   };
 
+  const publishStrategy = async (
+    sessionId: string,
+    body: string,
+    assignments: StrategyDraftAssignment[],
+    version: number,
+  ) => {
+    setError(null);
+    try {
+      const published = await api.publishStrategy(
+        eventId,
+        sessionId,
+        body,
+        assignmentsToPublish(assignments),
+        version,
+      );
+      toast(`Strategy published (v${published.version})`);
+      dataChanged();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Couldn't publish the strategy.");
+      throw e;
+    }
+  };
+
   if (error && !event) return <ErrorBanner message={error} onRetry={() => navigate("/events")} />;
   if (!event) return <div className="card skeleton" style={{ height: 200 }} />;
 
@@ -100,8 +127,9 @@ export function EventPage({ eventId }: { eventId: string }) {
                 canAnswer={account !== undefined}
                 isOfficer={isOfficer}
                 myPlayerId={account?.playerId}
+                strategyTemplate={event.strategyTemplate ?? ""}
                 onJoin={() => void choose("yes", session.id)}
-                {...(isOfficer ? { onPublish: publish } : {})}
+                {...(isOfficer ? { onPublish: publish, onPublishStrategy: publishStrategy } : {})}
               />
             </li>
           ))}
@@ -135,6 +163,8 @@ function SessionCard({
   myPlayerId,
   onJoin,
   onPublish,
+  strategyTemplate,
+  onPublishStrategy,
 }: {
   session: SessionView;
   closed: boolean;
@@ -143,8 +173,16 @@ function SessionCard({
   isOfficer: boolean;
   myPlayerId: string | undefined;
   onJoin: () => void;
+  strategyTemplate: string;
   /** Officers only: publish or change the lineup for this part. */
   onPublish?: (sessionId: string, rows: LineupDraftRow[], version: number) => Promise<void>;
+  /** Officers only: publish or change the plan and assignments for this part. */
+  onPublishStrategy?: (
+    sessionId: string,
+    body: string,
+    assignments: StrategyDraftAssignment[],
+    version: number,
+  ) => Promise<void>;
 }) {
   const starters = session.starters;
   const subs = session.subs ?? 0;
@@ -238,6 +276,15 @@ function SessionCard({
 
       {session.lineup && <LineupList lineup={session.lineup} myPlayerId={myPlayerId} />}
 
+      {session.strategy && <StrategyView strategy={session.strategy} myPlayerId={myPlayerId} />}
+
+      {session.yourAssignment && (
+        <p className="pill pill-flat">
+          Your assignment: {session.yourAssignment.role}
+          {session.yourAssignment.duty ? ` · ${session.yourAssignment.duty}` : ""}
+        </p>
+      )}
+
       {session.signedUpList.length > 0 && (
         <details className="signups">
           <summary className="text-btn">Who signed up ({session.signedUpList.length})</summary>
@@ -290,7 +337,146 @@ function SessionCard({
       {isOfficer && onPublish && (
         <LineupEditor session={session} onPublish={onPublish} />
       )}
+      {isOfficer && onPublishStrategy && (
+        <StrategyEditor session={session} template={strategyTemplate} onPublish={onPublishStrategy} />
+      )}
     </article>
+  );
+}
+
+/** The published plan and roles as every member sees them. */
+function StrategyView({ strategy, myPlayerId }: { strategy: PublishedStrategy; myPlayerId: string | undefined }) {
+  return (
+    <section className="strategy" aria-label="Published strategy">
+      <h3 className="section-label">
+        Strategy <span className="muted small">· published {relativeDay(strategy.publishedAt)}</span>
+      </h3>
+      {strategy.body && (
+        <div className="strategy-body">
+          <StrategyText text={strategy.body} />
+        </div>
+      )}
+      {strategy.assignments.length > 0 && (
+        <div className="table-wrap">
+          <table className="table strategy-table">
+            <thead>
+              <tr>
+                <th scope="col">Member</th>
+                <th scope="col">Role</th>
+                <th scope="col">Duty</th>
+                <th scope="col">Note</th>
+              </tr>
+            </thead>
+            <tbody>
+              {strategy.assignments.map((assignment) => (
+                <tr key={assignment.playerId} className={assignment.playerId === myPlayerId ? "row-me" : undefined}>
+                  <th scope="row">{assignment.name}</th>
+                  <td>{assignment.role}</td>
+                  <td>{assignment.duty ?? "–"}</td>
+                  <td>{assignment.note ?? "–"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function StrategyEditor({
+  session,
+  template,
+  onPublish,
+}: {
+  session: SessionView;
+  template: string;
+  onPublish: (sessionId: string, body: string, assignments: StrategyDraftAssignment[], version: number) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [body, setBody] = useState("");
+  const [rows, setRows] = useState<StrategyDraftAssignment[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  const start = () => {
+    setBody(session.strategy?.body ?? template);
+    setRows(strategyDraftFor(session));
+    setOpen(true);
+  };
+  const change = (playerId: string, patch: Partial<Pick<StrategyDraftAssignment, "role" | "duty" | "note">>) =>
+    setRows((current) => current.map((row) => (row.playerId === playerId ? { ...row, ...patch } : row)));
+
+  if (!open) {
+    return (
+      <button type="button" className="btn btn-quiet btn-small" onClick={start}>
+        {session.strategy ? `Edit strategy (v${session.strategy.version})` : "Publish strategy"}
+      </button>
+    );
+  }
+
+  return (
+    <div className="strategy-editor stack">
+      <label className="field">
+        <span>Plan</span>
+        <textarea
+          rows={10}
+          maxLength={20_000}
+          value={body}
+          onChange={(event) => setBody(event.target.value)}
+          placeholder="Use blank lines, - bullets and **bold** text."
+        />
+      </label>
+      {rows.length === 0 ? (
+        <p className="muted small">Publish a lineup first to add member assignments. You can still publish the plan.</p>
+      ) : (
+        <div className="strategy-assignment-editor">
+          {rows.map((row) => (
+            <fieldset key={row.playerId} className="strategy-assignment">
+              <legend>{row.name}</legend>
+              <label>
+                <span>Role</span>
+                <select
+                  aria-label={`${row.name}'s strategy role in ${session.label}`}
+                  value={row.role}
+                  onChange={(event) => change(row.playerId, { role: event.target.value as StrategyRole | "" })}
+                >
+                  <option value="">Unassigned</option>
+                  {STRATEGY_ROLES.map((role) => (
+                    <option key={role} value={role}>{role}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Duty</span>
+                <input value={row.duty} maxLength={200} onChange={(event) => change(row.playerId, { duty: event.target.value })} />
+              </label>
+              <label>
+                <span>Note</span>
+                <input value={row.note} maxLength={500} onChange={(event) => change(row.playerId, { note: event.target.value })} />
+              </label>
+            </fieldset>
+          ))}
+        </div>
+      )}
+      <div className="row-actions">
+        <button
+          type="button"
+          className="btn btn-primary btn-small"
+          disabled={saving}
+          onClick={() => {
+            setSaving(true);
+            void onPublish(session.id, body, rows, session.strategy?.version ?? 0)
+              .then(() => setOpen(false))
+              .finally(() => setSaving(false));
+          }}
+        >
+          {saving ? "Publishing…" : session.strategy ? "Publish changes" : "Publish strategy"}
+        </button>
+        <button type="button" className="btn btn-quiet btn-small" disabled={saving} onClick={() => setOpen(false)}>
+          Cancel
+        </button>
+      </div>
+    </div>
   );
 }
 

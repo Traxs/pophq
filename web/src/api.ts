@@ -124,6 +124,24 @@ export interface PublishedLineup {
   entries: LineupEntryView[];
 }
 
+export const STRATEGY_ROLES = ["Holder", "Looter", "Substitute Looter", "Farmer"] as const;
+export type StrategyRole = (typeof STRATEGY_ROLES)[number];
+
+export interface StrategyAssignmentView {
+  playerId: string;
+  name: string;
+  role: StrategyRole;
+  duty?: string;
+  note?: string;
+}
+
+export interface PublishedStrategy {
+  version: number;
+  body: string;
+  publishedAt: string;
+  assignments: StrategyAssignmentView[];
+}
+
 /** A session as the event page shows it: with live counts and where you stand. */
 export interface SessionView extends EventSession {
   signedUp: number;
@@ -131,8 +149,11 @@ export interface SessionView extends EventSession {
   signedUpList: SignUpEntry[];
   /** Null until officers publish; then it replaces the estimate. */
   lineup: PublishedLineup | null;
+  /** Null until officers publish the plan for this part. */
+  strategy: PublishedStrategy | null;
   /** Your place in the published lineup, if you are in it. */
   yourPlace?: { role: LineupRole; position: number };
+  yourAssignment?: { role: StrategyRole; duty?: string; note?: string };
   yourStanding?: SessionStanding;
 }
 
@@ -197,6 +218,8 @@ export interface EventMember {
 export interface EventDetail extends Omit<EventListItem, "sessions"> {
   sessions: SessionView[];
   counts: AnswerCounts;
+  /** Starting text for a new strategy, inherited from the event type. */
+  strategyTemplate?: string;
   /** Officers only. */
   members?: EventMember[];
 }
@@ -316,6 +339,18 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
         entries,
         expectedVersion,
         ...(note ? { note } : {}),
+      }),
+    publishStrategy: (
+      eventId: string,
+      sessionId: string,
+      body: string,
+      assignments: { playerId: string; role: StrategyRole; duty?: string; note?: string }[],
+      expectedVersion: number,
+    ) =>
+      request<PublishedStrategy>("POST", `/events/${eventId}/sessions/${sessionId}/strategy`, {
+        body,
+        assignments,
+        expectedVersion,
       }),
     answer: (eventId: string, playerId: string, answer: Answer, sessionId?: string) =>
       request<{ answer: Answer; sessionId?: string }>("PUT", `/events/${eventId}/answers/${playerId}`, {

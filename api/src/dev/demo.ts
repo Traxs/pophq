@@ -6,6 +6,8 @@ import { parseReport } from "../domain/measurements.js";
 import type { Actor } from "../data/meta.js";
 import type { Repository } from "../data/repository.js";
 import { ANSWERS, parseNewEvent, type AllianceEvent } from "../domain/events.js";
+import { parseLineup } from "../domain/lineups.js";
+import { parseStrategy } from "../domain/strategy.js";
 
 const DAY = 86_400_000;
 
@@ -205,6 +207,37 @@ export async function addDemoEvents(repo: Repository, now: Date, actor: Actor): 
   for (const input of planned) {
     const event = parseNewEvent(input, { eventId: ulid(now.getTime()), createdBy: actor.id, now });
     await repo.createEvent(event, actor);
+    if (event.kind === "foundry") {
+      const session = event.sessions[0]!;
+      const lineup = parseLineup(
+        {
+          entries: [
+            { playerId: "100000001", role: "starter" },
+            { playerId: "100000008", role: "starter" },
+            { playerId: "100000010", role: "starter" },
+            { playerId: "100000002", role: "sub" },
+          ],
+          note: "Demo decision: a small starting team and one substitute.",
+        },
+        session,
+        { eventId: event.eventId, sessionId: session.id, publishedBy: actor.id, now, currentVersion: 0 },
+      );
+      await repo.putLineup(lineup, actor);
+      const strategy = parseStrategy(
+        {
+          body: "**Opening plan**\n\n- Hold both prototypes\n- Join marked rallies\n\n**Final phase**\n\n- Farmers take weapon workshops",
+          assignments: [
+            { playerId: "100000001", role: "Holder", duty: "Prototype 1", note: "Lead marked rallies" },
+            { playerId: "100000008", role: "Holder", duty: "Prototype 2" },
+            { playerId: "100000010", role: "Farmer", duty: "Weapon workshops" },
+            { playerId: "100000002", role: "Substitute Looter", duty: "Deploy after three minutes" },
+          ],
+        },
+        session,
+        { eventId: event.eventId, sessionId: session.id, publishedBy: actor.id, now, currentVersion: 0 },
+      );
+      await repo.putStrategy(strategy, actor);
+    }
     created.push(event);
   }
   return created;
