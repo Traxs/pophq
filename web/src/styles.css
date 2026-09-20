@@ -616,6 +616,17 @@ button.card {
   border-color: var(--accent);
   outline-offset: 0;
 }
+.token-secret {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  overflow-wrap: anywhere;
+  resize: vertical;
+}
 
 .hint {
   font-size: 0.8rem;

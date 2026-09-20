@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { createHash } from "node:crypto";
 import { ulid } from "ulid";
 import { parseNewAccount } from "../domain/accounts.js";
 import { ConflictError, DomainError, NotFoundError, UnauthorizedError, ValidationError } from "../domain/errors.js";
@@ -16,6 +17,8 @@ import { parseEventType, STARTER_TYPES } from "../domain/eventTypes.js";
 import { parseLineup, placeIn } from "../domain/lineups.js";
 import { parseStrategy } from "../domain/strategy.js";
 import { parseEventResult } from "../domain/results.js";
+import { canonicalJson, issueAgentToken } from "../domain/agentTokens.js";
+import { authenticateAgent, publicAgentToken } from "./agentAuth.js";
 import { listEventTypes } from "../ops/eventTypes.js";
 import { parsePlayerId } from "../domain/identity.js";
 import { allianceGrowth, buckets, currentOf, seriesOf } from "../domain/metrics.js";
@@ -97,6 +100,75 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
 
   app.get("/health", (c) => c.json({ status: "ok" }));
 
+  // Agent-only surface. These routes never accept human JWTs and agent credentials never pass
+  // through to the broader web API. Dry-run is the default for every write.
+  app.get("/agent/doctor", async (c) => {
+    const token = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "results:read", now());
+    return c.json({ status: "ok", tokenId: token.tokenId, scopes: token.scopes, expiresAt: token.expiresAt });
+  });
+
+  app.get("/agent/events/:id/sessions/:sid/result-context", async (c) => {
+    await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "results:read", now());
+    const event = await repo.getEvent(c.req.param("id"));
+    if (!event) throw new NotFoundError("Event not found.");
+    const session = event.sessions.find((candidate) => candidate.id === c.req.param("sid"));
+    if (!session) throw new NotFoundError("That part of the event doesn't exist.");
+    const accounts = new Map((await repo.listAccounts(event.alliance)).map((account) => [account.playerId, account.name]));
+    const lineup = await repo.getLineup(event.eventId, session.id);
+    return c.json({
+      event: { eventId: event.eventId, title: event.title, kind: event.kind },
+      session,
+      lineup: lineup?.entries.map((entry) => ({ ...entry, name: accounts.get(entry.playerId) ?? entry.playerId })) ?? [],
+      result: (await repo.getResult(event.eventId, session.id)) ?? null,
+    });
+  });
+
+  app.put("/agent/events/:id/sessions/:sid/result", async (c) => {
+    const token = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "results:write", now());
+    const event = await repo.getEvent(c.req.param("id"));
+    if (!event) throw new NotFoundError("Event not found.");
+    const session = event.sessions.find((candidate) => candidate.id === c.req.param("sid"));
+    if (!session) throw new NotFoundError("That part of the event doesn't exist.");
+    if (Date.parse(session.startsAt) > now().getTime()) throw new ValidationError("Record the result after this event part starts.");
+    const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+    const apply = c.req.query("apply") === "true";
+    const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+    const key = c.req.header("idempotency-key") ?? "";
+    const bodyHash = createHash("sha256").update(canonicalJson(body)).digest("hex");
+    if (apply) {
+      if (!reason) throw new ValidationError("Applying an agent result requires a reason.");
+      if (!/^[A-Za-z0-9._:-]{8,100}$/.test(key)) throw new ValidationError("Applying requires an Idempotency-Key of 8–100 safe characters.");
+      // Replay before version validation: the original request legitimately carries the old
+      // expectedVersion after its first successful application.
+      const previous = await repo.getIdempotentResult(token.tokenId, key);
+      if (previous) {
+        if (previous.bodyHash !== bodyHash) throw new ConflictError("That Idempotency-Key was already used for different data.");
+        return c.json({ dryRun: false, replayed: true, result: previous.result });
+      }
+    }
+    const current = await repo.getResult(event.eventId, session.id);
+    const result = parseEventResult(body, session, {
+      eventId: event.eventId,
+      recordedBy: `agent:${token.tokenId}`,
+      now: now(),
+      currentVersion: current?.version ?? 0,
+    });
+    const known = new Set((await repo.listAccounts(event.alliance)).map((account) => account.playerId));
+    const strangers = result.playerPoints.filter((row) => !known.has(row.playerId)).map((row) => row.playerId);
+    if (strangers.length > 0) throw new ValidationError(`Not members of ${event.alliance}: ${strangers.join(", ")}.`);
+
+    if (!apply) return c.json({ dryRun: true, diff: { before: current ?? null, after: result } });
+    await repo.putResultIdempotent(
+      result,
+      { id: token.tokenId, via: `agent:${token.tokenId}`, reason },
+      token.tokenId,
+      key,
+      bodyHash,
+    );
+    c.header("x-change-id", key);
+    return c.json({ dryRun: false, replayed: false, result }, 201);
+  });
+
   // Everything below requires a verified token.
   app.use("*", async (c, next) => {
     const header = c.req.header("authorization") ?? "";
@@ -120,6 +192,31 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       actingAs: p.actingAs ?? null,
       accounts: accounts.filter((a) => a !== undefined),
     });
+  });
+
+  /** Officers issue narrow Hermes credentials; the secret is returned exactly once. */
+  app.post("/agent-tokens", async (c) => {
+    const p = c.get("principal");
+    requireOfficer(p);
+    const active = (await repo.listAgentTokens(p.sub)).filter((token) => !token.revokedAt && Date.parse(token.expiresAt) > now().getTime());
+    if (active.length >= 5) throw new ConflictError("You already have five active agent tokens. Revoke one first.");
+    const issued = issueAgentToken(await readJson(c.req.raw), p.sub, now());
+    await repo.createAgentToken(issued.record);
+    return c.json({ ...publicAgentToken(issued.record), token: issued.token }, 201);
+  });
+
+  app.get("/agent-tokens", async (c) => {
+    const p = c.get("principal");
+    requireOfficer(p);
+    const records = await repo.listAgentTokens(p.groups.has("owner") ? undefined : p.sub);
+    return c.json({ items: records.map(publicAgentToken) });
+  });
+
+  app.delete("/agent-tokens/:tokenId", async (c) => {
+    const p = c.get("principal");
+    requireOfficer(p);
+    await repo.revokeAgentToken(c.req.param("tokenId"), p.sub, now());
+    return c.json({ revoked: true });
   });
 
   app.get("/accounts", async (c) => {

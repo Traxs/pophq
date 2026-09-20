@@ -5,6 +5,7 @@ import {
   QueryCommand,
   ScanCommand,
   TransactWriteCommand,
+  UpdateCommand,
   type DynamoDBDocumentClient,
 } from "@aws-sdk/lib-dynamodb";
 import type { GameAccount } from "../domain/accounts.js";
@@ -14,12 +15,14 @@ import type { EventType } from "../domain/eventTypes.js";
 import type { Lineup } from "../domain/lineups.js";
 import type { Strategy } from "../domain/strategy.js";
 import type { EventResult } from "../domain/results.js";
+import type { AgentTokenRecord } from "../domain/agentTokens.js";
 import { ConflictError, NotFoundError } from "../domain/errors.js";
 import { searchKey } from "../domain/identity.js";
 import type { Report } from "../domain/measurements.js";
 import { SEAT_CAP, type Seats } from "../domain/seats.js";
 import {
   accountKey,
+  agentTokenKey,
   answerIndexKey,
   answerKey,
   attendanceIndexKey,
@@ -30,6 +33,7 @@ import {
   eventKey,
   eventTypeKey,
   lineupKey,
+  idempotencyKey,
   loginLinkKey,
   reportKey,
   resultKey,
@@ -393,6 +397,92 @@ export class Repository {
     return items.map(toResult);
   }
 
+  async putResultIdempotent(result: EventResult, actor: Actor, tokenId: string, key: string, bodyHash: string): Promise<void> {
+    const meta = newItemMeta(actor, this.clock());
+    try {
+      await this.db.send(new TransactWriteCommand({ TransactItems: [
+        { Put: {
+          TableName: this.table,
+          Item: { ...resultKey(result.eventId, result.sessionId), type: "event-result", ...meta, ...result },
+          ConditionExpression: "attribute_not_exists(SK) OR version = :previous",
+          ExpressionAttributeValues: { ":previous": result.version - 1 },
+        } },
+        { Put: {
+          TableName: this.table,
+          Item: {
+            ...idempotencyKey(tokenId, key),
+            type: "agent-idempotency",
+            bodyHash,
+            result,
+            createdAt: meta.createdAt,
+            expiresAtEpoch: Math.floor(this.clock().getTime() / 1000) + 24 * 60 * 60,
+          },
+          ConditionExpression: "attribute_not_exists(PK)",
+        } },
+      ] }));
+    } catch (err) {
+      if (err instanceof TransactionCanceledException) {
+        throw new ConflictError("The result changed or this idempotency key was already used. Reload before retrying.");
+      }
+      throw err;
+    }
+  }
+
+  async getIdempotentResult(tokenId: string, key: string): Promise<{ bodyHash: string; result: EventResult } | undefined> {
+    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: idempotencyKey(tokenId, key) }));
+    if (!res.Item) return undefined;
+    return { bodyHash: String(res.Item.bodyHash), result: res.Item.result as EventResult };
+  }
+
+  // ---- Agent tokens (P9.1, narrow result scopes first) ----
+
+  async createAgentToken(record: AgentTokenRecord): Promise<void> {
+    await this.db.send(new PutCommand({
+      TableName: this.table,
+      Item: { ...agentTokenKey(record.tokenId), type: "agent-token", ...record },
+      ConditionExpression: "attribute_not_exists(PK)",
+    }));
+  }
+
+  async getAgentToken(tokenId: string): Promise<AgentTokenRecord | undefined> {
+    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: agentTokenKey(tokenId) }));
+    return res.Item ? toAgentToken(res.Item) : undefined;
+  }
+
+  async listAgentTokens(issuedBy?: string): Promise<AgentTokenRecord[]> {
+    const items = await this.scanAll({
+      FilterExpression: "#type = :type" + (issuedBy ? " AND issuedBy = :issuedBy" : ""),
+      ExpressionAttributeNames: { "#type": "type" },
+      ExpressionAttributeValues: { ":type": "agent-token", ...(issuedBy ? { ":issuedBy": issuedBy } : {}) },
+    });
+    return items.map(toAgentToken);
+  }
+
+  async touchAgentToken(tokenId: string, at: Date): Promise<void> {
+    await this.db.send(new UpdateCommand({
+      TableName: this.table,
+      Key: agentTokenKey(tokenId),
+      UpdateExpression: "SET lastUsedAt = :at",
+      ConditionExpression: "attribute_exists(PK) AND attribute_not_exists(revokedAt)",
+      ExpressionAttributeValues: { ":at": at.toISOString() },
+    }));
+  }
+
+  async revokeAgentToken(tokenId: string, issuedBy: string, at: Date): Promise<void> {
+    try {
+      await this.db.send(new UpdateCommand({
+        TableName: this.table,
+        Key: agentTokenKey(tokenId),
+        UpdateExpression: "SET revokedAt = :at",
+        ConditionExpression: "attribute_exists(PK) AND issuedBy = :issuedBy",
+        ExpressionAttributeValues: { ":at": at.toISOString(), ":issuedBy": issuedBy },
+      }));
+    } catch (err) {
+      if (err instanceof ConditionalCheckFailedException) throw new NotFoundError("Agent token not found.");
+      throw err;
+    }
+  }
+
   async listAnswers(eventId: string): Promise<EventAnswer[]> {
     const items = await this.queryAll({
       KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
@@ -673,6 +763,19 @@ export class Repository {
     } while (ExclusiveStartKey);
     return out;
   }
+
+  private async scanAll(
+    params: Omit<ConstructorParameters<typeof ScanCommand>[0], "TableName">,
+  ): Promise<Record<string, unknown>[]> {
+    const out: Record<string, unknown>[] = [];
+    let ExclusiveStartKey: Record<string, unknown> | undefined;
+    do {
+      const res = await this.db.send(new ScanCommand({ ...params, TableName: this.table, ExclusiveStartKey }));
+      out.push(...(res.Items ?? []));
+      ExclusiveStartKey = res.LastEvaluatedKey;
+    } while (ExclusiveStartKey);
+    return out;
+  }
 }
 
 function cancellationCodes(err: unknown): (string | undefined)[] | undefined {
@@ -747,6 +850,21 @@ function toResult(item: Record<string, unknown>): EventResult {
   if (item.opponentCombatants !== undefined) result.opponentCombatants = Number(item.opponentCombatants);
   if (item.notes) result.notes = String(item.notes);
   return result;
+}
+
+function toAgentToken(item: Record<string, unknown>): AgentTokenRecord {
+  const token: AgentTokenRecord = {
+    tokenId: String(item.tokenId),
+    name: String(item.name),
+    tokenHash: String(item.tokenHash),
+    scopes: Array.isArray(item.scopes) ? (item.scopes as AgentTokenRecord["scopes"]) : [],
+    issuedBy: String(item.issuedBy),
+    createdAt: String(item.createdAt),
+    expiresAt: String(item.expiresAt),
+  };
+  if (item.lastUsedAt) token.lastUsedAt = String(item.lastUsedAt);
+  if (item.revokedAt) token.revokedAt = String(item.revokedAt);
+  return token;
 }
 
 function toEvent(item: Record<string, unknown>): AllianceEvent {

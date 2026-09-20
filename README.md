@@ -132,6 +132,20 @@ npm run import:foundry -w api -- --bundle /path/to/foundry --apply    # writes t
 npm run import:foundry -w api -- --bundle /path/to/foundry --apply --aws   # writes to the PopHq stack
 ```
 
+## Hermes result agent
+
+Officers can issue a dedicated Hermes credential from **Members → Hermes access**. The secret is shown once. Choose read-only access when Hermes only needs context, or allow result updates when it should preview and apply reviewed Foundry results and player scores.
+
+The checked-in skill is [`agent/hermes-skill/state2612`](agent/hermes-skill/state2612/SKILL.md). Give that folder to Hermes and set `POPHQ_URL` plus the issued `POPHQ_AGENT_TOKEN` in its environment. The included standard-library client starts with:
+
+```bash
+python3 agent/hermes-skill/state2612/scripts/s26.py doctor
+python3 agent/hermes-skill/state2612/scripts/s26.py result-context EVENT_ID SESSION_ID
+python3 agent/hermes-skill/state2612/scripts/s26.py put-result EVENT_ID SESSION_ID result.json
+```
+
+Writes are previews by default. Applying requires `--apply`, a reason, and a stable idempotency key; tokens work only on the narrow agent routes and are refused from browsers. They expire within 90 days and after 30 unused days, and an officer can revoke them from the same screen.
+
 The same command also brings in events (one per day, with a part per legion), the attendance recorded for them, and sign-ups. Attendance keeps the moment, source and evidence it was recorded with, rather than the time of the import.
 
 The import keeps its distance from guesses: accounts without a numeric Player ID are listed for an officer instead of invented, imported accounts get membership `unknown` (another system's snapshot does not prove who is in the alliance today), an account POP HQ already knows keeps its name and rank, and every observation keeps its own date, precision and source. Record ids come from the bundle, so importing the same bundle twice changes nothing.

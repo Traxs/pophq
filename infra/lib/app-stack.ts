@@ -52,6 +52,8 @@ export class AppStack extends Stack {
         },
       ],
       dynamoStream: dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
+      // Agent idempotency receipts expire after a day; durable domain/history records do not set it.
+      timeToLiveAttribute: "expiresAtEpoch",
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
       deletionProtection: true,
       removalPolicy: RemovalPolicy.RETAIN,

@@ -72,6 +72,19 @@ export interface InviteResult {
   seats: Seats;
 }
 
+export type AgentScope = "results:read" | "results:write";
+export interface AgentTokenInfo {
+  tokenId: string;
+  name: string;
+  scopes: AgentScope[];
+  issuedBy: string;
+  createdAt: string;
+  expiresAt: string;
+  lastUsedAt?: string;
+  revokedAt?: string;
+}
+export interface IssuedAgentToken extends AgentTokenInfo { token: string }
+
 export type EventKind = "foundry" | "bear" | "svs" | "other";
 export type Answer = "yes" | "no" | "maybe";
 
@@ -333,6 +346,10 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
       request<Report>("POST", `/accounts/${playerId}/reports`, { values }),
     roster: () => request<Roster>("GET", "/roster"),
     invite: (input: InviteInput) => request<InviteResult>("POST", "/invites", input),
+    agentTokens: () => request<{ items: AgentTokenInfo[] }>("GET", "/agent-tokens"),
+    issueAgentToken: (input: { name: string; scopes: AgentScope[]; expiresInDays: number }) =>
+      request<IssuedAgentToken>("POST", "/agent-tokens", input),
+    revokeAgentToken: (tokenId: string) => request<{ revoked: true }>("DELETE", `/agent-tokens/${tokenId}`),
     growth: (weeks = 12, metric: StrengthMetric = "city_power", cohort: "members" | "all" = "members") =>
       request<AllianceGrowth>("GET", `/metrics/alliance?weeks=${weeks}&metric=${metric}&cohort=${cohort}`),
     events: () => request<{ items: EventListItem[] }>("GET", "/events"),

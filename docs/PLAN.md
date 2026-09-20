@@ -119,11 +119,15 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 
 ## Milestone 9: Agent API and Hermes skill
 
-- [ ] P9.1 Agent tokens: issue, list, revoke, scopes, HMAC hash, 90-day expiry, 30-day unused revoke, agents-off switch (AGT-01, AGT-05)
-- [ ] P9.2 Route allow-list per scope, output guard for untrusted text, row budgets, per-token quotas
-- [ ] P9.3 Dry-run, proposals for large changes, `lineup:write` for Hermes (AGT-03, EVT-05)
+- [x] P9.1a Narrow result-agent tokens: officers issue/list/revoke one-time 256-bit credentials; `results:read`/`results:write` scopes, five active per officer, 90-day maximum and 30-day unused expiry (AGT-01)
+- [ ] P9.1b General agent-token platform: HMAC pepper in SSM, agents-off switch, current-issuer-rights intersection and automatic revocation on officer demotion (AGT-01, AGT-05)
+- [x] P9.2a Result-agent route allow-list: agent credentials work only on result context/updates, are refused from browsers, and never enter human routes
+- [ ] P9.2b Output guards for untrusted text, row budgets, request/write quotas and scopes for other data families
+- [x] P9.3a Result writes: exact dry-run diff by default; apply requires reason, expected version and an atomically stored idempotency key
+- [ ] P9.3b Inbox proposals for large/sensitive changes and `lineup:write` for Hermes (AGT-03, EVT-05)
 - [ ] P9.4 OpenAPI 3.1 published; `/v1/guide`
-- [ ] P9.5 Hermes skill: SKILL.md, `s26` CLI (stdlib Python), references generated from OpenAPI, checksummed release (AGT-04)
+- [x] P9.5a Result-focused Hermes skill: checksummed `state2612` SKILL.md, result API reference and standard-library `s26` CLI with doctor/context/preview/apply (AGT-04)
+- [ ] P9.5b Generate all references from OpenAPI and publish a checksummed full-feature release
 - [ ] P9.6 Negative and prompt-injection test suites (SEC tests in Failure review)
 
 ## Milestone 10: Hardening and launch
@@ -138,6 +142,7 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 
 ## Decisions made during the build
 
+- **2026-09-20, Hermes starts narrow and dry:** the first agent credential has only `results:read` and `results:write`, is accepted only on `/v1/agent/...` result routes, and is rejected when a browser `Origin` is present. A result update previews an exact diff unless Hermes supplies `apply=true`, a reason, the current version and an idempotency key. The initial 256-bit random secrets are stored as SHA-256 hashes; the broader token platform still adds the specified SSM HMAC pepper, issuer-rights intersection, quotas and global agents-off switch before any general data scope exists.
 - **2026-09-20, Foundry is a signup rather than a generic RSVP:** a member is signed up for L1, signed up for L2, or not signed up. Picking the other legion replaces the earlier choice, and “Withdraw signup” records a deliberate not-signed-up response so officers can still distinguish it from no response. Members may switch or withdraw until answers close; officers retain the existing until-start override.
 - **2026-09-20, results are per session and player points stay private:** each legion has its own versioned outcome, score and matchup facts. All members see those aggregate facts; an individual sees only their own points, while officers see and edit the complete points list. Screenshot extraction remains separate until evidence and agent plumbing exist.
 - **2026-09-20, strategy is the work behind the lineup (P5.5):** a lineup selects starters and substitutes; a separately versioned strategy gives one session its plan and assigns selected accounts as Holder, Looter, Substitute Looter or Farmer, with optional duty and note. Members see the plan and assignments, with their own row highlighted. Strategy text deliberately supports only paragraphs, `-` bullets and `**bold**`, rendered as React text without HTML or a Markdown library.

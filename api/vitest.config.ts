@@ -16,8 +16,8 @@ export default defineConfig({
           // Each test file gets its own table, so files can run in parallel.
           testTimeout: 20_000,
           // Setup creates a table and seeds the demo alliance; against DynamoDB Local, with a
-          // dozen suites doing it at once, that takes longer than Vitest's 10 s default.
-          hookTimeout: 30_000,
+          // sixteen suites doing it at once, that can take longer than 30 s on a busy laptop.
+          hookTimeout: 60_000,
         },
       },
     ],

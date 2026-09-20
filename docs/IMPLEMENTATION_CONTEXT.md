@@ -71,12 +71,13 @@ At commit `8f99dd9`, the repository has 39 completed and 59 open plan checkboxes
 - officer-published, version-checked lineups per session, with starter/substitute capacity enforced and each member's own selection highlighted;
 - separately versioned strategy plans per session, with safe paragraphs, bullets and bold rendering plus Holder, Looter, Substitute Looter and Farmer assignments restricted to selected lineup accounts;
 - versioned results per session with aggregate scores and matchup facts visible to members, while per-player points remain visible only to that player and officers;
+- narrow, officer-issued Hermes credentials for result context and guarded result/score updates, plus the checked-in `state2612` skill and standard-library client; writes default to an exact dry run and applied retries are idempotent;
 - append-only change-history writer and account timeline;
 - idempotent Foundry bundle import for accounts, measurements, events, sign-ups, and attendance, using stable `IMPORT-<id>` IDs; bundle notes are deliberately dropped because they contain internal Hermes paths that must not reach member-visible views;
 - one production Foundry import: 86 game accounts and 127 strength observations, with all 47 growth rows matching Hermes' derived numbers exactly;
 - AWS app/pipeline stack, production auth configuration, canary deployment, CSP/security headers, smoke tests, and cost guard.
 
-Not implemented yet: SvS buff scheduling, screenshot-derived results/attendance, reminders/outbox, access-request inbox, transfer/archive/erasure lifecycle, evidence uploads, complete exports/Athena metrics, agent API/Hermes CLI, and full launch workflow.
+Not implemented yet: SvS buff scheduling, screenshot-derived results/attendance, reminders/outbox, access-request inbox, transfer/archive/erasure lifecycle, evidence uploads, complete exports/Athena metrics, the general-purpose agent/proposal platform, and full launch workflow.
 
 ## Domain model and invariants
 
