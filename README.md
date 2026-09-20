@@ -13,7 +13,7 @@ Alliance command center for the POP alliance in Whiteout Survival (State 2612): 
 | `dev/` | Local stack: DynamoDB Local, a mock sign-in server, a Discord webhook sink |
 | `infra/` | AWS CDK app: CodePipeline (push to `main` deploys) and the app stack |
 | `docs/` | Build plan, implementation context, and local debugging guide |
-| `agent/hermes-skill/` | Hermes skill and the `s26` CLI (not started) |
+| `agent/hermes-skill/` | Result-import skill and the `s26` CLI |
 | `scripts/` | Repository tooling (git hooks, dev runner) |
 
 ## Local development
@@ -132,17 +132,19 @@ npm run import:foundry -w api -- --bundle /path/to/foundry --apply    # writes t
 npm run import:foundry -w api -- --bundle /path/to/foundry --apply --aws   # writes to the PopHq stack
 ```
 
-## Hermes result agent
+## Bot result access
 
-Officers can issue a dedicated Hermes credential from **Members → Hermes access**. The secret is shown once. Choose read-only access when Hermes only needs context, or allow result updates when it should preview and apply reviewed Foundry results and player scores.
+Officers can issue a dedicated credential from **Members → Bot tokens**. The secret is shown once. Choose read-only access when a bot only needs context, or allow result updates when it should preview and apply reviewed Foundry results and player scores. Every request re-checks the issuing person's current Cognito groups, so the token never has more rights than its issuer and stops working immediately if that person is no longer an officer or owner.
 
-The checked-in skill is [`agent/hermes-skill/state2612`](agent/hermes-skill/state2612/SKILL.md). Give that folder to Hermes and set `POPHQ_URL` plus the issued `POPHQ_AGENT_TOKEN` in its environment. The included standard-library client starts with:
+The checked-in skill is [`agent/hermes-skill/state2612`](agent/hermes-skill/state2612/SKILL.md). Give that folder to the bot and set `POPHQ_URL` plus the issued `POPHQ_BOT_TOKEN` in its environment. From the repository root, the included standard-library client starts with:
 
 ```bash
 python3 agent/hermes-skill/state2612/scripts/s26.py doctor
 python3 agent/hermes-skill/state2612/scripts/s26.py result-context EVENT_ID SESSION_ID
 python3 agent/hermes-skill/state2612/scripts/s26.py put-result EVENT_ID SESSION_ID result.json
 ```
+
+If your shell is in the directory above this repository (for example `~/workspace/WOS`), first run `cd pophq`, or prefix those paths with `pophq/`.
 
 Writes are previews by default. Applying requires `--apply`, a reason, and a stable idempotency key; tokens work only on the narrow agent routes and are refused from browsers. They expire within 90 days and after 30 unused days, and an officer can revoke them from the same screen.
 

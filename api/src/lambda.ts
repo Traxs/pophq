@@ -10,6 +10,7 @@ import { HistoryStore } from "./data/history.js";
 import { createApp } from "./http/app.js";
 import { cognitoLogins } from "./ops/cognitoLogins.js";
 import { createPauseCheck } from "./ops/pause.js";
+import { cognitoBotIssuerCanUse } from "./ops/cognitoBotAuthorization.js";
 
 const issuer = process.env.OIDC_ISSUER;
 if (!issuer) throw new Error("OIDC_ISSUER is not set");
@@ -26,6 +27,7 @@ const isPaused = createPauseCheck(
 
 const userPoolId = process.env.USER_POOL_ID;
 if (!userPoolId) throw new Error("USER_POOL_ID is not set");
+const cognito = new CognitoIdentityProviderClient({});
 
 const historyTable = process.env.HISTORY_TABLE_NAME;
 if (!historyTable) throw new Error("HISTORY_TABLE_NAME is not set");
@@ -36,7 +38,8 @@ const app = createApp({
   history: new HistoryStore(historyDb, historyTable),
   verifier: createRemoteVerifier(issuer, process.env.OIDC_AUDIENCE),
   isPaused,
-  logins: cognitoLogins(new CognitoIdentityProviderClient({}), userPoolId),
+  logins: cognitoLogins(cognito, userPoolId),
+  botIssuerCanUse: cognitoBotIssuerCanUse(cognito, userPoolId),
 });
 
 export const handler = handle(app);

@@ -8,7 +8,7 @@ description: Read POP HQ Foundry result context and safely preview or apply even
 Use `scripts/s26.py` for POP HQ API calls. It uses only Python's standard library and reads:
 
 - `POPHQ_URL`: the POP HQ base URL, such as `https://example.cloudfront.net`.
-- `POPHQ_AGENT_TOKEN`: the one-time `s26_...` credential issued by an officer.
+- `POPHQ_BOT_TOKEN`: the one-time `s26_...` credential issued by an officer.
 
 Never print, persist, or place the token in a command argument. Run `doctor` before work. Read [references/results-api.md](references/results-api.md) before preparing a result.
 
