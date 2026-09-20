@@ -136,6 +136,16 @@ export interface AnswerCounts {
   bySession: Record<string, number>;
 }
 
+export type AttendanceStatus = "present" | "absent" | "excused" | "unknown";
+
+export interface Reliability {
+  rate?: number;
+  kept: number;
+  missed: number;
+  excused: number;
+  sample: number;
+}
+
 export interface EventMember {
   playerId: string;
   name: string;
@@ -144,6 +154,7 @@ export interface EventMember {
   sessionId: string | null;
   answeredAt: string | null;
   /** Officer view only. */
+  attended: AttendanceStatus | null;
   power: number | null;
   foundryStrength: number | null;
   furnace: string | number | null;
@@ -255,6 +266,12 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
     createEvent: (input: NewEvent) => request<AllianceEvent>("POST", "/events", input),
     updateEvent: (eventId: string, changes: EventChanges) =>
       request<AllianceEvent>("PATCH", `/events/${eventId}`, changes),
+    attendance: (eventId: string, playerId: string, status: AttendanceStatus, sessionId?: string) =>
+      request<{ status: AttendanceStatus }>("PUT", `/events/${eventId}/attendance/${playerId}`, {
+        status,
+        ...(sessionId ? { sessionId } : {}),
+      }),
+    reliability: (playerId: string) => request<Reliability>("GET", `/accounts/${playerId}/reliability`),
     answer: (eventId: string, playerId: string, answer: Answer, sessionId?: string) =>
       request<{ answer: Answer; sessionId?: string }>("PUT", `/events/${eventId}/answers/${playerId}`, {
         answer,

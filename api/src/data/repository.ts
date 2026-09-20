@@ -8,6 +8,7 @@ import {
   type DynamoDBDocumentClient,
 } from "@aws-sdk/lib-dynamodb";
 import type { GameAccount } from "../domain/accounts.js";
+import type { AttendanceRecord } from "../domain/attendance.js";
 import type { AllianceEvent, Answer, EventAnswer } from "../domain/events.js";
 import type { EventType } from "../domain/eventTypes.js";
 import { ConflictError, NotFoundError } from "../domain/errors.js";
@@ -18,6 +19,8 @@ import {
   accountKey,
   answerIndexKey,
   answerKey,
+  attendanceIndexKey,
+  attendanceKey,
   accountLinkLockKey,
   allianceIndexKey,
   eventIndexKey,
@@ -131,6 +134,50 @@ export class Repository {
       }
       throw err;
     }
+  }
+
+  // ---- Attendance (EVT-07) ----
+
+  /** Records who turned up. One record per account per event; a later record replaces an earlier one. */
+  async setAttendance(
+    record: Omit<AttendanceRecord, "recordedAt">,
+    actor: Actor,
+    recordedAt = this.clock().toISOString(),
+  ): Promise<AttendanceRecord> {
+    const full: AttendanceRecord = { ...record, recordedAt };
+    await this.db.send(
+      new PutCommand({
+        TableName: this.table,
+        Item: {
+          ...attendanceKey(record.eventId, record.playerId),
+          ...attendanceIndexKey(record.playerId, recordedAt, record.eventId),
+          type: "attendance",
+          ...full,
+          ...newItemMeta(actor, this.clock()),
+        },
+      }),
+    );
+    return full;
+  }
+
+  async listAttendance(eventId: string): Promise<AttendanceRecord[]> {
+    const items = await this.queryAll({
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+      ExpressionAttributeValues: { ":pk": `EVENT#${eventId}`, ":sk": "ATTEND#" },
+    });
+    return items.map(toAttendance);
+  }
+
+  /** One account's attendance across events, newest first. */
+  async attendanceFor(playerId: string, limit = 50): Promise<AttendanceRecord[]> {
+    const items = await this.queryAll({
+      IndexName: "GSI1",
+      KeyConditionExpression: "GSI1PK = :pk AND begins_with(GSI1SK, :sk)",
+      ExpressionAttributeValues: { ":pk": `ACCOUNT#${playerId}`, ":sk": "ATTEND#" },
+      ScanIndexForward: false,
+      Limit: limit,
+    });
+    return items.map(toAttendance);
   }
 
   // ---- Event types (EVT-01) ----
@@ -570,4 +617,18 @@ function toEventType(item: Record<string, unknown>): EventType {
   };
   if (item.strategyTemplate) type.strategyTemplate = String(item.strategyTemplate);
   return type;
+}
+
+function toAttendance(item: Record<string, unknown>): AttendanceRecord {
+  const record: AttendanceRecord = {
+    eventId: String(item.eventId),
+    playerId: String(item.playerId),
+    status: item.status as AttendanceRecord["status"],
+    source: item.source as AttendanceRecord["source"],
+    recordedAt: String(item.recordedAt),
+  };
+  if (item.sessionId) record.sessionId = String(item.sessionId);
+  if (item.note) record.note = String(item.note);
+  if (item.evidenceRef) record.evidenceRef = String(item.evidenceRef);
+  return record;
 }

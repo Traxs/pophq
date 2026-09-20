@@ -34,6 +34,16 @@ export const answerIndexKey = (playerId: string, startsAt: string, eventId: stri
   GSI1SK: `ANSWER#${startsAt}#${eventId}`,
 });
 
+/** Attendance: one record per game account per event, readable per event and per account. */
+export const attendanceKey = (eventId: string, playerId: string) => ({
+  PK: `EVENT#${eventId}`,
+  SK: `ATTEND#${playerId}`,
+});
+export const attendanceIndexKey = (playerId: string, recordedAt: string, eventId: string) => ({
+  GSI1PK: `ACCOUNT#${playerId}`,
+  GSI1SK: `ATTEND#${recordedAt}#${eventId}`,
+});
+
 /** One item per login that holds a seat, plus a counter so the cap is enforced atomically (FM-08). */
 export const seatKey = (sub: string) => ({ PK: `LOGIN#${sub}`, SK: "SEAT" });
 export const seatCounterKey = () => ({ PK: "SEATS", SK: "COUNT" });

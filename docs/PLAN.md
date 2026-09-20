@@ -86,7 +86,8 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 - [x] P5.3a Officer view: counts and lists by answer including who has not answered (EVT-04); battle time, furnace and Helios columns still to come
 - [ ] P5.4 Lineups: one item per session, versioned, capacity 30 + 10 enforced in the write (EVT-04, EVT-05, FM-10); public view with own entry highlighted
 - [ ] P5.5 Strategy versions (Markdown + assignment table) on the event page (EVT-06)
-- [ ] P5.6 Actual attendance (Unknown default) and results (EVT-07, EVT-08); attendance score (last 10 confirmed commitments)
+- [x] P5.6a Attendance (EVT-07): officers record present / absent / excused / unknown per game account and part; recording again replaces the earlier record and the old one stays in the history. Reliability is the share of kept commitments over the last ten checked events, and feeds the lineup ranking
+- [ ] P5.6b Event results (EVT-08) and attendance from screenshots via Hermes
 - [ ] P5.7 Reminders every 15 minutes from due-reminder index, versioned keys (EVT-09, FM-18); not-answered list
 - [x] P5.8a Dev tools: demo events and random answers; lineup and outcome tools follow with P5.4/P5.6
 - [ ] P5.9 Foundry map with zones (EVT-10, Should)

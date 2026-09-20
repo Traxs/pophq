@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { ulid } from "ulid";
 import { parseNewAccount } from "../domain/accounts.js";
 import { ConflictError, DomainError, NotFoundError, UnauthorizedError, ValidationError } from "../domain/errors.js";
+import { parseAttendance, reliabilityOf } from "../domain/attendance.js";
 import {
   countAnswers,
   isClosed,
@@ -301,6 +302,35 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     return c.json(event, 201);
   });
 
+  /**
+   * Officers record who actually turned up (EVT-07). One record per game account per event;
+   * recording it again replaces the earlier record and keeps the old one in the history.
+   */
+  app.put("/events/:id/attendance/:pid", async (c) => {
+    const p = c.get("principal");
+    requireOfficer(p);
+    const pid = parsePlayerId(c.req.param("pid"));
+    const event = await repo.getEvent(c.req.param("id"));
+    if (!event) throw new NotFoundError("Event not found.");
+    const input = parseAttendance(await readJson(c.req.raw));
+    if (input.sessionId && !event.sessions.some((s) => s.id === input.sessionId)) {
+      throw new ValidationError("That part of the event doesn't exist.");
+    }
+    const saved = await repo.setAttendance(
+      { ...input, eventId: event.eventId, playerId: pid, source: "officer" },
+      { id: p.sub, via: "web", reason: "attendance" },
+    );
+    return c.json(saved);
+  });
+
+  /** A member's reliability: how often they kept a commitment. Own account, or any for officers. */
+  app.get("/accounts/:pid/reliability", async (c) => {
+    const p = c.get("principal");
+    const pid = parsePlayerId(c.req.param("pid"));
+    if (!p.linkedAccounts.has(pid)) requireOfficer(p);
+    return c.json(reliabilityOf(await repo.attendanceFor(pid)));
+  });
+
   /** Officers change an event: title, type, start, deadline or notes. Answers stay. */
   app.patch("/events/:id", async (c) => {
     const p = c.get("principal");
@@ -344,7 +374,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const counts = countAnswers(answers, expected.length);
     const acting = defaultActing(p);
 
-    // Foundry strength of everyone who signed up, for the capacity view and the estimate.
+    // Foundry strength and reliability of everyone who signed up, for the estimate.
     const yesAnswers = answers.filter((a) => a.answer === "yes");
     const strengthOf = new Map<string, number | undefined>(
       await Promise.all(
@@ -353,11 +383,21 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         ),
       ),
     );
+    const reliabilityOfPlayer = new Map(
+      await Promise.all(
+        yesAnswers.map(async (a) => [a.playerId, reliabilityOf(await repo.attendanceFor(a.playerId))] as const),
+      ),
+    );
     const byName = new Map(accounts.map((a) => [a.playerId, a.name]));
     const sessions = event.sessions.map((session) => {
       const entries = yesAnswers
         .filter((a) => a.sessionId === session.id)
-        .map((a) => ({ playerId: a.playerId, strength: strengthOf.get(a.playerId), answeredAt: a.answeredAt }));
+        .map((a) => ({
+          playerId: a.playerId,
+          strength: strengthOf.get(a.playerId),
+          attendanceRate: reliabilityOfPlayer.get(a.playerId)?.rate,
+          answeredAt: a.answeredAt,
+        }));
       const standing = acting ? standingFor(session.id, entries, acting, session.starters) : undefined;
       // Everyone sees who signed up with their Foundry strength and likely role (that is what
       // decides the lineup). Reliability is officer business, as are power, furnace and notes.
@@ -395,6 +435,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     };
     if (isOfficer(p)) {
       const byPlayer = new Map(answers.map((a) => [a.playerId, a]));
+      const attendance = new Map((await repo.listAttendance(event.eventId)).map((a) => [a.playerId, a]));
       // Officers see the numbers they need to balance the legions (P8/EVT-04).
       const reports = new Map(
         await Promise.all(expected.map(async (a) => [a.playerId, await repo.listReports(a.playerId)] as const)),
@@ -409,6 +450,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           answer: byPlayer.get(account.playerId)?.answer ?? null,
           sessionId: byPlayer.get(account.playerId)?.sessionId ?? null,
           answeredAt: byPlayer.get(account.playerId)?.answeredAt ?? null,
+          attended: attendance.get(account.playerId)?.status ?? null,
           power: currentOf(own, "city_power") ?? null,
           foundryStrength: currentOf(own, "foundry_strength") ?? null,
           furnace: current.furnace_level?.value ?? null,

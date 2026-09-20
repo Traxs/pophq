@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ApiError, type Answer, type EventDetail, type EventMember, type SessionView } from "../api";
+import { ApiError, type Answer, type AttendanceStatus, type EventDetail, type EventMember, type SessionView } from "../api";
 import { ErrorBanner } from "../components/Chrome";
 import { useToast } from "../components/Toast";
 import { compact, dayTime, full, relativeDay, shortTime, untilText } from "../format";
@@ -216,6 +216,23 @@ function SessionCard({
 
 /** Officer view: every member with the numbers needed to balance the legions (EVT-04). */
 function OfficerTable({ event, members }: { event: EventDetail; members: EventMember[] }) {
+  const { api, dataChanged } = useSession();
+  const toast = useToast();
+  const started = Date.parse(event.startsAt) <= Date.now();
+  const [saving, setSaving] = useState<string | null>(null);
+
+  const mark = async (member: EventMember, status: AttendanceStatus) => {
+    setSaving(member.playerId);
+    try {
+      await api.attendance(event.eventId, member.playerId, status, member.sessionId ?? undefined);
+      toast(`${member.name}: ${status}`);
+      dataChanged();
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Couldn't save attendance");
+    } finally {
+      setSaving(null);
+    }
+  };
   const answerLabel = (m: EventMember) =>
     m.answer === "yes"
       ? (event.sessions.find((s) => s.id === m.sessionId)?.label ?? "Yes")
@@ -271,7 +288,7 @@ function OfficerTable({ event, members }: { event: EventDetail; members: EventMe
                 Power
               </th>
               <th scope="col">Furnace</th>
-              <th scope="col">Last report</th>
+              <th scope="col">{started ? "Turned up" : "Last report"}</th>
             </tr>
           </thead>
           <tbody>
@@ -285,7 +302,25 @@ function OfficerTable({ event, members }: { event: EventDetail; members: EventMe
                 <td className="num">{m.foundryStrength === null ? "–" : full(m.foundryStrength)}</td>
                 <td className="num">{m.power === null ? "–" : compact(m.power)}</td>
                 <td>{m.furnace ?? "–"}</td>
-                <td>{m.lastReportAt ? relativeDay(m.lastReportAt) : "never"}</td>
+                <td>
+                  {started ? (
+                    <select
+                      aria-label={`Did ${m.name} turn up?`}
+                      value={m.attended ?? ""}
+                      disabled={saving === m.playerId}
+                      onChange={(e) => void mark(m, e.target.value as AttendanceStatus)}
+                    >
+                      <option value="">–</option>
+                      <option value="present">Present</option>
+                      <option value="absent">Absent</option>
+                      <option value="excused">Excused</option>
+                    </select>
+                  ) : m.lastReportAt ? (
+                    relativeDay(m.lastReportAt)
+                  ) : (
+                    "never"
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
