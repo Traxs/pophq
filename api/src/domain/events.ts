@@ -70,6 +70,11 @@ const SessionSchema = z.object({
   subs: z.number().int().min(0).max(500).optional(),
 });
 
+const ConfiguredSessionSchema = z.object({
+  id: z.string().trim().regex(/^[A-Za-z0-9_-]{1,8}$/, "Session id must be 1–8 letters, digits, - or _."),
+  label: z.string().trim().min(1, "The session needs a name.").max(30),
+});
+
 const NewEventSchema = z.object({
   /** Parts people choose between, e.g. the two Foundry legions. At most one may be chosen. */
   sessions: z.array(SessionSchema).max(6, "At most six sessions.").optional(),
@@ -244,6 +249,36 @@ export function parseEventChanges(event: AllianceEvent, input: unknown, now: Dat
     throw new ValidationError("The event is more than a year away.");
   }
   return updated;
+}
+
+/**
+ * Adds the one missing part to a legacy event. This is deliberately narrower than general event
+ * editing: once an event has parts, changing their ids could orphan answers, lineups and results.
+ */
+export function configureLegacySession(event: AllianceEvent, input: unknown, now: Date): AllianceEvent {
+  const parsed = ConfiguredSessionSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid event part.", z.flattenError(parsed.error).fieldErrors);
+  }
+  const session = parsed.data;
+  if (Date.parse(event.startsAt) > now.getTime() + MAX_AHEAD_MS) {
+    throw new ValidationError("The event is more than a year away.");
+  }
+  if (Date.parse(event.deadlineAt) > Date.parse(event.startsAt)) {
+    throw new ValidationError("Answers must close before the event starts.");
+  }
+  return {
+    ...event,
+    sessions: [
+      {
+        id: session.id,
+        label: session.label,
+        startsAt: event.startsAt,
+        starters: 30,
+        subs: 10,
+      },
+    ],
+  };
 }
 
 export function parseAnswer(raw: unknown): Answer {

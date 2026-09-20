@@ -262,6 +262,68 @@ export class Repository {
     }
   }
 
+  /**
+   * Gives a legacy single-part event its missing part and assigns every existing yes answer to
+   * it atomically. The empty-parts condition prevents two officers from configuring it at once.
+   */
+  async configureLegacySession(event: AllianceEvent, answers: readonly EventAnswer[], actor: Actor): Promise<number> {
+    const yes = answers.filter((answer) => answer.answer === "yes");
+    if (yes.some((answer) => answer.sessionId)) {
+      throw new ConflictError("This event has inconsistent signups and needs manual repair.");
+    }
+    // DynamoDB transactions accept at most 100 actions; one is reserved for the event.
+    if (yes.length > 99) throw new ConflictError("This event has too many signups to convert safely in one operation.");
+
+    const meta = newItemMeta(actor, this.clock());
+    try {
+      await this.db.send(new TransactWriteCommand({
+        TransactItems: [
+          {
+            Put: {
+              TableName: this.table,
+              Item: {
+                ...eventKey(event.eventId),
+                ...eventIndexKey(event.alliance, event.startsAt, event.eventId),
+                type: "event",
+                ...event,
+                ...meta,
+              },
+              ConditionExpression: "attribute_exists(PK) AND (attribute_not_exists(sessions) OR size(sessions) = :zero)",
+              ExpressionAttributeValues: { ":zero": 0 },
+            },
+          },
+          ...yes.map((answer) => ({
+            Update: {
+              TableName: this.table,
+              Key: answerKey(event.eventId, answer.playerId),
+              UpdateExpression:
+                "SET sessionId = :sessionId, updatedAt = :updatedAt, updatedBy = :updatedBy, via = :via, changeId = :changeId, reason = :reason, #version = if_not_exists(#version, :zero) + :one",
+              ConditionExpression: "attribute_exists(PK) AND answer = :yes AND attribute_not_exists(sessionId)",
+              ExpressionAttributeNames: { "#version": "version" },
+              ExpressionAttributeValues: {
+                ":sessionId": event.sessions[0]!.id,
+                ":updatedAt": meta.updatedAt,
+                ":updatedBy": meta.updatedBy,
+                ":via": meta.via,
+                ":changeId": meta.changeId,
+                ":reason": actor.reason ?? "legacy event part configured",
+                ":zero": 0,
+                ":one": 1,
+                ":yes": "yes",
+              },
+            },
+          })),
+        ],
+      }));
+      return yes.length;
+    } catch (err) {
+      if (err instanceof TransactionCanceledException) {
+        throw new ConflictError("This event was already configured or changed. Reload and try again.");
+      }
+      throw err;
+    }
+  }
+
   async getEvent(eventId: string): Promise<AllianceEvent | undefined> {
     const res = await this.db.send(new GetCommand({ TableName: this.table, Key: eventKey(eventId) }));
     return res.Item ? toEvent(res.Item) : undefined;

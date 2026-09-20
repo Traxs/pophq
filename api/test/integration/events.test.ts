@@ -280,6 +280,79 @@ describe("Foundry legions", () => {
   });
 });
 
+describe("legacy event session repair", () => {
+  let h: Harness;
+  const legacyId = "LEGACY-FOUNDRY-L2";
+  const startsAt = inDays(-1, 19);
+
+  beforeAll(async () => {
+    h = await createHarness();
+    await seedDemo(h.repo, new Date());
+    const legacy = {
+      eventId: legacyId,
+      alliance: "POP",
+      kind: "foundry" as const,
+      title: "Foundry L2",
+      startsAt,
+      deadlineAt: inDays(-4, 23),
+      sessions: [],
+      createdBy: "import",
+    };
+    await h.repo.createEvent(legacy, { id: "import", via: "migration" });
+    await h.repo.setAnswer(
+      legacy,
+      "100000001",
+      { answer: "yes" },
+      "officer",
+      { id: "import", via: "migration" },
+      undefined,
+      { historic: true },
+    );
+    await h.repo.setAnswer(
+      legacy,
+      "100000002",
+      { answer: "no" },
+      "officer",
+      { id: "import", via: "migration" },
+      undefined,
+      { historic: true },
+    );
+  });
+  afterAll(() => h.cleanup());
+
+  it("lets an officer add the missing session and atomically assigns existing yes signups", async () => {
+    expect(
+      (
+        await h.call("POST", `/events/${legacyId}/session`, {
+          ...PLAYER,
+          body: { id: "L2", label: "Legion 2" },
+        })
+      ).status,
+    ).toBe(403);
+
+    const configured = await h.call("POST", `/events/${legacyId}/session`, {
+      ...OFFICER,
+      body: { id: "L2", label: "Legion 2" },
+    });
+    expect(configured.status).toBe(201);
+    expect(configured.body.assignedSignups).toBe(1);
+
+    const detail = await h.call("GET", `/events/${legacyId}`, OFFICER);
+    expect(detail.body.sessions).toEqual([
+      expect.objectContaining({ id: "L2", label: "Legion 2", startsAt, signedUp: 1 }),
+    ]);
+    const members = detail.body.members as { playerId: string; answer: string; sessionId?: string }[];
+    expect(members.find((member) => member.playerId === "100000001")).toMatchObject({ answer: "yes", sessionId: "L2" });
+    expect(members.find((member) => member.playerId === "100000002")).toMatchObject({ answer: "no" });
+
+    const repeated = await h.call("POST", `/events/${legacyId}/session`, {
+      ...OFFICER,
+      body: { id: "L1", label: "Legion 1" },
+    });
+    expect(repeated.status).toBe(409);
+  });
+});
+
 describe("legion capacity and standing", () => {
   let h: Harness;
   let eventId: string;

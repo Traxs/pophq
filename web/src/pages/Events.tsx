@@ -49,6 +49,7 @@ export function Events() {
   const [attempt, setAttempt] = useState(0);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<EventListItem | null>(null);
+  const [configuring, setConfiguring] = useState<EventListItem | null>(null);
 
   useEffect(() => {
     api
@@ -99,6 +100,7 @@ export function Events() {
               accountId={account?.playerId}
               isOfficer={isOfficer}
               onEdit={setEditing}
+              onConfigure={setConfiguring}
             />
           </li>
         ))}
@@ -110,7 +112,14 @@ export function Events() {
           <ul className="stack">
             {past.map((event) => (
               <li key={event.eventId}>
-                <EventCard event={event} onAnswered={dataChanged} accountId={account?.playerId} isOfficer={isOfficer} past />
+                <EventCard
+                  event={event}
+                  onAnswered={dataChanged}
+                  accountId={account?.playerId}
+                  isOfficer={isOfficer}
+                  onConfigure={setConfiguring}
+                  past
+                />
               </li>
             ))}
           </ul>
@@ -137,6 +146,18 @@ export function Events() {
           />
         )}
       </Sheet>
+
+      <Sheet open={configuring !== null} title="Configure result session" onClose={() => setConfiguring(null)}>
+        {configuring && (
+          <LegacySessionForm
+            event={configuring}
+            onDone={() => {
+              setConfiguring(null);
+              dataChanged();
+            }}
+          />
+        )}
+      </Sheet>
     </>
   );
 }
@@ -147,6 +168,7 @@ function EventCard({
   isOfficer,
   onAnswered,
   onEdit,
+  onConfigure,
   past = false,
 }: {
   event: EventListItem;
@@ -154,6 +176,7 @@ function EventCard({
   isOfficer: boolean;
   onAnswered: () => void;
   onEdit?: (event: EventListItem) => void;
+  onConfigure?: (event: EventListItem) => void;
   past?: boolean;
 }) {
   const { api } = useSession();
@@ -276,6 +299,13 @@ function EventCard({
         </button>
       )}
 
+
+      {isOfficer && event.kind === "foundry" && event.sessions.length === 0 && onConfigure && (
+        <button type="button" className="text-btn" onClick={() => onConfigure(event)}>
+          Configure result session
+        </button>
+      )}
+
       {isOfficer &&
         (details ? (
           <EventBreakdown detail={details} />
@@ -285,6 +315,61 @@ function EventCard({
           </button>
         ))}
     </article>
+  );
+}
+
+/** Repairs one of the old separate L1/L2 events and keeps all existing signups attached. */
+function LegacySessionForm({ event, onDone }: { event: EventListItem; onDone: () => void }) {
+  const { api } = useSession();
+  const toast = useToast();
+  const titleLegion = event.title.match(/(?:legion\s*|\bL)([12])\b/i)?.[1];
+  const [id, setId] = useState(titleLegion === "2" ? "L2" : "L1");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.configureEventSession(event.eventId, {
+        id,
+        label: id === "L1" ? "Legion 1" : "Legion 2",
+      });
+      toast(`Session configured · ${result.assignedSignups} signup${result.assignedSignups === 1 ? "" : "s"} assigned`);
+      onDone();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't configure the result session.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form className="form" onSubmit={submit}>
+      <p className="muted">
+        Choose the legion represented by this old event. Every existing Yes signup will be assigned to it, so bot result
+        previews keep the participant list intact.
+      </p>
+      <div className="field">
+        <label htmlFor="legacy-legion">Legion</label>
+        <select id="legacy-legion" value={id} onChange={(e) => setId(e.target.value)}>
+          <option value="L1">Legion 1</option>
+          <option value="L2">Legion 2</option>
+        </select>
+      </div>
+      <div className="field">
+        <span className="hint">The session will use the existing event time: {dayTime(event.startsAt)}.</span>
+      </div>
+      {error && (
+        <p className="banner banner-error" role="alert">
+          {error}
+        </p>
+      )}
+      <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
+        {busy ? "Configuring…" : "Configure session"}
+      </button>
+    </form>
   );
 }
 

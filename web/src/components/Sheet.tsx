@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 
 /** Bottom sheet on phones, centred dialog on wide screens. Native <dialog>: focus trap and Escape for free. */
 export function Sheet({
@@ -13,6 +13,7 @@ export function Sheet({
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
 
   useEffect(() => {
     const d = ref.current;
@@ -25,7 +26,7 @@ export function Sheet({
     <dialog
       ref={ref}
       className="sheet"
-      aria-labelledby="sheet-title"
+      aria-labelledby={titleId}
       onClose={onClose}
       onClick={(e) => {
         if (e.target === ref.current) onClose(); // backdrop tap
@@ -34,7 +35,7 @@ export function Sheet({
       <div className="sheet-body">
         <div className="sheet-handle" aria-hidden="true" />
         <header className="sheet-head">
-          <h2 id="sheet-title">{title}</h2>
+          <h2 id={titleId}>{title}</h2>
           <button type="button" className="icon-btn" aria-label="Close" onClick={onClose}>
             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
               <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
