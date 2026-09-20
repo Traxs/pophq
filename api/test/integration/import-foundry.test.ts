@@ -139,7 +139,7 @@ describe("importing events, attendance and sign-ups", () => {
     await h.cleanup();
   });
 
-  it("refuses sign-ups for an event that already happened, and counts them", async () => {
+  it("records sign-ups for an event that already happened, because it is history", async () => {
     const h = await createHarness();
     const signUps: BundleSignup[] = [
       { id: "s1", player_id: "u1", event_id: "e-l1", preferred_legion: 1 },
@@ -148,8 +148,29 @@ describe("importing events, attendance and sign-ups", () => {
     const plan = planEventImport(players, events, [], signUps);
     expect(plan.signUps).toEqual([{ eventId: "IMPORT-foundry-2026-09-06", playerId: "720000001", sessionId: "L1" }]);
 
+    await h.repo.createAccount({ playerId: "720000001", name: "Frostbite", alliance: "POP", status: "unknown" }, { id: "t", via: "migration" });
     const result = await applyEventImport(h.repo, plan, { id: "import", via: "migration" });
-    expect(result).toMatchObject({ signUpsWritten: 0, signUpsRefused: 1 }); // the event is in the past
+    expect(result).toMatchObject({ signUpsWritten: 1, signUpsRefused: 0 });
+
+    const answers = await h.repo.listAnswers("IMPORT-foundry-2026-09-06");
+    expect(answers).toEqual([expect.objectContaining({ playerId: "720000001", answer: "yes", sessionId: "L1" })]);
+    await h.cleanup();
+  });
+
+  it("still refuses a sign-up for an account that may not receive data", async () => {
+    const h = await createHarness();
+    await h.repo.createAccount(
+      { playerId: "720000009", name: "Gone", alliance: "POP", status: "transferred_out" },
+      { id: "t", via: "migration" },
+    );
+    const plan = planEventImport(
+      [{ id: "u9", canonical_name: "Gone", game_player_id: "720000009" }],
+      events,
+      [],
+      [{ id: "s9", player_id: "u9", event_id: "e-l1", preferred_legion: 1 }],
+    );
+    const result = await applyEventImport(h.repo, plan, { id: "import", via: "migration" });
+    expect(result).toMatchObject({ signUpsWritten: 0, signUpsRefused: 1 });
     await h.cleanup();
   });
 });

@@ -298,7 +298,7 @@ export class Repository {
     source: EventAnswer["source"],
     actor: Actor,
     note?: string,
-    options: { afterDeadline?: boolean } = {},
+    options: { afterDeadline?: boolean; historic?: boolean } = {},
   ): Promise<EventAnswer> {
     const now = this.clock();
     const meta = newItemMeta(actor, now);
@@ -319,11 +319,14 @@ export class Repository {
               ConditionCheck: {
                 TableName: this.table,
                 Key: eventKey(event.eventId),
-                // Officers may write after the deadline, but never after the event has started.
-                ConditionExpression: options.afterDeadline
-                  ? "attribute_exists(PK) AND startsAt > :now"
-                  : "attribute_exists(PK) AND deadlineAt > :now",
-                ExpressionAttributeValues: { ":now": now.toISOString() },
+                // Members write until the deadline; officers until the event starts. An import
+                // writes whenever, because it records what happened, it does not answer late.
+                ConditionExpression: options.historic
+                  ? "attribute_exists(PK)"
+                  : options.afterDeadline
+                    ? "attribute_exists(PK) AND startsAt > :now"
+                    : "attribute_exists(PK) AND deadlineAt > :now",
+                ...(options.historic ? {} : { ExpressionAttributeValues: { ":now": now.toISOString() } }),
               },
             },
             {
