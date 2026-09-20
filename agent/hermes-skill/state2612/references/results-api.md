@@ -1,6 +1,6 @@
 # Results API
 
-All requests use `Authorization: Bearer $POPHQ_AGENT_TOKEN`. Agent tokens are refused when an `Origin` header is present.
+All requests use `Authorization: Bearer $POPHQ_BOT_TOKEN`. Bot tokens are refused when an `Origin` header is present.
 
 ## Read context
 

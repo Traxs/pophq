@@ -15,9 +15,11 @@ from pathlib import Path
 
 def request(method: str, path: str, body: object | None = None, idempotency_key: str | None = None) -> object:
     base = os.environ.get("POPHQ_URL", "").rstrip("/")
-    token = os.environ.get("POPHQ_AGENT_TOKEN", "")
+    # POPHQ_AGENT_TOKEN remains a compatibility fallback for credentials configured
+    # before the UI adopted the clearer "Bot token" name.
+    token = os.environ.get("POPHQ_BOT_TOKEN", "") or os.environ.get("POPHQ_AGENT_TOKEN", "")
     if not base or not token:
-        raise SystemExit("Set POPHQ_URL and POPHQ_AGENT_TOKEN.")
+        raise SystemExit("Set POPHQ_URL and POPHQ_BOT_TOKEN.")
     data = None if body is None else json.dumps(body, separators=(",", ":")).encode()
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     if data is not None:

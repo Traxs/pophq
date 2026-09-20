@@ -5,13 +5,14 @@ import { createHarness, type Harness } from "./harness.js";
 
 const OFFICER = { as: "officer", groups: ["officer"] };
 
-describe("Hermes result agent", () => {
+describe("bot result agent", () => {
   let h: Harness;
   let eventId: string;
   let token: string;
+  let issuerIsOfficer = true;
 
   beforeAll(async () => {
-    h = await createHarness();
+    h = await createHarness({ botIssuerCanUse: async (issuedBy) => issuedBy === "officer" && issuerIsOfficer });
     const actor = { id: "fixture", via: "seed" as const };
     await h.repo.createAccount(parseNewAccount({ playerId: "700000001", name: "Northstar" }), actor);
     const startsAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
@@ -100,5 +101,14 @@ describe("Hermes result agent", () => {
     ).toBe(403);
     expect((await h.call("DELETE", `/agent-tokens/${issued.body.tokenId as string}`, OFFICER)).status).toBe(200);
     expect((await h.call("GET", "/agent/doctor", { headers: readHeaders })).status).toBe(401);
+  });
+
+  it("never outlives the issuing officer's current rights", async () => {
+    expect((await h.call("GET", "/agent/doctor", agent())).status).toBe(200);
+    issuerIsOfficer = false;
+    const demoted = await h.call("GET", "/agent/doctor", agent());
+    expect(demoted.status).toBe(403);
+    expect(demoted.body.title).toContain("no longer has permission");
+    issuerIsOfficer = true;
   });
 });

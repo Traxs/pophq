@@ -18,7 +18,7 @@ import { parseLineup, placeIn } from "../domain/lineups.js";
 import { parseStrategy } from "../domain/strategy.js";
 import { parseEventResult } from "../domain/results.js";
 import { canonicalJson, issueAgentToken } from "../domain/agentTokens.js";
-import { authenticateAgent, publicAgentToken } from "./agentAuth.js";
+import { authenticateAgent, publicAgentToken, type BotIssuerCanUse } from "./agentAuth.js";
 import { listEventTypes } from "../ops/eventTypes.js";
 import { parsePlayerId } from "../domain/identity.js";
 import { allianceGrowth, buckets, currentOf, seriesOf } from "../domain/metrics.js";
@@ -55,9 +55,11 @@ export interface AppDeps {
   logins?: LoginDirectory;
   /** Change history; without it, timelines are unavailable. */
   history?: HistoryStore;
+  /** Live issuer-rights check. Bot tokens fail closed when no directory is configured. */
+  botIssuerCanUse?: BotIssuerCanUse;
 }
 
-export function createApp({ repo, verifier, now = () => new Date(), extend, isPaused, logins, history }: AppDeps) {
+export function createApp({ repo, verifier, now = () => new Date(), extend, isPaused, logins, history, botIssuerCanUse = async () => false }: AppDeps) {
   const app = new Hono<Env>().basePath("/v1");
 
   app.use("*", async (c, next) => {
@@ -103,12 +105,12 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
   // Agent-only surface. These routes never accept human JWTs and agent credentials never pass
   // through to the broader web API. Dry-run is the default for every write.
   app.get("/agent/doctor", async (c) => {
-    const token = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "results:read", now());
+    const token = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "results:read", now(), botIssuerCanUse);
     return c.json({ status: "ok", tokenId: token.tokenId, scopes: token.scopes, expiresAt: token.expiresAt });
   });
 
   app.get("/agent/events/:id/sessions/:sid/result-context", async (c) => {
-    await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "results:read", now());
+    await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "results:read", now(), botIssuerCanUse);
     const event = await repo.getEvent(c.req.param("id"));
     if (!event) throw new NotFoundError("Event not found.");
     const session = event.sessions.find((candidate) => candidate.id === c.req.param("sid"));
@@ -124,7 +126,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
   });
 
   app.put("/agent/events/:id/sessions/:sid/result", async (c) => {
-    const token = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "results:write", now());
+    const token = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "results:write", now(), botIssuerCanUse);
     const event = await repo.getEvent(c.req.param("id"));
     if (!event) throw new NotFoundError("Event not found.");
     const session = event.sessions.find((candidate) => candidate.id === c.req.param("sid"));
@@ -194,12 +196,12 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     });
   });
 
-  /** Officers issue narrow Hermes credentials; the secret is returned exactly once. */
+  /** Officers issue narrow bot credentials; the secret is returned exactly once. */
   app.post("/agent-tokens", async (c) => {
     const p = c.get("principal");
     requireOfficer(p);
     const active = (await repo.listAgentTokens(p.sub)).filter((token) => !token.revokedAt && Date.parse(token.expiresAt) > now().getTime());
-    if (active.length >= 5) throw new ConflictError("You already have five active agent tokens. Revoke one first.");
+    if (active.length >= 5) throw new ConflictError("You already have five active bot tokens. Revoke one first.");
     const issued = issueAgentToken(await readJson(c.req.raw), p.sub, now());
     await repo.createAgentToken(issued.record);
     return c.json({ ...publicAgentToken(issued.record), token: issued.token }, 201);

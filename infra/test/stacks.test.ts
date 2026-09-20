@@ -158,7 +158,7 @@ describe("AppStack", () => {
     expect(api).toContain("Live");
   });
 
-  it("lets the API manage logins in its own user pool only", () => {
+  it("lets the API manage logins and check bot issuers in its own user pool only", () => {
     template.hasResourceProperties("AWS::IAM::Policy", {
       PolicyDocument: Match.objectLike({
         Statement: Match.arrayWith([
@@ -166,6 +166,7 @@ describe("AppStack", () => {
             Action: [
               "cognito-idp:AdminCreateUser",
               "cognito-idp:AdminDeleteUser",
+              "cognito-idp:AdminListGroupsForUser",
               "cognito-idp:AdminSetUserPassword",
               "cognito-idp:ListUsers",
             ],
