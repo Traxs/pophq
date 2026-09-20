@@ -1301,3 +1301,9 @@ th[aria-sort="descending"] .th-btn {
   background: var(--surface);
   opacity: 0.9;
 }
+
+.mini-midline {
+  stroke: var(--line);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+}

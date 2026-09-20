@@ -323,7 +323,12 @@ function OfficerTable({ event, members }: { event: EventDetail; members: EventMe
                   <MiniChart values={m.strengthTrend} label={`${m.name}: Foundry strength over six months`} />
                 </td>
                 <td>
-                  <MiniChart values={m.attendanceTrend} kind="bars" label={`${m.name}: attendance over six months`} />
+                  <MiniChart
+                    values={m.attendanceTrend}
+                    domain={[0, 1]}
+                    midline
+                    label={`${m.name}: attendance over six months`}
+                  />
                 </td>
                 <td className="num">{m.power === null ? "–" : compact(m.power)}</td>
                 <td>{m.furnace ?? "–"}</td>
