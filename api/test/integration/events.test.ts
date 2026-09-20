@@ -333,9 +333,13 @@ describe("legion capacity and standing", () => {
     expect(l1.signedUpList.length).toBeGreaterThan(0);
     expect(l1.signedUpList[0]).toMatchObject({ position: 1 });
     expect(["starter", "sub"]).toContain(l1.signedUpList[0]!.likely);
-    // Power, furnace and the officer table stay with officers.
+    // Power, furnace, reliability and the officer table stay with officers.
     expect(JSON.stringify(asPlayer.body.sessions)).not.toContain("furnace");
+    expect(JSON.stringify(asPlayer.body.sessions)).not.toContain("attendanceRate");
     expect(asPlayer.body.members).toBeUndefined();
+
+    const asOfficerSessions = await h.call("GET", `/events/${eventId}`, OFFICER);
+    expect(JSON.stringify(asOfficerSessions.body.sessions)).toContain("attendanceRate");
 
     const asOfficer = await h.call("GET", `/events/${eventId}`, OFFICER);
     const members = asOfficer.body.members as { name: string; power: number | null; foundryStrength: number | null }[];

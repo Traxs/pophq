@@ -360,12 +360,12 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         .map((a) => ({ playerId: a.playerId, strength: strengthOf.get(a.playerId), answeredAt: a.answeredAt }));
       const standing = acting ? standingFor(session.id, entries, acting, session.starters) : undefined;
       // Everyone sees who signed up with their Foundry strength and likely role (that is what
-      // decides the lineup); power, furnace and notes stay with officers.
+      // decides the lineup). Reliability is officer business, as are power, furnace and notes.
       const ranked = rankSignUps(entries, session.starters).map((entry) => ({
         playerId: entry.playerId,
         name: byName.get(entry.playerId) ?? entry.playerId,
         foundryStrength: entry.strength ?? null,
-        attendanceRate: entry.attendanceRate ?? null,
+        ...(isOfficer(p) ? { attendanceRate: entry.attendanceRate ?? null } : {}),
         position: entry.position,
         likely: entry.likely,
       }));

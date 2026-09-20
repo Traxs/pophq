@@ -93,8 +93,8 @@ export interface SignUpEntry {
   name: string;
   /** The number that decides the lineup; visible to every member. */
   foundryStrength: number | null;
-  /** Share of kept commitments, once attendance is tracked. */
-  attendanceRate: number | null;
+  /** Share of kept commitments; officers only, and only once attendance is tracked. */
+  attendanceRate?: number | null;
   position: number;
   likely: "starter" | "sub";
 }

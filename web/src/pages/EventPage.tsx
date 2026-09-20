@@ -74,6 +74,7 @@ export function EventPage({ eventId }: { eventId: string }) {
                 closed={event.closed && !isOfficer}
                 busy={busy}
                 canAnswer={account !== undefined}
+                isOfficer={isOfficer}
                 myPlayerId={account?.playerId}
                 onJoin={() => void choose("yes", session.id)}
               />
@@ -105,6 +106,7 @@ function SessionCard({
   closed,
   busy,
   canAnswer,
+  isOfficer,
   myPlayerId,
   onJoin,
 }: {
@@ -112,6 +114,7 @@ function SessionCard({
   closed: boolean;
   busy: string | null;
   canAnswer: boolean;
+  isOfficer: boolean;
   myPlayerId: string | undefined;
   onJoin: () => void;
 }) {
@@ -173,7 +176,7 @@ function SessionCard({
                   <th scope="col" className="num">
                     Foundry
                   </th>
-                  <th scope="col">Attendance</th>
+                  {isOfficer && <th scope="col">Attendance</th>}
                   <th scope="col">Likely</th>
                 </tr>
               </thead>
@@ -183,7 +186,13 @@ function SessionCard({
                     <td className="num">{entry.position}</td>
                     <td>{entry.name}</td>
                     <td className="num">{entry.foundryStrength === null ? "–" : full(entry.foundryStrength)}</td>
-                    <td>{entry.attendanceRate === null ? "–" : `${Math.round(entry.attendanceRate * 100)}%`}</td>
+                    {isOfficer && (
+                      <td>
+                        {entry.attendanceRate === null || entry.attendanceRate === undefined
+                          ? "–"
+                          : `${Math.round(entry.attendanceRate * 100)}%`}
+                      </td>
+                    )}
                     <td>
                       <span className={entry.likely === "starter" ? "pill pill-up" : "pill pill-warn"}>
                         {entry.likely === "starter" ? "Starter" : "Sub"}
@@ -195,7 +204,9 @@ function SessionCard({
             </table>
           </div>
           <p className="muted small">
-            Ranked by Foundry strength (70%) and attendance (30%) — an estimate until officers publish the lineup.
+            {isOfficer
+              ? "Ranked by Foundry strength (70%) and attendance (30%) — an estimate until officers publish the lineup."
+              : "Ranked by Foundry strength and reliability — an estimate until officers publish the lineup."}
           </p>
         </details>
       )}
