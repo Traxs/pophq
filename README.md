@@ -134,19 +134,22 @@ npm run import:foundry -w api -- --bundle /path/to/foundry --apply --aws   # wri
 
 ## Bot result access
 
-Officers can issue a dedicated credential from **Members → Bot tokens**. The secret is shown once. Choose read-only access when a bot only needs context, or allow result updates when it should preview and apply reviewed Foundry results and player scores. Every request re-checks the issuing person's current Cognito groups, so the token never has more rights than its issuer and stops working immediately if that person is no longer an officer or owner.
+Officers can issue a dedicated credential from **Members → Bot tokens**. The secret is shown once. A bot may read everything its issuing user can currently read; normal write routes remain forbidden. Optionally allow narrowly scoped result updates so it can preview and apply reviewed Foundry results and player scores. Every request re-checks the issuing person's current Cognito groups and linked accounts, so demotion immediately reduces the bot's access and account removal disables it.
 
 The checked-in skill is [`agent/hermes-skill/state2612`](agent/hermes-skill/state2612/SKILL.md). Give that folder to the bot and set `POPHQ_URL` plus the issued `POPHQ_BOT_TOKEN` in its environment. From the repository root, the included standard-library client starts with:
 
 ```bash
 python3 agent/hermes-skill/state2612/scripts/s26.py doctor
+python3 agent/hermes-skill/state2612/scripts/s26.py get /events
+python3 agent/hermes-skill/state2612/scripts/s26.py get /roster
+python3 agent/hermes-skill/state2612/scripts/s26.py list-events --kind foundry
 python3 agent/hermes-skill/state2612/scripts/s26.py result-context EVENT_ID SESSION_ID
 python3 agent/hermes-skill/state2612/scripts/s26.py put-result EVENT_ID SESSION_ID result.json
 ```
 
 If your shell is in the directory above this repository (for example `~/workspace/WOS`), first run `cd pophq`, or prefix those paths with `pophq/`.
 
-Writes are previews by default. Applying requires `--apply`, a reason, and a stable idempotency key; tokens work only on the narrow agent routes and are refused from browsers. They expire within 90 days and after 30 unused days, and an officer can revoke them from the same screen.
+Result writes are previews by default. Applying requires `--apply`, a reason, and a stable idempotency key; all other normal write routes reject bot tokens. Bot tokens are refused from browsers, expire within 90 days and after 30 unused days, and an officer can revoke them from the same screen.
 
 The same command also brings in events (one per day, with a part per legion), the attendance recorded for them, and sign-ups. Attendance keeps the moment, source and evidence it was recorded with, rather than the time of the import.
 

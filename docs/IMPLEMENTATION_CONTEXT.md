@@ -71,7 +71,7 @@ At commit `8f99dd9`, the repository has 39 completed and 59 open plan checkboxes
 - officer-published, version-checked lineups per session, with starter/substitute capacity enforced and each member's own selection highlighted;
 - separately versioned strategy plans per session, with safe paragraphs, bullets and bold rendering plus Holder, Looter, Substitute Looter and Farmer assignments restricted to selected lineup accounts;
 - versioned results per session with aggregate scores and matchup facts visible to members, while per-player points remain visible only to that player and officers;
-- narrow, officer-issued bot tokens for result context and guarded result/score updates, plus the checked-in `state2612` skill and standard-library client; each request re-checks the issuer's live officer rights, writes default to an exact dry run, and applied retries are idempotent;
+- officer-issued bot tokens that may read every normal GET route through the issuer's live groups and linked accounts, while writes remain limited to guarded result/score updates; the checked-in `state2612` skill and standard-library client support general reads, discovery, context and result updates, which default to an exact dry run and use idempotent applied retries;
 - append-only change-history writer and account timeline;
 - idempotent Foundry bundle import for accounts, measurements, events, sign-ups, and attendance, using stable `IMPORT-<id>` IDs; bundle notes are deliberately dropped because they contain internal Hermes paths that must not reach member-visible views;
 - one production Foundry import: 86 game accounts and 127 strength observations, with all 47 growth rows matching Hermes' derived numbers exactly;

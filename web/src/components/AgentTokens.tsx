@@ -21,7 +21,7 @@ export function AgentTokens() {
     setBusy(true);
     setError(null);
     try {
-      const scopes: AgentScope[] = write ? ["results:read", "results:write"] : ["results:read"];
+      const scopes: AgentScope[] = write ? ["all:read", "results:write"] : ["all:read"];
       const issued = await api.issueAgentToken({ name, scopes, expiresInDays: days });
       setSecret(issued.token);
       await load();
@@ -30,12 +30,12 @@ export function AgentTokens() {
     } finally { setBusy(false); }
   };
 
-  const scopeLabel = (scope: AgentScope) => scope === "results:write" ? "Update results" : "View results";
+  const scopeLabel = (scope: AgentScope) => scope === "results:write" ? "Update results" : "Read data";
 
   return (
     <section className="card bot-token-panel" aria-labelledby="agent-token-title">
       <h2 id="agent-token-title" className="section-label">Bot tokens</h2>
-      <p className="muted small">Issue a bot credential for result context, scores and player points. It can never exceed your current permissions and stops working if you are no longer an officer.</p>
+      <p className="muted small">A bot can read everything you can currently read. Optional result updates are its only write access, and stop working if you are no longer an officer.</p>
       <div className="bot-token-form">
         <div className="form-grid">
           <label className="field"><span>Name</span><input value={name} maxLength={60} onChange={(e) => setName(e.target.value)} /></label>

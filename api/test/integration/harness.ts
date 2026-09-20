@@ -13,10 +13,10 @@ const ISSUER = "https://issuer.test";
 
 import { HistoryStore } from "../../src/data/history.js";
 import type { LoginDirectory } from "../../src/ops/invite.js";
-import type { BotIssuerCanUse } from "../../src/http/agentAuth.js";
+import type { BotIssuerGroups } from "../../src/http/agentAuth.js";
 
 export async function createHarness(
-  opts: { devTools?: boolean; isPaused?: () => Promise<boolean>; logins?: LoginDirectory; history?: boolean; botIssuerCanUse?: BotIssuerCanUse } = {},
+  opts: { devTools?: boolean; isPaused?: () => Promise<boolean>; logins?: LoginDirectory; history?: boolean; botIssuerGroups?: BotIssuerGroups } = {},
 ) {
   const config = {
     tableName: `pophq-test-${ulid().toLowerCase()}`,
@@ -37,7 +37,7 @@ export async function createHarness(
     ...(opts.devTools ? { extend: (a) => registerDevRoutes(a, { repo, reset: async () => {} }) } : {}),
     ...(opts.isPaused ? { isPaused: opts.isPaused } : {}),
     ...(opts.logins ? { logins: opts.logins } : {}),
-    ...(opts.botIssuerCanUse ? { botIssuerCanUse: opts.botIssuerCanUse } : {}),
+    ...(opts.botIssuerGroups ? { botIssuerGroups: opts.botIssuerGroups } : {}),
     // The history table is separate in AWS; locally the same table serves, since the keys differ.
     ...(opts.history ? { history: new HistoryStore(db, config.tableName) } : {}),
   });

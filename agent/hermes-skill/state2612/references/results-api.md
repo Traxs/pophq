@@ -2,6 +2,17 @@
 
 All requests use `Authorization: Bearer $POPHQ_BOT_TOKEN`. Bot tokens are refused when an `Origin` header is present.
 
+## Discover events
+
+`GET /v1/agent/events`
+
+Returns only event IDs, kinds, titles, start times, and session IDs/labels/start times. It deliberately excludes sign-ups, notes, accounts and officer data. By default it includes events starting in the last seven days or later, up to 50 events ordered earliest first.
+
+Optional query parameters:
+
+- `kind`: `foundry`, `bear`, `svs`, or `other`.
+- `from`: an ISO date or timestamp for older or narrower discovery.
+
 ## Read context
 
 `GET /v1/agent/events/{eventId}/sessions/{sessionId}/result-context`
