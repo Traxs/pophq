@@ -70,3 +70,6 @@ export const resultKey = (eventId: string, sessionId: string) => ({
   PK: `EVENT#${eventId}`,
   SK: `RESULT#${sessionId}`,
 });
+
+export const agentTokenKey = (tokenId: string) => ({ PK: `TOKEN#${tokenId}`, SK: "META" });
+export const idempotencyKey = (tokenId: string, key: string) => ({ PK: `TOKEN#${tokenId}`, SK: `IDEMPOTENCY#${key}` });

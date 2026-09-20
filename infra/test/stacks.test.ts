@@ -67,6 +67,7 @@ describe("AppStack", () => {
         }),
       ],
       StreamSpecification: { StreamViewType: "NEW_AND_OLD_IMAGES" },
+      TimeToLiveSpecification: { AttributeName: "expiresAtEpoch", Enabled: true },
       Replicas: [Match.objectLike({ DeletionProtectionEnabled: true, PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true } })],
     });
   });

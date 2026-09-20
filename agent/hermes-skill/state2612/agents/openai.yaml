@@ -1,0 +1,4 @@
+interface:
+  display_name: "POP HQ / State 2612"
+  short_description: "Read and update POP HQ event results safely"
+  default_prompt: "Use POP HQ to validate or update Foundry event results and player scores."

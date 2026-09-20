@@ -8,6 +8,7 @@ import { change, compact, daysBetween, full, initials, relativeDay } from "../fo
 import { summarise } from "../invites";
 import { isReportOverdue, isValidEmail, isValidGameName, isValidPlayerId } from "../rules";
 import { useSession } from "../session";
+import { AgentTokens } from "../components/AgentTokens";
 
 type SortKey = "name" | "rank" | "power" | "change" | "lastReport";
 type Filter = "all" | "overdue" | "none";
@@ -199,6 +200,7 @@ export function Members() {
           {visible.length === 0 && <p className="muted center table-empty">No members match.</p>}
         </div>
       )}
+      <AgentTokens />
     </>
   );
 }
