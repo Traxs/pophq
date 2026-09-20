@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { ulid } from "ulid";
 import { parseNewAccount } from "../domain/accounts.js";
 import { DomainError, NotFoundError, UnauthorizedError, ValidationError } from "../domain/errors.js";
-import { countAnswers, isClosed, parseAnswer, parseEventChanges, parseNewEvent } from "../domain/events.js";
+import { countAnswers, isClosed, parseAnswerChoice, parseEventChanges, parseNewEvent } from "../domain/events.js";
 import { parsePlayerId } from "../domain/identity.js";
 import { allianceGrowth, buckets, seriesOf } from "../domain/metrics.js";
 import { currentValues, parseReport } from "../domain/measurements.js";
@@ -287,6 +287,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       ...event,
       closed: isClosed(event, at),
       myAnswer: byEvent.get(event.eventId)?.answer ?? null,
+      mySessionId: byEvent.get(event.eventId)?.sessionId ?? null,
     }));
     return c.json({ items });
   });
@@ -308,6 +309,10 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         const acting = defaultActing(p);
         return acting ? (answers.find((a) => a.playerId === acting)?.answer ?? null) : null;
       })(),
+      mySessionId: (() => {
+        const acting = defaultActing(p);
+        return acting ? (answers.find((a) => a.playerId === acting)?.sessionId ?? null) : null;
+      })(),
     };
     if (isOfficer(p)) {
       const byPlayer = new Map(answers.map((a) => [a.playerId, a]));
@@ -316,6 +321,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         name: account.name,
         rank: account.rank ?? null,
         answer: byPlayer.get(account.playerId)?.answer ?? null,
+        sessionId: byPlayer.get(account.playerId)?.sessionId ?? null,
         answeredAt: byPlayer.get(account.playerId)?.answeredAt ?? null,
       }));
     }
@@ -330,11 +336,11 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const event = await repo.getEvent(c.req.param("id"));
     if (!event) throw new NotFoundError("Event not found.");
     const body = (await readJson(c.req.raw)) as Record<string, unknown>;
-    const answer = parseAnswer(body.answer);
+    const choice = parseAnswerChoice(event, body);
     const saved = await repo.setAnswer(
       event,
       pid,
-      answer,
+      choice,
       role,
       { id: p.sub, via: "web" },
       typeof body.note === "string" ? body.note.trim().slice(0, 200) : undefined,

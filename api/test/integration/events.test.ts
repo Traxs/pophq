@@ -150,3 +150,87 @@ describe("events", () => {
     );
   });
 });
+
+describe("Foundry legions", () => {
+  let h: Harness;
+  let foundryId: string;
+
+  beforeAll(async () => {
+    h = await createHarness();
+    await seedDemo(h.repo, new Date());
+    const res = await h.call("POST", "/events", {
+      ...OFFICER,
+      body: {
+        kind: "foundry",
+        title: "Foundry",
+        startsAt: inDays(10),
+        sessions: [
+          { id: "L1", label: "Legion 1", startsAt: inDays(10, 12) },
+          { id: "L2", label: "Legion 2", startsAt: inDays(10, 19) },
+        ],
+      },
+    });
+    expect(res.status).toBe(201);
+    foundryId = res.body.eventId as string;
+  });
+  afterAll(() => h.cleanup());
+
+  it("keeps both legions in one event, starting when the first one does", async () => {
+    const detail = await h.call("GET", `/events/${foundryId}`, OFFICER);
+    expect(detail.body.sessions).toEqual([
+      { id: "L1", label: "Legion 1", startsAt: inDays(10, 12) },
+      { id: "L2", label: "Legion 2", startsAt: inDays(10, 19) },
+    ]);
+    expect(detail.body.startsAt).toBe(inDays(10, 12));
+  });
+
+  it("lets a player pick one legion, and switching replaces the first pick", async () => {
+    const first = await h.call("PUT", `/events/${foundryId}/answers/100000001`, {
+      ...PLAYER,
+      body: { answer: "yes", sessionId: "L1" },
+    });
+    expect(first.body).toMatchObject({ answer: "yes", sessionId: "L1" });
+
+    const second = await h.call("PUT", `/events/${foundryId}/answers/100000001`, {
+      ...PLAYER,
+      body: { answer: "yes", sessionId: "L2" },
+    });
+    expect(second.body).toMatchObject({ answer: "yes", sessionId: "L2" });
+
+    const detail = await h.call("GET", `/events/${foundryId}`, OFFICER);
+    expect(detail.body.counts).toMatchObject({ yes: 1, bySession: { L2: 1 } });
+    const mine = (detail.body.members as { playerId: string; sessionId: string | null }[]).find(
+      (m) => m.playerId === "100000001",
+    );
+    expect(mine?.sessionId).toBe("L2"); // never in both legions
+  });
+
+  it("requires a legion for yes, and refuses one for no", async () => {
+    const noLegion = await h.call("PUT", `/events/${foundryId}/answers/100000001`, { ...PLAYER, body: { answer: "yes" } });
+    expect(noLegion.status).toBe(400);
+    expect(noLegion.body.title).toContain("Legion 1 or Legion 2");
+
+    const wrong = await h.call("PUT", `/events/${foundryId}/answers/100000001`, {
+      ...PLAYER,
+      body: { answer: "yes", sessionId: "L9" },
+    });
+    expect(wrong.status).toBe(400);
+
+    const noWithLegion = await h.call("PUT", `/events/${foundryId}/answers/100000001`, {
+      ...PLAYER,
+      body: { answer: "no", sessionId: "L1" },
+    });
+    expect(noWithLegion.status).toBe(400);
+
+    const plainNo = await h.call("PUT", `/events/${foundryId}/answers/100000001`, { ...PLAYER, body: { answer: "no" } });
+    expect(plainNo.status).toBe(200);
+    expect(plainNo.body.sessionId).toBeUndefined();
+  });
+
+  it("counts each legion separately for officers", async () => {
+    await h.call("PUT", `/events/${foundryId}/answers/100000002`, { ...ALT, body: { answer: "yes", sessionId: "L1" } });
+    await h.call("PUT", `/events/${foundryId}/answers/100000005`, { ...OFFICER, body: { answer: "yes", sessionId: "L2" } });
+    const detail = await h.call("GET", `/events/${foundryId}`, OFFICER);
+    expect(detail.body.counts).toMatchObject({ yes: 2, no: 1, bySession: { L1: 1, L2: 1 } });
+  });
+});

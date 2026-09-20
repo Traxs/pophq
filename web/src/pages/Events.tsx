@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { ApiError, type Answer, type EventDetail, type EventListItem, type EventKind } from "../api";
+import { useEffect, useState, type FormEvent } from "react";
+import { ApiError, type Answer, type EventDetail, type EventListItem, type EventKind, type EventMember } from "../api";
 import { ErrorBanner } from "../components/Chrome";
 import { Sheet } from "../components/Sheet";
 import { useToast } from "../components/Toast";
-import { dayTime, untilText } from "../format";
+import { dayTime, shortTime, untilText } from "../format";
 import { leadDaysOf, previewDeadline, toLocalInput } from "../eventTiming";
 import { useSession } from "../session";
 import { NoAccount } from "./Home";
@@ -31,6 +31,15 @@ const LEAD_CHOICES = [
   { days: 0, label: "1 hour before" },
 ];
 const DEFAULT_LEAD: Record<EventKind, number> = { foundry: 3, svs: 3, bear: 0, other: 0 };
+
+/** A Foundry is one event with two legions; other types have no parts to choose from. */
+const defaultSessions = (kind: EventKind): { id?: string; label: string; startsAt: string }[] =>
+  kind === "foundry"
+    ? [
+        { id: "L1", label: "Legion 1", startsAt: "" },
+        { id: "L2", label: "Legion 2", startsAt: "" },
+      ]
+    : [];
 
 export function Events() {
   const { api, me, account, isOfficer, dataVersion, dataChanged } = useSession();
@@ -149,24 +158,34 @@ function EventCard({
   const { api } = useSession();
   const toast = useToast();
   const [answer, setAnswer] = useState<Answer | null>(event.myAnswer);
-  const [busy, setBusy] = useState<Answer | null>(null);
+  const [session, setSession] = useState<string | null>(event.mySessionId);
+  const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [details, setDetails] = useState<EventDetail | null>(null);
 
-  useEffect(() => setAnswer(event.myAnswer), [event.myAnswer]);
+  useEffect(() => {
+    setAnswer(event.myAnswer);
+    setSession(event.mySessionId);
+  }, [event.myAnswer, event.mySessionId]);
 
-  const choose = async (value: Answer) => {
-    if (!accountId || value === answer) return;
-    setBusy(value);
+  /** Picking a legion replaces an earlier pick: nobody is in two legions of one battle. */
+  const choose = async (value: Answer, sessionId?: string) => {
+    if (!accountId) return;
+    if (value === answer && (sessionId ?? null) === session) return;
+    const key = sessionId ?? value;
+    setBusy(key);
     setError(null);
-    const previous = answer;
-    setAnswer(value); // optimistic: the buttons react immediately
+    const previous = { answer, session };
+    setAnswer(value);
+    setSession(sessionId ?? null);
     try {
-      await api.answer(event.eventId, accountId, value);
-      toast(value === "yes" ? "You're in" : value === "no" ? "Marked as not coming" : "Marked as maybe");
+      await api.answer(event.eventId, accountId, value, sessionId);
+      const label = sessionId ? event.sessions.find((s) => s.id === sessionId)?.label : undefined;
+      toast(label ? `You're in for ${label}` : value === "yes" ? "You're in" : value === "no" ? "Marked as not coming" : "Marked as maybe");
       onAnswered();
     } catch (e) {
-      setAnswer(previous);
+      setAnswer(previous.answer);
+      setSession(previous.session);
       setError(e instanceof ApiError ? e.message : "Couldn't save your answer.");
     } finally {
       setBusy(null);
@@ -190,13 +209,39 @@ function EventCard({
       </div>
       <h3 className="event-title">{event.title}</h3>
       <p className="muted">
-        {dayTime(event.startsAt)}
+        {event.sessions.length > 0
+          ? `${dayTime(event.sessions[0]!.startsAt)}${event.sessions.length > 1 ? ` and ${shortTime(event.sessions.at(-1)!.startsAt)}` : ""}`
+          : dayTime(event.startsAt)}
         {!past && ` · ${untilText(event.startsAt)}`}
       </p>
       {event.notes && <p className="event-notes">{event.notes}</p>}
 
       {!accountId ? (
         <p className="muted small">Pick a game account to answer.</p>
+      ) : event.sessions.length > 0 ? (
+        <div className="segmented answers" role="radiogroup" aria-label={`Your answer for ${event.title}`}>
+          {event.sessions.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              role="radio"
+              aria-checked={answer === "yes" && session === s.id}
+              disabled={event.closed || busy !== null}
+              onClick={() => void choose("yes", s.id)}
+            >
+              {busy === s.id ? "…" : `${s.label} · ${shortTime(s.startsAt)}`}
+            </button>
+          ))}
+          <button
+            type="button"
+            role="radio"
+            aria-checked={answer === "no"}
+            disabled={event.closed || busy !== null}
+            onClick={() => void choose("no")}
+          >
+            {busy === "no" ? "…" : "Can't"}
+          </button>
+        </div>
       ) : (
         <div className="segmented answers" role="radiogroup" aria-label={`Your answer for ${event.title}`}>
           {ANSWERS.map((a) => (
@@ -239,25 +284,32 @@ function EventCard({
 }
 
 function EventBreakdown({ detail }: { detail: EventDetail }) {
-  const [filter, setFilter] = useState<Answer | "pending">("yes");
+  const groups: { key: string; label: string; match: (m: EventMember) => boolean }[] =
+    detail.sessions.length > 0
+      ? [
+          ...detail.sessions.map((s) => ({
+            key: s.id,
+            label: `${s.label} (${detail.counts.bySession[s.id] ?? 0})`,
+            match: (m: EventMember) => m.answer === "yes" && m.sessionId === s.id,
+          })),
+          { key: "no", label: `Can't (${detail.counts.no})`, match: (m: EventMember) => m.answer === "no" },
+          { key: "pending", label: `No answer (${detail.counts.pending})`, match: (m: EventMember) => m.answer === null },
+        ]
+      : [
+          { key: "yes", label: `Yes (${detail.counts.yes})`, match: (m: EventMember) => m.answer === "yes" },
+          { key: "maybe", label: `Maybe (${detail.counts.maybe})`, match: (m: EventMember) => m.answer === "maybe" },
+          { key: "no", label: `No (${detail.counts.no})`, match: (m: EventMember) => m.answer === "no" },
+          { key: "pending", label: `No answer (${detail.counts.pending})`, match: (m: EventMember) => m.answer === null },
+        ];
+  const [filter, setFilter] = useState<string>(groups[0]!.key);
   const members = detail.members ?? [];
-  const shown = useMemo(
-    () => members.filter((m) => (filter === "pending" ? m.answer === null : m.answer === filter)),
-    [members, filter],
-  );
-  const { counts } = detail;
+  const match = groups.find((g) => g.key === filter)?.match;
+  const shown = match ? members.filter(match) : [];
 
   return (
     <div className="event-breakdown">
       <div className="segmented" role="radiogroup" aria-label="Show members by answer">
-        {(
-          [
-            ["yes", `Yes (${counts.yes})`],
-            ["maybe", `Maybe (${counts.maybe})`],
-            ["no", `No (${counts.no})`],
-            ["pending", `No answer (${counts.pending})`],
-          ] as const
-        ).map(([key, label]) => (
+        {groups.map(({ key, label }) => (
           <button key={key} type="button" role="radio" aria-checked={filter === key} onClick={() => setFilter(key)}>
             {label}
           </button>
@@ -287,20 +339,41 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
   const [kind, setKind] = useState<EventKind>(event?.kind ?? "foundry");
   const [title, setTitle] = useState(event?.title ?? "");
   const [startsAt, setStartsAt] = useState(event ? toLocalInput(event.startsAt) : "");
+  // Foundry runs two legions in one event; everyone picks one.
+  const [sessions, setSessions] = useState<{ id?: string; label: string; startsAt: string }[]>(
+    event
+      ? event.sessions.map((s) => ({ id: s.id, label: s.label, startsAt: toLocalInput(s.startsAt) }))
+      : defaultSessions("foundry"),
+  );
   const [leadDays, setLeadDays] = useState<number>(event ? leadDaysOf(event) : DEFAULT_LEAD.foundry);
   const [notes, setNotes] = useState(event?.notes ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const start = startsAt ? new Date(startsAt) : null;
+  const usesSessions = sessions.length > 0;
+  const sessionTimes = sessions.map((s) => (s.startsAt ? new Date(s.startsAt) : null));
+  const sessionsValid = usesSessions && sessionTimes.every((d) => d !== null && !Number.isNaN(d.getTime()));
+  // With legions the event starts when the first one does; otherwise the single start applies.
+  const start = usesSessions
+    ? sessionsValid
+      ? new Date(Math.min(...sessionTimes.map((d) => d!.getTime())))
+      : null
+    : startsAt
+      ? new Date(startsAt)
+      : null;
   const startValid = start !== null && !Number.isNaN(start.getTime());
-  const ready = title.trim().length >= 3 && startValid && (editing || start!.getTime() > Date.now());
+  const ready = title.trim().length >= 3 && startValid && (editing || start.getTime() > Date.now());
   const deadline = startValid ? previewDeadline(start, leadDays) : null;
 
   const chooseKind = (value: EventKind) => {
     setKind(value);
-    if (!editing) setLeadDays(DEFAULT_LEAD[value]); // a new event follows its type
+    if (editing) return;
+    setLeadDays(DEFAULT_LEAD[value]); // a new event follows its type
+    setSessions(defaultSessions(value));
   };
+
+  const setSession = (index: number, patch: Partial<{ label: string; startsAt: string }>) =>
+    setSessions((list) => list.map((s, i) => (i === index ? { ...s, ...patch } : s)));
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -311,6 +384,15 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
       kind,
       title: title.trim(),
       startsAt: start.toISOString(),
+      ...(usesSessions
+        ? {
+            sessions: sessions.map((s) => ({
+              ...(s.id ? { id: s.id } : {}),
+              label: s.label.trim(),
+              startsAt: new Date(s.startsAt).toISOString(),
+            })),
+          }
+        : {}),
       answersCloseDaysBefore: leadDays,
       timeZoneOffsetMinutes: -new Date().getTimezoneOffset(),
       notes: notes.trim(),
@@ -352,11 +434,34 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
         />
       </div>
 
-      <div className="field">
-        <label htmlFor="e-start">Starts</label>
-        <input id="e-start" type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
-        <span className="hint">Your local time.</span>
-      </div>
+      {usesSessions ? (
+        <fieldset className="field">
+          <legend>Legions</legend>
+          <span className="hint">One event, two battles. Everyone signs up for one of them.</span>
+          {sessions.map((s, i) => (
+            <div key={s.id ?? i} className="session-row">
+              <input
+                aria-label={`Name of part ${i + 1}`}
+                value={s.label}
+                onChange={(e) => setSession(i, { label: e.target.value })}
+                placeholder={`Legion ${i + 1}`}
+              />
+              <input
+                aria-label={`Start of ${s.label || `part ${i + 1}`}`}
+                type="datetime-local"
+                value={s.startsAt}
+                onChange={(e) => setSession(i, { startsAt: e.target.value })}
+              />
+            </div>
+          ))}
+        </fieldset>
+      ) : (
+        <div className="field">
+          <label htmlFor="e-start">Starts</label>
+          <input id="e-start" type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
+          <span className="hint">Your local time.</span>
+        </div>
+      )}
 
       <div className="field">
         <label htmlFor="e-lead">Answers close</label>

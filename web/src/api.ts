@@ -71,6 +71,12 @@ export interface InviteResult {
 export type EventKind = "foundry" | "bear" | "svs" | "other";
 export type Answer = "yes" | "no" | "maybe";
 
+export interface EventSession {
+  id: string;
+  label: string;
+  startsAt: string;
+}
+
 export interface AllianceEvent {
   eventId: string;
   alliance: string;
@@ -79,12 +85,16 @@ export interface AllianceEvent {
   startsAt: string;
   deadlineAt: string;
   notes?: string;
+  /** Parts people choose between, e.g. the two Foundry legions. Empty for a plain event. */
+  sessions: EventSession[];
   createdBy: string;
 }
 
 export interface EventListItem extends AllianceEvent {
   closed: boolean;
   myAnswer: Answer | null;
+  /** Which session they picked, when the event has sessions. */
+  mySessionId: string | null;
 }
 
 export interface AnswerCounts {
@@ -92,6 +102,8 @@ export interface AnswerCounts {
   no: number;
   maybe: number;
   pending: number;
+  /** Yes answers per session id, e.g. { L1: 19, L2: 30 }. */
+  bySession: Record<string, number>;
 }
 
 export interface EventMember {
@@ -99,6 +111,7 @@ export interface EventMember {
   name: string;
   rank: string | null;
   answer: Answer | null;
+  sessionId: string | null;
   answeredAt: string | null;
 }
 
@@ -112,6 +125,8 @@ export interface NewEvent {
   kind: EventKind;
   title: string;
   startsAt: string;
+  /** Parts people choose between; a player picks at most one. */
+  sessions?: { id?: string; label: string; startsAt: string }[];
   /** Whole days before the start; the deadline is the end of that day in the officer's time zone. */
   answersCloseDaysBefore?: number;
   timeZoneOffsetMinutes?: number;
@@ -204,7 +219,10 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
     createEvent: (input: NewEvent) => request<AllianceEvent>("POST", "/events", input),
     updateEvent: (eventId: string, changes: EventChanges) =>
       request<AllianceEvent>("PATCH", `/events/${eventId}`, changes),
-    answer: (eventId: string, playerId: string, answer: Answer) =>
-      request<{ answer: Answer }>("PUT", `/events/${eventId}/answers/${playerId}`, { answer }),
+    answer: (eventId: string, playerId: string, answer: Answer, sessionId?: string) =>
+      request<{ answer: Answer; sessionId?: string }>("PUT", `/events/${eventId}/answers/${playerId}`, {
+        answer,
+        ...(sessionId ? { sessionId } : {}),
+      }),
   };
 }

@@ -10,6 +10,17 @@ export type EventKind = (typeof EVENT_KINDS)[number];
 export const ANSWERS = ["yes", "no", "maybe"] as const;
 export type Answer = (typeof ANSWERS)[number];
 
+/**
+ * A part of an event people sign up for, such as a Foundry legion. Everyone picks at most one:
+ * a player cannot be in Legion 1 and Legion 2 of the same battle.
+ */
+export interface EventSession {
+  /** Short id used in answers, e.g. "L1". */
+  id: string;
+  label: string;
+  startsAt: string;
+}
+
 export interface AllianceEvent {
   eventId: string;
   alliance: string;
@@ -20,6 +31,8 @@ export interface AllianceEvent {
   /** Answers are locked from this moment (FM-09). */
   deadlineAt: string;
   notes?: string;
+  /** Empty for a plain event; two legions for Foundry. */
+  sessions: EventSession[];
   createdBy: string;
 }
 
@@ -27,6 +40,8 @@ export interface EventAnswer {
   eventId: string;
   playerId: string;
   answer: Answer;
+  /** Which session they picked; only one, and only when the answer is "yes". */
+  sessionId?: string;
   answeredAt: string;
   /** Who recorded it: the player themselves, or an officer acting for them. */
   source: "player" | "officer";
@@ -39,7 +54,19 @@ const ISO = z
   .refine((s) => !Number.isNaN(Date.parse(s)), "Use a date and time.")
   .transform((s) => new Date(s).toISOString());
 
+const SessionSchema = z.object({
+  id: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9_-]{1,8}$/, "Session id must be 1–8 letters, digits, - or _.")
+    .optional(),
+  label: z.string().trim().min(1, "Every session needs a name.").max(30),
+  startsAt: ISO,
+});
+
 const NewEventSchema = z.object({
+  /** Parts people choose between, e.g. the two Foundry legions. At most one may be chosen. */
+  sessions: z.array(SessionSchema).max(6, "At most six sessions.").optional(),
   /** Whole days before the start; the deadline then falls at the end of that day. */
   answersCloseDaysBefore: z.number().int().min(0).max(60).optional(),
   /** The officer's offset from UTC in minutes, so "end of the day" means their day. */
@@ -99,13 +126,24 @@ export function parseNewEvent(input: unknown, ctx: NewEventContext): AllianceEve
   if (!parsed.success) {
     throw new ValidationError("Invalid event.", z.flattenError(parsed.error).fieldErrors);
   }
-  const { startsAt, deadlineAt, notes, answersCloseDaysBefore, timeZoneOffsetMinutes, ...rest } = parsed.data;
-  const start = Date.parse(startsAt);
+  const { startsAt, deadlineAt, notes, answersCloseDaysBefore, timeZoneOffsetMinutes, sessions: rawSessions, ...rest } =
+    parsed.data;
+  const sessions = (rawSessions ?? []).map((session, index) => ({
+    id: session.id ?? `S${index + 1}`,
+    label: session.label,
+    startsAt: session.startsAt,
+  }));
+  if (new Set(sessions.map((s) => s.id)).size !== sessions.length) {
+    throw new ValidationError("Each session needs its own id.");
+  }
+  // The event starts when its first session does, so reminders and lists use one moment.
+  const startsAtEffective = sessions.length > 0 ? sessions.map((s) => s.startsAt).toSorted()[0]! : startsAt;
+  const start = Date.parse(startsAtEffective);
   if (start <= ctx.now.getTime()) throw new ValidationError("The event must start in the future.");
   if (start > ctx.now.getTime() + MAX_AHEAD_MS) throw new ValidationError("The event is more than a year away.");
 
   const leadDays = answersCloseDaysBefore ?? DEFAULT_LEAD_DAYS[rest.kind];
-  const deadline = deadlineAt ?? deadlineFor(startsAt, leadDays, timeZoneOffsetMinutes ?? 0);
+  const deadline = deadlineAt ?? deadlineFor(startsAtEffective, leadDays, timeZoneOffsetMinutes ?? 0);
   if (Date.parse(deadline) > start) throw new ValidationError("Answers must close before the event starts.");
   // A deadline already in the past is allowed: an officer may add an event late, and it then
   // shows as closed rather than being refused.
@@ -113,11 +151,40 @@ export function parseNewEvent(input: unknown, ctx: NewEventContext): AllianceEve
   return {
     eventId: ctx.eventId,
     ...rest,
-    startsAt,
+    startsAt: startsAtEffective,
     deadlineAt: deadline,
     ...(notes ? { notes } : {}),
+    sessions,
     createdBy: ctx.createdBy,
   };
+}
+
+export interface AnswerChoice {
+  answer: Answer;
+  sessionId?: string;
+}
+
+/**
+ * Reads an answer for an event: "yes" with a session when the event has sessions (a player
+ * picks exactly one legion), plain yes/no/maybe otherwise. One answer per game account per
+ * event, so choosing Legion 2 replaces Legion 1 rather than adding to it.
+ */
+export function parseAnswerChoice(event: Pick<AllianceEvent, "sessions">, input: unknown): AnswerChoice {
+  const body = (input ?? {}) as { answer?: unknown; sessionId?: unknown };
+  const answer = parseAnswer(body.answer);
+  const sessionId = typeof body.sessionId === "string" && body.sessionId !== "" ? body.sessionId : undefined;
+
+  if (event.sessions.length === 0) {
+    if (sessionId) throw new ValidationError("This event has no parts to choose from.");
+    return { answer };
+  }
+  if (answer === "yes") {
+    if (!sessionId) throw new ValidationError(`Pick one: ${event.sessions.map((s) => s.label).join(" or ")}.`);
+    if (!event.sessions.some((s) => s.id === sessionId)) throw new ValidationError("That part of the event doesn't exist.");
+    return { answer, sessionId };
+  }
+  if (sessionId) throw new ValidationError("Only a yes can name a part of the event.");
+  return { answer };
 }
 
 /**
@@ -187,11 +254,17 @@ export interface AnswerCounts {
   maybe: number;
   /** Active members and guests who have not answered yet. */
   pending: number;
+  /** Yes answers per session id, e.g. { L1: 19, L2: 30 }. */
+  bySession: Record<string, number>;
 }
 
 /** Counts answers for an event; `expected` is how many accounts are asked to answer. */
 export function countAnswers(answers: readonly EventAnswer[], expected: number): AnswerCounts {
   const counts = { yes: 0, no: 0, maybe: 0 };
-  for (const a of answers) counts[a.answer] += 1;
-  return { ...counts, pending: Math.max(0, expected - answers.length) };
+  const bySession: Record<string, number> = {};
+  for (const a of answers) {
+    counts[a.answer] += 1;
+    if (a.answer === "yes" && a.sessionId) bySession[a.sessionId] = (bySession[a.sessionId] ?? 0) + 1;
+  }
+  return { ...counts, pending: Math.max(0, expected - answers.length), bySession };
 }

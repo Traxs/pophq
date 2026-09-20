@@ -100,6 +100,22 @@ describe("isClosed", () => {
   });
 });
 
+describe("countAnswers with legions", () => {
+  const yes = (playerId: string, sessionId?: string): EventAnswer => ({
+    eventId: "e",
+    playerId,
+    answer: "yes",
+    ...(sessionId ? { sessionId } : {}),
+    answeredAt: now.toISOString(),
+    source: "player",
+  });
+
+  it("counts each legion separately, and every yes once overall", () => {
+    const counts = countAnswers([yes("1", "L1"), yes("2", "L2"), yes("3", "L2")], 10);
+    expect(counts).toEqual({ yes: 3, no: 0, maybe: 0, pending: 7, bySession: { L1: 1, L2: 2 } });
+  });
+});
+
 describe("countAnswers", () => {
   const answer = (playerId: string, a: "yes" | "no" | "maybe"): EventAnswer => ({
     eventId: "e",
@@ -111,10 +127,10 @@ describe("countAnswers", () => {
 
   it("counts each answer and who is still missing", () => {
     const answers = [answer("1", "yes"), answer("2", "yes"), answer("3", "no"), answer("4", "maybe")];
-    expect(countAnswers(answers, 10)).toEqual({ yes: 2, no: 1, maybe: 1, pending: 6 });
+    expect(countAnswers(answers, 10)).toEqual({ yes: 2, no: 1, maybe: 1, pending: 6, bySession: {} });
   });
 
   it("never reports a negative pending count", () => {
-    expect(countAnswers([answer("1", "yes")], 0)).toEqual({ yes: 1, no: 0, maybe: 0, pending: 0 });
+    expect(countAnswers([answer("1", "yes")], 0)).toEqual({ yes: 1, no: 0, maybe: 0, pending: 0, bySession: {} });
   });
 });

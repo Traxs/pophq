@@ -1197,3 +1197,9 @@ th[aria-sort="descending"] .th-btn {
 .mover:last-child {
   border-bottom: none;
 }
+
+.session-row {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: 8px;
+}

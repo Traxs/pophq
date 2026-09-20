@@ -219,7 +219,7 @@ export class Repository {
   async setAnswer(
     event: Pick<AllianceEvent, "eventId" | "startsAt" | "deadlineAt">,
     playerId: string,
-    answer: Answer,
+    choice: { answer: Answer; sessionId?: string },
     source: EventAnswer["source"],
     actor: Actor,
     note?: string,
@@ -229,7 +229,8 @@ export class Repository {
     const record: EventAnswer = {
       eventId: event.eventId,
       playerId,
-      answer,
+      answer: choice.answer,
+      ...(choice.sessionId ? { sessionId: choice.sessionId } : {}),
       answeredAt: now.toISOString(),
       source,
       ...(note ? { note } : {}),
@@ -503,6 +504,8 @@ function toEvent(item: Record<string, unknown>): AllianceEvent {
     title: String(item.title),
     startsAt: String(item.startsAt),
     deadlineAt: String(item.deadlineAt),
+    // Events created before sessions existed simply have none.
+    sessions: Array.isArray(item.sessions) ? (item.sessions as AllianceEvent["sessions"]) : [],
     createdBy: String(item.createdBy),
   };
   if (item.notes) event.notes = String(item.notes);
@@ -517,6 +520,7 @@ function toAnswer(item: Record<string, unknown>): EventAnswer {
     answeredAt: String(item.answeredAt),
     source: item.source as EventAnswer["source"],
   };
+  if (item.sessionId) answer.sessionId = String(item.sessionId);
   if (item.note) answer.note = String(item.note);
   return answer;
 }
