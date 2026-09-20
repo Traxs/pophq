@@ -139,6 +139,7 @@ export function SessionProvider({
       answer: guard(inner.answer),
       attendance: guard(inner.attendance),
       reliability: guard(inner.reliability),
+      publishLineup: guard(inner.publishLineup),
     };
   }, [user, acting, endSession]);
 

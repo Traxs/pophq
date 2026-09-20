@@ -11,6 +11,7 @@ import type { GameAccount } from "../domain/accounts.js";
 import type { AttendanceRecord } from "../domain/attendance.js";
 import type { AllianceEvent, Answer, EventAnswer } from "../domain/events.js";
 import type { EventType } from "../domain/eventTypes.js";
+import type { Lineup } from "../domain/lineups.js";
 import { ConflictError, NotFoundError } from "../domain/errors.js";
 import { searchKey } from "../domain/identity.js";
 import type { Report } from "../domain/measurements.js";
@@ -26,6 +27,7 @@ import {
   eventIndexKey,
   eventKey,
   eventTypeKey,
+  lineupKey,
   loginLinkKey,
   reportKey,
   seatCounterKey,
@@ -266,6 +268,53 @@ export class Repository {
       Limit: limit,
     });
     return items.map(toEvent);
+  }
+
+  // ---- Published lineups (P5.4) ----
+
+  /**
+   * Publishes a lineup for one part of an event. The write only succeeds against the version the
+   * officer edited, so of two officers publishing at the same moment the second one is told to
+   * reload instead of quietly replacing the first (FM-10).
+   */
+  async putLineup(lineup: Lineup, actor: Actor): Promise<void> {
+    const meta = newItemMeta(actor, this.clock());
+    try {
+      await this.db.send(
+        new PutCommand({
+          TableName: this.table,
+          Item: {
+            ...lineupKey(lineup.eventId, lineup.sessionId),
+            type: "lineup",
+            ...meta,
+            // After the meta on purpose: a lineup's own version is the item's version, counting
+            // publishes rather than resetting to 1 each time.
+            ...lineup,
+          },
+          ConditionExpression: "attribute_not_exists(SK) OR version = :previous",
+          ExpressionAttributeValues: { ":previous": lineup.version - 1 },
+        }),
+      );
+    } catch (err) {
+      if (err instanceof ConditionalCheckFailedException) {
+        throw new ConflictError("Someone else published this lineup while you were editing. Reload and try again.");
+      }
+      throw err;
+    }
+  }
+
+  async getLineup(eventId: string, sessionId: string): Promise<Lineup | undefined> {
+    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: lineupKey(eventId, sessionId) }));
+    return res.Item ? toLineup(res.Item) : undefined;
+  }
+
+  /** Every published lineup of an event, one per part. */
+  async listLineups(eventId: string): Promise<Lineup[]> {
+    const items = await this.queryAll({
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+      ExpressionAttributeValues: { ":pk": `EVENT#${eventId}`, ":sk": "LINEUP#" },
+    });
+    return items.map(toLineup);
   }
 
   async listAnswers(eventId: string): Promise<EventAnswer[]> {
@@ -578,6 +627,19 @@ function toReport(item: Record<string, unknown>): Report {
   if (item.supersedesReportId) report.supersedesReportId = String(item.supersedesReportId);
   if (item.note) report.note = String(item.note);
   return report;
+}
+
+function toLineup(item: Record<string, unknown>): Lineup {
+  const lineup: Lineup = {
+    eventId: String(item.eventId),
+    sessionId: String(item.sessionId),
+    version: Number(item.version),
+    entries: Array.isArray(item.entries) ? (item.entries as Lineup["entries"]) : [],
+    publishedAt: String(item.publishedAt),
+    publishedBy: String(item.publishedBy),
+  };
+  if (item.note) lineup.note = String(item.note);
+  return lineup;
 }
 
 function toEvent(item: Record<string, unknown>): AllianceEvent {

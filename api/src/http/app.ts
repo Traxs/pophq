@@ -13,6 +13,7 @@ import {
   standingFor,
 } from "../domain/events.js";
 import { parseEventType } from "../domain/eventTypes.js";
+import { parseLineup, placeIn } from "../domain/lineups.js";
 import { listEventTypes } from "../ops/eventTypes.js";
 import { parsePlayerId } from "../domain/identity.js";
 import { allianceGrowth, buckets, currentOf, seriesOf } from "../domain/metrics.js";
@@ -387,11 +388,15 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
 
     // Foundry strength and reliability of everyone who signed up, for the estimate.
     const yesAnswers = answers.filter((a) => a.answer === "yes");
+    const lineups = new Map((await repo.listLineups(event.eventId)).map((l) => [l.sessionId, l]));
+    // People in a published lineup need their strength shown too, even if an officer put someone
+    // there who never answered.
+    const needStrength = [
+      ...new Set([...yesAnswers.map((a) => a.playerId), ...[...lineups.values()].flatMap((l) => l.entries.map((e) => e.playerId))]),
+    ];
     const strengthOf = new Map<string, number | undefined>(
       await Promise.all(
-        yesAnswers.map(
-          async (a) => [a.playerId, currentOf(await repo.listReports(a.playerId), "foundry_strength")] as const,
-        ),
+        needStrength.map(async (pid) => [pid, currentOf(await repo.listReports(pid), "foundry_strength")] as const),
       ),
     );
     const reliabilityOfPlayer = new Map(
@@ -420,12 +425,33 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         position: entry.position,
         likely: entry.likely,
       }));
+      // Once officers publish, the lineup replaces the estimate as the answer to "am I playing?".
+      const published = lineups.get(session.id);
+      const lineup = published
+        ? {
+            version: published.version,
+            publishedAt: published.publishedAt,
+            ...(published.note ? { note: published.note } : {}),
+            entries: published.entries.map((entry) => ({
+              playerId: entry.playerId,
+              name: byName.get(entry.playerId) ?? entry.playerId,
+              role: entry.role,
+              position: entry.position,
+              foundryStrength: strengthOf.get(entry.playerId) ?? null,
+              /** An officer may pick someone who never answered; the UI says so. */
+              signedUp: entries.some((e) => e.playerId === entry.playerId),
+            })),
+          }
+        : null;
+      const myPlace = acting ? placeIn(published, acting) : undefined;
       return {
         ...session,
         signedUp: entries.length,
         spotsLeft:
           session.starters === undefined ? null : Math.max(0, session.starters + (session.subs ?? 0) - entries.length),
         signedUpList: ranked,
+        lineup,
+        ...(myPlace ? { yourPlace: { role: myPlace.role, position: myPlace.position } } : {}),
         ...(standing ? { yourStanding: standing } : {}),
       };
     });
@@ -454,6 +480,12 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       const reports = new Map(
         await Promise.all(expected.map(async (a) => [a.playerId, await repo.listReports(a.playerId)] as const)),
       );
+      // Where each person ended up in a published lineup, so the officer table shows the decision
+      // next to the numbers it was based on.
+      const placeOf = new Map<string, { sessionId: string; role: string; position: number }>();
+      for (const l of lineups.values()) {
+        for (const e of l.entries) placeOf.set(e.playerId, { sessionId: l.sessionId, role: e.role, position: e.position });
+      }
       body.members = expected.map((account) => {
         const own = reports.get(account.playerId) ?? [];
         const current = currentValues(own);
@@ -465,6 +497,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           sessionId: byPlayer.get(account.playerId)?.sessionId ?? null,
           answeredAt: byPlayer.get(account.playerId)?.answeredAt ?? null,
           attended: attendance.get(account.playerId)?.status ?? null,
+          lineup: placeOf.get(account.playerId) ?? null,
           strengthTrend: monthlyValues(seriesOf(own, "foundry_strength"), now()),
           attendanceTrend: trailingAverage(monthlyAttendance(history.get(account.playerId) ?? [], now())),
           power: currentOf(own, "city_power") ?? null,
@@ -475,6 +508,36 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       });
     }
     return c.json(body);
+  });
+
+  /**
+   * Publishes the lineup for one part of an event (P5.4). Officers only: this is the decision
+   * that turns the strength estimate into "you are starting". Sending the version they edited
+   * makes a stale publish fail instead of overwriting a colleague's work.
+   */
+  app.post("/events/:id/sessions/:sid/lineup", async (c) => {
+    requireOfficer(c.get("principal"));
+    const p = c.get("principal");
+    const event = await repo.getEvent(c.req.param("id"));
+    if (!event) throw new NotFoundError("Event not found.");
+    const session = event.sessions.find((s) => s.id === c.req.param("sid"));
+    if (!session) throw new NotFoundError("That part of the event doesn't exist.");
+
+    const current = await repo.getLineup(event.eventId, session.id);
+    const lineup = parseLineup(await readJson(c.req.raw), session, {
+      eventId: event.eventId,
+      sessionId: session.id,
+      publishedBy: p.sub,
+      now: now(),
+      currentVersion: current?.version ?? 0,
+    });
+    // Everyone in a lineup must be an account we know; an unknown Player ID is a typo, not a plan.
+    const known = new Set((await repo.listAccounts(event.alliance)).map((a) => a.playerId));
+    const strangers = lineup.entries.filter((e) => !known.has(e.playerId)).map((e) => e.playerId);
+    if (strangers.length > 0) throw new ValidationError(`Not members of ${event.alliance}: ${strangers.join(", ")}.`);
+
+    await repo.putLineup(lineup, { id: p.sub, via: "web", reason: "lineup published" });
+    return c.json(lineup, 201);
   });
 
   /** Answers for a game account: the player for their own accounts, officers for anyone. */

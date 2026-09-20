@@ -52,3 +52,9 @@ export const allianceIndexKey = (alliance: string, searchKey: string, playerId: 
   GSI1PK: `ALLIANCE#${alliance}`,
   GSI1SK: `${searchKey}#${playerId}`,
 });
+
+/** The published lineup for one part of an event (P5.4); replaced, and versioned, on publish. */
+export const lineupKey = (eventId: string, sessionId: string) => ({
+  PK: `EVENT#${eventId}`,
+  SK: `LINEUP#${sessionId}`,
+});
