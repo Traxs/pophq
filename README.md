@@ -104,7 +104,7 @@ Locally the invite flow uses a stand-in directory in DynamoDB Local, so invited 
 
 ## Events
 
-Officers schedule events (Foundry, Bear hunt, SvS, other) with a start time and an answer deadline, which defaults to one hour before the start. Members answer Yes / Maybe / No per game account, so someone with alts answers once per account, and may change their mind until the deadline. The deadline is checked in the same write as the answer, so a late answer cannot slip through (FM-09). Officers see counts and the lists behind them, including who has not answered, and may answer on someone's behalf.
+Officers schedule events (Foundry, Bear hunt, SvS, other) with a start time. Answers close a set number of days before the start, per type: **Foundry three days**, because officers register the participants in game afterwards; other types an hour before unless changed. The deadline falls at the end of that day in the officer's time zone, and can be overridden per event. Officers can edit an event later; moving the start moves the deadline with it. Members answer Yes / Maybe / No per game account, so someone with alts answers once per account, and may change their mind until the deadline. The deadline is checked in the same write as the answer, so a late answer cannot slip through (FM-09). Officers see counts and the lists behind them, including who has not answered, and may answer on someone's behalf.
 
 ## Importing a Hermes bundle
 

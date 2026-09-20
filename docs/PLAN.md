@@ -76,7 +76,9 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 
 ## Milestone 5: Events, lineups and attendance
 
-- [x] P5.1a Events with kind (Foundry, Bear, SvS, Other), start time and answer deadline (EVT-02); officer-defined types and legion sessions still to come (EVT-01)
+- [x] P5.1a Events with kind (Foundry, Bear, SvS, Other), start time and answer deadline (EVT-02); officers can edit an event afterwards
+- [x] P5.1b Answers close a set number of days before the start, per type (Foundry three days, because officers register people in game afterwards), at the end of that day in the officer's time zone; overridable per event
+- [ ] P5.1c Officer-defined event types with their own lead times (EVT-01) and legion sessions
 - [x] P5.2 Answers per game account with the deadline checked in the same write (EVT-03, FM-09); players answer for their own accounts, officers for anyone
 - [x] P5.3a Officer view: counts and lists by answer including who has not answered (EVT-04); battle time, furnace and Helios columns still to come
 - [ ] P5.4 Lineups: one item per session, versioned, capacity 30 + 10 enforced in the write (EVT-04, EVT-05, FM-10); public view with own entry highlighted

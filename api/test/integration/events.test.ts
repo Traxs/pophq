@@ -23,7 +23,7 @@ describe("events", () => {
     await seedDemo(h.repo, new Date());
     const res = await h.call("POST", "/events", {
       ...OFFICER,
-      body: { kind: "foundry", title: "Foundry Saturday", startsAt: inDays(3), notes: "Bring traps" },
+      body: { kind: "foundry", title: "Foundry Saturday", startsAt: inDays(10), notes: "Bring traps" },
     });
     expect(res.status).toBe(201);
     eventId = res.body.eventId as string;
@@ -114,6 +114,33 @@ describe("events", () => {
     const detail = await h.call("GET", `/events/${id}`, PLAYER);
     expect(detail.body.closed).toBe(true);
     expect(detail.body.myAnswer).toBe("yes"); // the answer given in time still stands
+  });
+
+  it("lets officers change an event, keeping the answers", async () => {
+    const before = await h.call("GET", `/events/${eventId}`, OFFICER);
+    const changed = await h.call("PATCH", `/events/${eventId}`, {
+      ...OFFICER,
+      body: { title: "Foundry Saturday (moved)", startsAt: inDays(5), notes: "New time" },
+    });
+    expect(changed.status).toBe(200);
+    expect(changed.body).toMatchObject({ title: "Foundry Saturday (moved)", notes: "New time" });
+    // The deadline moves with the start, keeping the Foundry lead time of three days.
+    const days = (a: string, b: string) => Math.round((Date.parse(a) - Date.parse(b)) / 86_400_000);
+    expect(days(changed.body.startsAt as string, changed.body.deadlineAt as string)).toBe(3);
+
+    const after = await h.call("GET", `/events/${eventId}`, OFFICER);
+    expect(after.body.counts).toEqual(before.body.counts);
+  });
+
+  it("refuses changes from players, impossible changes and unknown events", async () => {
+    expect((await h.call("PATCH", `/events/${eventId}`, { ...PLAYER, body: { title: "Mine now" } })).status).toBe(403);
+    expect((await h.call("PATCH", `/events/${eventId}`, { ...OFFICER, body: {} })).status).toBe(400);
+    expect(
+      (await h.call("PATCH", `/events/${eventId}`, { ...OFFICER, body: { deadlineAt: inDays(30) } })).status,
+    ).toBe(400); // deadline after the start
+    expect((await h.call("PATCH", "/events/01J000000000000000000NOPE", { ...OFFICER, body: { title: "Ghost" } })).status).toBe(
+      404,
+    );
   });
 
   it("returns 404 for unknown events and 400 for a bad answer", async () => {

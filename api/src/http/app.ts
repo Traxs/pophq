@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { ulid } from "ulid";
 import { parseNewAccount } from "../domain/accounts.js";
 import { DomainError, NotFoundError, UnauthorizedError, ValidationError } from "../domain/errors.js";
-import { countAnswers, isClosed, parseAnswer, parseNewEvent } from "../domain/events.js";
+import { countAnswers, isClosed, parseAnswer, parseEventChanges, parseNewEvent } from "../domain/events.js";
 import { parsePlayerId } from "../domain/identity.js";
 import { allianceGrowth, buckets, seriesOf } from "../domain/metrics.js";
 import { currentValues, parseReport } from "../domain/measurements.js";
@@ -260,6 +260,17 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     });
     await repo.createEvent(event, { id: p.sub, via: "web" });
     return c.json(event, 201);
+  });
+
+  /** Officers change an event: title, type, start, deadline or notes. Answers stay. */
+  app.patch("/events/:id", async (c) => {
+    const p = c.get("principal");
+    requireOfficer(p);
+    const event = await repo.getEvent(c.req.param("id"));
+    if (!event) throw new NotFoundError("Event not found.");
+    const updated = parseEventChanges(event, await readJson(c.req.raw), now());
+    await repo.updateEvent(updated, { id: p.sub, via: "web", reason: "event edited" });
+    return c.json(updated);
   });
 
   /** Upcoming events with the answer of the account the person is acting for. */

@@ -40,6 +40,10 @@ const ISO = z
   .transform((s) => new Date(s).toISOString());
 
 const NewEventSchema = z.object({
+  /** Whole days before the start; the deadline then falls at the end of that day. */
+  answersCloseDaysBefore: z.number().int().min(0).max(60).optional(),
+  /** The officer's offset from UTC in minutes, so "end of the day" means their day. */
+  timeZoneOffsetMinutes: z.number().int().min(-840).max(840).optional(),
   kind: z.enum(EVENT_KINDS).default("other"),
   title: z.string().trim().min(3, "Title must be 3–60 characters.").max(60, "Title must be 3–60 characters."),
   startsAt: ISO,
@@ -59,8 +63,33 @@ export interface NewEventContext {
   now: Date;
 }
 
-/** Default when an officer doesn't set one: answers close one hour before the start. */
-export const DEFAULT_DEADLINE_LEAD_MS = 60 * 60 * 1000;
+/**
+ * How many days before the start answers close, per type. Foundry needs three days because
+ * officers register the participants in game afterwards. An officer can override it per event,
+ * and a settings screen will make these editable (P7.2).
+ */
+export const DEFAULT_LEAD_DAYS: Record<EventKind, number> = {
+  foundry: 3,
+  svs: 3,
+  bear: 0,
+  other: 0,
+};
+
+/** Without a lead time, answers close an hour before the start. */
+const SAME_DAY_LEAD_MS = 60 * 60 * 1000;
+
+/**
+ * The deadline for a lead time of whole days: the end of that day, so people have all of it.
+ * `endOfDayOffsetMinutes` is the reader's offset from UTC (the officer's time zone), because
+ * "end of the 17th" means their evening, not UTC midnight.
+ */
+export function deadlineFor(startsAt: string, leadDays: number, endOfDayOffsetMinutes = 0): string {
+  const start = Date.parse(startsAt);
+  if (leadDays <= 0) return new Date(start - SAME_DAY_LEAD_MS).toISOString();
+  const local = new Date(start - leadDays * 24 * 60 * 60 * 1000 + endOfDayOffsetMinutes * 60 * 1000);
+  local.setUTCHours(23, 59, 59, 999);
+  return new Date(local.getTime() - endOfDayOffsetMinutes * 60 * 1000).toISOString();
+}
 
 /** Events may be scheduled at most this far ahead, which catches year typos. */
 const MAX_AHEAD_MS = 365 * 24 * 60 * 60 * 1000;
@@ -70,14 +99,16 @@ export function parseNewEvent(input: unknown, ctx: NewEventContext): AllianceEve
   if (!parsed.success) {
     throw new ValidationError("Invalid event.", z.flattenError(parsed.error).fieldErrors);
   }
-  const { startsAt, deadlineAt, notes, ...rest } = parsed.data;
+  const { startsAt, deadlineAt, notes, answersCloseDaysBefore, timeZoneOffsetMinutes, ...rest } = parsed.data;
   const start = Date.parse(startsAt);
   if (start <= ctx.now.getTime()) throw new ValidationError("The event must start in the future.");
   if (start > ctx.now.getTime() + MAX_AHEAD_MS) throw new ValidationError("The event is more than a year away.");
 
-  const deadline = deadlineAt ?? new Date(Math.max(start - DEFAULT_DEADLINE_LEAD_MS, ctx.now.getTime())).toISOString();
+  const leadDays = answersCloseDaysBefore ?? DEFAULT_LEAD_DAYS[rest.kind];
+  const deadline = deadlineAt ?? deadlineFor(startsAt, leadDays, timeZoneOffsetMinutes ?? 0);
   if (Date.parse(deadline) > start) throw new ValidationError("Answers must close before the event starts.");
-  if (Date.parse(deadline) <= ctx.now.getTime()) throw new ValidationError("The answer deadline is already past.");
+  // A deadline already in the past is allowed: an officer may add an event late, and it then
+  // shows as closed rather than being refused.
 
   return {
     eventId: ctx.eventId,
@@ -87,6 +118,57 @@ export function parseNewEvent(input: unknown, ctx: NewEventContext): AllianceEve
     ...(notes ? { notes } : {}),
     createdBy: ctx.createdBy,
   };
+}
+
+/**
+ * Changes an officer may send. Written out rather than made from the create schema: that one
+ * has defaults (kind "other"), and a partial version of it would quietly reset fields the
+ * officer never mentioned.
+ */
+const EventChangesSchema = z.object({
+  kind: z.enum(EVENT_KINDS).optional(),
+  title: z.string().trim().min(3, "Title must be 3–60 characters.").max(60, "Title must be 3–60 characters.").optional(),
+  startsAt: ISO.optional(),
+  deadlineAt: ISO.optional(),
+  notes: z.string().trim().max(2000).optional(),
+  answersCloseDaysBefore: z.number().int().min(0).max(60).optional(),
+  timeZoneOffsetMinutes: z.number().int().min(-840).max(840).optional(),
+});
+
+/**
+ * Applies an officer's changes to an existing event. Only the fields they sent change; the
+ * result is validated exactly like a new event, so a change can't produce an impossible one.
+ */
+export function parseEventChanges(event: AllianceEvent, input: unknown, now: Date): AllianceEvent {
+  const parsed = EventChangesSchema.safeParse(input);
+  if (!parsed.success) throw new ValidationError("Invalid change.", z.flattenError(parsed.error).fieldErrors);
+  const changes = parsed.data;
+  if (Object.keys(changes).length === 0) throw new ValidationError("Nothing to change.");
+
+  const startsAt = changes.startsAt ?? event.startsAt;
+  const kind = changes.kind ?? event.kind;
+  // A new start without a new deadline moves the deadline with it, keeping the same lead time.
+  const deadlineAt =
+    changes.deadlineAt ??
+    (changes.startsAt || changes.answersCloseDaysBefore !== undefined || changes.kind
+      ? deadlineFor(startsAt, changes.answersCloseDaysBefore ?? DEFAULT_LEAD_DAYS[kind], changes.timeZoneOffsetMinutes ?? 0)
+      : event.deadlineAt);
+
+  const updated: AllianceEvent = {
+    ...event,
+    kind,
+    title: changes.title ?? event.title,
+    startsAt,
+    deadlineAt,
+    ...(changes.notes !== undefined ? { notes: changes.notes } : event.notes ? { notes: event.notes } : {}),
+  };
+  if (Date.parse(updated.deadlineAt) > Date.parse(updated.startsAt)) {
+    throw new ValidationError("Answers must close before the event starts.");
+  }
+  if (Date.parse(updated.startsAt) > now.getTime() + MAX_AHEAD_MS) {
+    throw new ValidationError("The event is more than a year away.");
+  }
+  return updated;
 }
 
 export function parseAnswer(raw: unknown): Answer {

@@ -112,9 +112,14 @@ export interface NewEvent {
   kind: EventKind;
   title: string;
   startsAt: string;
+  /** Whole days before the start; the deadline is the end of that day in the officer's time zone. */
+  answersCloseDaysBefore?: number;
+  timeZoneOffsetMinutes?: number;
   deadlineAt?: string;
   notes?: string;
 }
+
+export type EventChanges = Partial<NewEvent>;
 
 export interface GrowthPoint {
   at: string;
@@ -197,6 +202,8 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
     events: () => request<{ items: EventListItem[] }>("GET", "/events"),
     event: (eventId: string) => request<EventDetail>("GET", `/events/${eventId}`),
     createEvent: (input: NewEvent) => request<AllianceEvent>("POST", "/events", input),
+    updateEvent: (eventId: string, changes: EventChanges) =>
+      request<AllianceEvent>("PATCH", `/events/${eventId}`, changes),
     answer: (eventId: string, playerId: string, answer: Answer) =>
       request<{ answer: Answer }>("PUT", `/events/${eventId}/answers/${playerId}`, { answer }),
   };

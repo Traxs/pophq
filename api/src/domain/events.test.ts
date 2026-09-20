@@ -1,20 +1,52 @@
 import { describe, expect, it } from "vitest";
 import { ValidationError } from "./errors.js";
-import { countAnswers, isClosed, parseAnswer, parseNewEvent, type EventAnswer } from "./events.js";
+import { countAnswers, deadlineFor, isClosed, parseAnswer, parseNewEvent, type EventAnswer } from "./events.js";
 
 const now = new Date("2026-09-19T12:00:00Z");
 const ctx = { eventId: "01J0000000000000000000000A", createdBy: "officer-1", now };
 const inTwoDays = "2026-09-21T19:00:00Z";
 
 describe("parseNewEvent", () => {
-  it("normalises the input and closes answers an hour before the start by default", () => {
+  it("closes Foundry answers three days before, at the end of that day", () => {
+    const e = parseNewEvent({ kind: "foundry", title: "  Foundry Saturday  ", startsAt: "2026-09-27T19:00:00Z" }, ctx);
+    expect(e.deadlineAt).toBe("2026-09-24T23:59:59.999Z");
+    expect(e.title).toBe("Foundry Saturday");
+  });
+
+  it("uses the officer's day when they are not on UTC", () => {
+    // Berlin is two hours ahead in September: their end of the 24th is 21:59:59.999Z.
+    const e = parseNewEvent(
+      { kind: "foundry", title: "Foundry Saturday", startsAt: "2026-09-27T19:00:00Z", timeZoneOffsetMinutes: 120 },
+      ctx,
+    );
+    expect(e.deadlineAt).toBe("2026-09-24T21:59:59.999Z");
+  });
+
+  it("closes an hour before for types without a lead time, and honours an override", () => {
+    expect(parseNewEvent({ kind: "bear", title: "Bear hunt", startsAt: "2026-09-27T19:00:00Z" }, ctx).deadlineAt).toBe(
+      "2026-09-27T18:00:00.000Z",
+    );
+    expect(
+      parseNewEvent(
+        { kind: "bear", title: "Bear hunt", startsAt: "2026-09-27T19:00:00Z", answersCloseDaysBefore: 1 },
+        ctx,
+      ).deadlineAt,
+    ).toBe("2026-09-26T23:59:59.999Z");
+  });
+
+  it("allows an event whose answers already closed, so it can be added late", () => {
+    const e = parseNewEvent({ kind: "foundry", title: "Added late", startsAt: "2026-09-20T19:00:00Z" }, ctx);
+    expect(e.deadlineAt).toBe("2026-09-17T23:59:59.999Z"); // before "now" (19 Sep): already closed
+    expect(isClosed(e, now)).toBe(true);
+  });
+
+  it("normalises the input", () => {
     const e = parseNewEvent({ kind: "foundry", title: "  Foundry Saturday  ", startsAt: inTwoDays }, ctx);
     expect(e).toMatchObject({
       eventId: ctx.eventId,
       kind: "foundry",
       title: "Foundry Saturday",
       startsAt: "2026-09-21T19:00:00.000Z",
-      deadlineAt: "2026-09-21T18:00:00.000Z",
       alliance: "POP",
       createdBy: "officer-1",
     });
@@ -34,7 +66,6 @@ describe("parseNewEvent", () => {
     ["a start in the past", { title: "Yesterday", startsAt: "2026-09-18T12:00:00Z" }],
     ["a start more than a year away", { title: "Typo year", startsAt: "2028-09-21T19:00:00Z" }],
     ["a deadline after the start", { title: "Late close", startsAt: inTwoDays, deadlineAt: "2026-09-22T19:00:00Z" }],
-    ["a deadline already past", { title: "Closed", startsAt: inTwoDays, deadlineAt: "2026-09-18T12:00:00Z" }],
     ["an unknown kind", { kind: "party", title: "Unknown kind", startsAt: inTwoDays }],
     ["an unreadable date", { title: "Broken date", startsAt: "soon" }],
   ])("rejects %s", (_case, input) => {
@@ -52,6 +83,13 @@ describe("parseAnswer", () => {
   });
   it.each(["", "sure", "y", null, 1])("rejects %j", (input) => {
     expect(() => parseAnswer(input)).toThrow(ValidationError);
+  });
+});
+
+describe("deadlineFor", () => {
+  it("counts whole days back and lands on the end of that day", () => {
+    expect(deadlineFor("2026-09-20T12:00:00Z", 3)).toBe("2026-09-17T23:59:59.999Z");
+    expect(deadlineFor("2026-09-20T12:00:00Z", 0)).toBe("2026-09-20T11:00:00.000Z");
   });
 });
 

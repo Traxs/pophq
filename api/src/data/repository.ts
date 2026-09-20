@@ -155,6 +155,29 @@ export class Repository {
     }
   }
 
+  /** Replaces an event's details; the event must exist. Answers are untouched. */
+  async updateEvent(event: AllianceEvent, actor: Actor): Promise<void> {
+    const meta = newItemMeta(actor, this.clock());
+    try {
+      await this.db.send(
+        new PutCommand({
+          TableName: this.table,
+          Item: {
+            ...eventKey(event.eventId),
+            ...eventIndexKey(event.alliance, event.startsAt, event.eventId),
+            type: "event",
+            ...event,
+            ...meta,
+          },
+          ConditionExpression: "attribute_exists(PK)",
+        }),
+      );
+    } catch (err) {
+      if (err instanceof ConditionalCheckFailedException) throw new NotFoundError("Event not found.");
+      throw err;
+    }
+  }
+
   async getEvent(eventId: string): Promise<AllianceEvent | undefined> {
     const res = await this.db.send(new GetCommand({ TableName: this.table, Key: eventKey(eventId) }));
     return res.Item ? toEvent(res.Item) : undefined;
