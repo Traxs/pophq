@@ -329,17 +329,16 @@ export function planEventImport(
       }));
     const startsAt = sessions.map((s) => s.startsAt).toSorted()[0]!;
     const eventId = `IMPORT-${key}`;
-    const notes = rows
-      .map((r) => r.notes)
-      .filter(Boolean)
-      .join(" ");
+    // The bundle's notes are Hermes' own working log, with internal file paths; they are
+    // provenance, not something to show the alliance. The history keeps where data came from.
+    const notes = undefined;
     plan.events.push({
       eventId,
       title: rows[0]!.event_type === "foundry" ? "Foundry" : rows[0]!.event_type,
       startsAt,
       // Answers closed three days before, as POP runs it.
       deadlineAt: `${new Date(Date.parse(startsAt) - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}T23:59:59.999Z`,
-      ...(notes ? { notes } : {}),
+      ...(notes === undefined ? {} : { notes }),
       sessions,
       sourceIds: Object.fromEntries(rows.map((r) => [r.id, `L${r.legion ?? 1}`])),
     });

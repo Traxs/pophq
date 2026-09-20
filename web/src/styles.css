@@ -1277,3 +1277,27 @@ th[aria-sort="descending"] .th-btn {
 .row-me {
   background: var(--accent-soft);
 }
+
+.mini {
+  display: block;
+  overflow: visible;
+}
+
+.meter-split {
+  position: relative;
+  display: flex;
+}
+.meter-starters {
+  background: var(--accent);
+}
+.meter-subs {
+  background: var(--warn);
+}
+.meter-divider {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--surface);
+  opacity: 0.9;
+}

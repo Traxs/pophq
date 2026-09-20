@@ -35,6 +35,10 @@ export interface Reports {
 }
 
 export interface RosterRow extends GameAccount {
+  /** Six trailing months, oldest first; null for a month with nothing to say. */
+  powerTrend: (number | null)[];
+  strengthTrend: (number | null)[];
+  attendanceTrend: (number | null)[];
   power: number | null;
   previousPower: number | null;
   lastReportAt: string | null;
@@ -155,6 +159,8 @@ export interface EventMember {
   answeredAt: string | null;
   /** Officer view only. */
   attended: AttendanceStatus | null;
+  strengthTrend: (number | null)[];
+  attendanceTrend: (number | null)[];
   power: number | null;
   foundryStrength: number | null;
   furnace: string | number | null;

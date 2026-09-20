@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ApiError, type Answer, type AttendanceStatus, type EventDetail, type EventMember, type SessionView } from "../api";
 import { ErrorBanner } from "../components/Chrome";
 import { useToast } from "../components/Toast";
+import { MiniChart } from "../components/MiniChart";
 import { compact, dayTime, full, relativeDay, shortTime, untilText } from "../format";
 import { navigate } from "../router";
 import { useSession } from "../session";
@@ -118,8 +119,15 @@ function SessionCard({
   myPlayerId: string | undefined;
   onJoin: () => void;
 }) {
-  const capacity = session.starters === undefined ? null : session.starters + (session.subs ?? 0);
-  const filled = capacity ? Math.min(100, Math.round((session.signedUp / capacity) * 100)) : 0;
+  const starters = session.starters;
+  const subs = session.subs ?? 0;
+  const capacity = starters === undefined ? null : starters + subs;
+  // A substitute place is not a free place: count the two separately.
+  const startersFilled = starters === undefined ? 0 : Math.min(session.signedUp, starters);
+  const subsFilled = starters === undefined ? 0 : Math.min(Math.max(0, session.signedUp - starters), subs);
+  const startersFree = starters === undefined ? 0 : starters - startersFilled;
+  const subsFree = subs - subsFilled;
+  const waiting = capacity === null ? 0 : Math.max(0, session.signedUp - capacity);
   const joined = session.yourStanding !== undefined;
 
   return (
@@ -138,18 +146,27 @@ function SessionCard({
       {capacity !== null ? (
         <>
           <p className="muted small">
-            {Math.min(session.signedUp, session.starters!)} of {session.starters} starters
-            {session.subs
-              ? ` · ${Math.min(Math.max(0, session.signedUp - session.starters!), session.subs)} of ${session.subs} subs`
-              : ""}
-            {session.signedUp > capacity
-              ? ` · full, ${session.signedUp - capacity} waiting`
-              : session.signedUp === capacity
-                ? " · full"
-                : ` · ${capacity - session.signedUp} spots free`}
+            {startersFilled} of {starters} starting
+            {subs > 0 && ` · ${subsFilled} of ${subs} subs`}
+            {startersFree > 0
+              ? ` · ${startersFree} starting ${startersFree === 1 ? "place" : "places"} free`
+              : subsFree > 0
+                ? ` · starting full, ${subsFree} sub ${subsFree === 1 ? "place" : "places"} left`
+                : waiting > 0
+                  ? ` · full, ${waiting} waiting`
+                  : " · full"}
           </p>
-          <div className="meter" role="img" aria-label={`${session.signedUp} of ${capacity} places taken`}>
-            <span style={{ width: `${filled}%` }} />
+          <div
+            className="meter meter-split"
+            role="img"
+            aria-label={`${startersFilled} of ${starters} starting places and ${subsFilled} of ${subs} substitute places taken`}
+          >
+            <span className="meter-starters" style={{ width: `${(startersFilled / capacity) * 100}%` }} />
+            <span className="meter-subs" style={{ width: `${(subsFilled / capacity) * 100}%` }} />
+            {/* The line between starting places and substitutes, so the eye finds it at once. */}
+            {starters !== undefined && subs > 0 && (
+              <i className="meter-divider" style={{ left: `${(starters / capacity) * 100}%` }} aria-hidden="true" />
+            )}
           </div>
         </>
       ) : (
@@ -284,6 +301,8 @@ function OfficerTable({ event, members }: { event: EventDetail; members: EventMe
               <th scope="col" className="num">
                 Foundry
               </th>
+              <th scope="col">6 months</th>
+              <th scope="col">Attendance</th>
               <th scope="col" className="num">
                 Power
               </th>
@@ -300,6 +319,12 @@ function OfficerTable({ event, members }: { event: EventDetail; members: EventMe
                 </td>
                 <td>{answerLabel(m)}</td>
                 <td className="num">{m.foundryStrength === null ? "–" : full(m.foundryStrength)}</td>
+                <td>
+                  <MiniChart values={m.strengthTrend} label={`${m.name}: Foundry strength over six months`} />
+                </td>
+                <td>
+                  <MiniChart values={m.attendanceTrend} kind="bars" label={`${m.name}: attendance over six months`} />
+                </td>
                 <td className="num">{m.power === null ? "–" : compact(m.power)}</td>
                 <td>{m.furnace ?? "–"}</td>
                 <td>

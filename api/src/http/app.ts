@@ -16,6 +16,7 @@ import { parseEventType } from "../domain/eventTypes.js";
 import { listEventTypes } from "../ops/eventTypes.js";
 import { parsePlayerId } from "../domain/identity.js";
 import { allianceGrowth, buckets, currentOf, seriesOf } from "../domain/metrics.js";
+import { monthlyAttendance, monthlyValues } from "../domain/trends.js";
 import { currentValues, parseReport } from "../domain/measurements.js";
 import {
   defaultActing,
@@ -157,6 +158,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
   app.get("/roster", async (c) => {
     requireOfficer(c.get("principal"));
     const alliance = (c.req.query("alliance") ?? "POP").toUpperCase();
+    const at = now();
     const accounts = await repo.listAccounts(alliance);
     // One query per account is fine at alliance size (~100); a summary item replaces this later.
     const items = await Promise.all(
@@ -171,8 +173,16 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           })
           .toSorted((a, b) => a.at.localeCompare(b.at));
         const cur = currentValues(reports);
+        const attendance = await repo.attendanceFor(account.playerId);
         return {
           ...account,
+          // Six trailing months for the small graphs in the table (MET-02).
+          powerTrend: monthlyValues(
+            series.map((p) => ({ at: p.at, value: p.power })),
+            at,
+          ),
+          strengthTrend: monthlyValues(seriesOf(reports, "foundry_strength"), at),
+          attendanceTrend: monthlyAttendance(attendance, at),
           power: series.at(-1)?.power ?? null,
           previousPower: series.at(-2)?.power ?? null,
           lastReportAt: series.at(-1)?.at ?? null,
@@ -436,6 +446,9 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     if (isOfficer(p)) {
       const byPlayer = new Map(answers.map((a) => [a.playerId, a]));
       const attendance = new Map((await repo.listAttendance(event.eventId)).map((a) => [a.playerId, a]));
+      const history = new Map(
+        await Promise.all(expected.map(async (a) => [a.playerId, await repo.attendanceFor(a.playerId)] as const)),
+      );
       // Officers see the numbers they need to balance the legions (P8/EVT-04).
       const reports = new Map(
         await Promise.all(expected.map(async (a) => [a.playerId, await repo.listReports(a.playerId)] as const)),
@@ -451,6 +464,8 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           sessionId: byPlayer.get(account.playerId)?.sessionId ?? null,
           answeredAt: byPlayer.get(account.playerId)?.answeredAt ?? null,
           attended: attendance.get(account.playerId)?.status ?? null,
+          strengthTrend: monthlyValues(seriesOf(own, "foundry_strength"), now()),
+          attendanceTrend: monthlyAttendance(history.get(account.playerId) ?? [], now()),
           power: currentOf(own, "city_power") ?? null,
           foundryStrength: currentOf(own, "foundry_strength") ?? null,
           furnace: current.furnace_level?.value ?? null,

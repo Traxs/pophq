@@ -110,6 +110,8 @@ After an event, officers mark who turned up (present, absent, excused, or left u
 
 Who starts and who substitutes is estimated as **0.7 × (Foundry strength ÷ strongest signed up) + 0.3 × attendance rate**, with unknown attendance counted as reliable; officers publish the real lineup. Members see the sign-up table with strength and likely role; the reliability score is officer-only. After the deadline members can no longer change their answer, but officers keep editing who is coming until the event starts.
 
+Tables carry small six-month trailing graphs: a line for Foundry strength and bars for attendance (green above half kept, red below). A month with nothing recorded is a gap, never a zero, and a single reading shows as a dot rather than a fake trend.
+
 Opening an event shows each part with its capacity (a Foundry legion takes 30 starters and 10 substitutes, set per event), how full it is, who signed up, and — until officers publish the lineup — an estimate of your role ranked by Foundry strength, clearly marked as an estimate. Officers additionally see a table of every member with their answer, legion, Foundry strength, power, furnace and last report, with totals per legion.
 
 A Foundry is **one event with two legions**: members pick Legion 1 or Legion 2 (or "Can't"), never both, and switching legions replaces the earlier pick. Other events keep the plain Yes / Maybe / No. Members answer per game account, so someone with alts answers once per account, and may change their mind until the deadline. The deadline is checked in the same write as the answer, so a late answer cannot slip through (FM-09). Officers see counts and the lists behind them, including who has not answered, and may answer on someone's behalf.
