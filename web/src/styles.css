@@ -62,7 +62,8 @@ p {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
   color: inherit;
 }
@@ -612,6 +613,28 @@ button.card {
   font-size: 1.05rem;
 }
 
+.field select {
+  width: 100%;
+  min-height: 50px;
+  padding: 12px 40px 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 1.05rem;
+}
+
+.field select:focus-visible {
+  border-color: var(--accent);
+  outline-offset: 0;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 12px;
+}
+
 .field input:not([type="radio"]):focus-visible {
   border-color: var(--accent);
   outline-offset: 0;
@@ -626,6 +649,57 @@ button.card {
   background: var(--surface);
   overflow-wrap: anywhere;
   resize: vertical;
+}
+
+.bot-token-panel,
+.bot-token-form {
+  display: grid;
+  gap: 16px;
+}
+
+.bot-token-panel > .section-label {
+  margin-bottom: -8px;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+.checkbox-row input {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin: 1px 0 0;
+  accent-color: var(--accent);
+}
+
+.bot-token-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.bot-token-actions .btn {
+  min-width: 140px;
+}
+
+.bot-token-list {
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
+.bot-token-meta {
+  display: block;
+  margin-top: 2px;
+}
+
+@media (max-width: 520px) {
+  .bot-token-actions .btn {
+    width: 100%;
+  }
 }
 
 .hint {
