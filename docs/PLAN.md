@@ -86,11 +86,11 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 - [x] P5.2 Answers per game account with the deadline checked in the same write (EVT-03, FM-09); players answer for their own accounts, officers for anyone
 - [x] P5.3a Officer view: counts and lists by answer including who has not answered (EVT-04); battle time, furnace and Helios columns still to come
 - [x] P5.4 Lineups: one item per session, versioned, capacity enforced in the write (EVT-04, EVT-05, FM-10); every member sees the published lineup with their own entry highlighted, and it replaces the estimate everywhere
-- [ ] P5.5 Strategy versions (Markdown + assignment table) on the event page (EVT-06)
+- [x] P5.5 Strategy versions on the event page (EVT-06): one versioned plan per session, safe paragraphs/bullets/bold rendering, and assignments tied to the published lineup
 - [x] P5.6a Attendance (EVT-07): officers record present / absent / excused / unknown per game account and part; recording again replaces the earlier record and the old one stays in the history. Reliability is the share of kept commitments over the last ten checked events, and feeds the lineup ranking
 - [ ] P5.6b Event results (EVT-08) and attendance from screenshots via Hermes
 - [ ] P5.7 Reminders every 15 minutes from due-reminder index, versioned keys (EVT-09, FM-18); not-answered list
-- [x] P5.8a Dev tools: demo events with legions and random answers that pick one; outcome tools follow with P5.6
+- [x] P5.8a Dev tools: demo events with legions, a published lineup and strategy, and random answers that pick one; outcome tools follow with P5.6
 - [ ] P5.9 Foundry map with zones (EVT-10, Should)
 
 ## Milestone 6: SvS buff slots
@@ -137,6 +137,7 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 
 ## Decisions made during the build
 
+- **2026-09-20, strategy is the work behind the lineup (P5.5):** a lineup selects starters and substitutes; a separately versioned strategy gives one session its plan and assigns selected accounts as Holder, Looter, Substitute Looter or Farmer, with optional duty and note. Members see the plan and assignments, with their own row highlighted. Strategy text deliberately supports only paragraphs, `-` bullets and `**bold**`, rendered as React text without HTML or a Markdown library.
 - **2026-09-20, a published lineup is a decision, not a ranking (P5.4):** officers publish one lineup per part, and it then replaces the estimate everywhere — the member's pill, the capacity meter and the officer table. Order inside a role is the order officers see, so nobody has to drag rows on a phone. Publishing sends the version that was edited: a second officer who publishes from a stale page is told to reload instead of quietly overwriting the first. Officers may pick someone who never answered; that person is marked "didn't answer" rather than hidden.
 - **2026-09-20, who starts and who substitutes:** ranked by **0.7 × (Foundry strength ÷ strongest signed up) + 0.3 × attendance rate**. Unknown attendance counts as fully reliable, so nobody is punished for missing data; until attendance is tracked the ranking is strength alone. It is shown as an estimate everywhere until officers publish the lineup (P5.4).
 - **2026-09-20, sign-up list visibility:** every member sees who signed up with their Foundry strength and likely role, because that is what decides the lineup. The reliability (attendance) score is officer-only, as are power, furnace, notes and the change log.

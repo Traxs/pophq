@@ -140,6 +140,7 @@ export function SessionProvider({
       attendance: guard(inner.attendance),
       reliability: guard(inner.reliability),
       publishLineup: guard(inner.publishLineup),
+      publishStrategy: guard(inner.publishStrategy),
     };
   }, [user, acting, endSession]);
 

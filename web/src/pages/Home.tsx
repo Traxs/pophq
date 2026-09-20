@@ -97,7 +97,7 @@ export function Home() {
         </button>
       )}
 
-      <p className="muted small center">SvS buff slots and event lineups arrive here in the next updates.</p>
+      <p className="muted small center">SvS buff slots arrive here in a future update.</p>
     </>
   );
 }

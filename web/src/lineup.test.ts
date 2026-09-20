@@ -24,6 +24,7 @@ const session = (over: Partial<SessionView> = {}): SessionView => ({
     signUp("100000003", "Aurora", 3, "sub"),
   ],
   lineup: null,
+  strategy: null,
   ...over,
 });
 

@@ -56,6 +56,22 @@ describe("roster and dev tools", () => {
     expect((await h.call("POST", "/dev/members", { ...OFFICER, body: { count: 500 } })).status).toBe(400);
   });
 
+  it("creates the real Foundry shape with a demo lineup and strategy", async () => {
+    const response = await h.call("POST", "/dev/events", OFFICER);
+    expect(response.status).toBe(200);
+    const events = await h.repo.listEvents("POP", new Date().toISOString());
+    const foundry = events.find((event) => event.kind === "foundry")!;
+    expect(foundry.sessions.map((session) => session.id)).toEqual(["L1", "L2"]);
+    expect(await h.repo.getLineup(foundry.eventId, "L1")).toMatchObject({ version: 1, entries: expect.any(Array) });
+    expect(await h.repo.getStrategy(foundry.eventId, "L1")).toMatchObject({
+      version: 1,
+      body: expect.stringContaining("**Opening plan**"),
+      assignments: expect.arrayContaining([
+        { playerId: "100000001", role: "Holder", duty: "Prototype 1", note: "Lead marked rallies" },
+      ]),
+    });
+  });
+
   it("does not expose dev tools unless the local server mounts them", async () => {
     expect((await plain.call("POST", "/dev/members", { ...OFFICER, body: { count: 1 } })).status).toBe(404);
     expect((await plain.call("POST", "/dev/reset", OFFICER)).status).toBe(404);

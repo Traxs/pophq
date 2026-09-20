@@ -12,6 +12,7 @@ import type { AttendanceRecord } from "../domain/attendance.js";
 import type { AllianceEvent, Answer, EventAnswer } from "../domain/events.js";
 import type { EventType } from "../domain/eventTypes.js";
 import type { Lineup } from "../domain/lineups.js";
+import type { Strategy } from "../domain/strategy.js";
 import { ConflictError, NotFoundError } from "../domain/errors.js";
 import { searchKey } from "../domain/identity.js";
 import type { Report } from "../domain/measurements.js";
@@ -32,6 +33,7 @@ import {
   reportKey,
   seatCounterKey,
   seatKey,
+  strategyKey,
 } from "./keys.js";
 import { newItemMeta, type Actor } from "./meta.js";
 
@@ -315,6 +317,47 @@ export class Repository {
       ExpressionAttributeValues: { ":pk": `EVENT#${eventId}`, ":sk": "LINEUP#" },
     });
     return items.map(toLineup);
+  }
+
+  // ---- Published strategies (P5.5) ----
+
+  /** Publishes against the version the officer edited, exactly like a lineup. */
+  async putStrategy(strategy: Strategy, actor: Actor): Promise<void> {
+    const meta = newItemMeta(actor, this.clock());
+    try {
+      await this.db.send(
+        new PutCommand({
+          TableName: this.table,
+          Item: {
+            ...strategyKey(strategy.eventId, strategy.sessionId),
+            type: "strategy",
+            ...meta,
+            ...strategy,
+          },
+          ConditionExpression: "attribute_not_exists(SK) OR version = :previous",
+          ExpressionAttributeValues: { ":previous": strategy.version - 1 },
+        }),
+      );
+    } catch (err) {
+      if (err instanceof ConditionalCheckFailedException) {
+        throw new ConflictError("Someone else published this strategy while you were editing. Reload and try again.");
+      }
+      throw err;
+    }
+  }
+
+  async getStrategy(eventId: string, sessionId: string): Promise<Strategy | undefined> {
+    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: strategyKey(eventId, sessionId) }));
+    return res.Item ? toStrategy(res.Item) : undefined;
+  }
+
+  /** Every published strategy of an event, one per part. */
+  async listStrategies(eventId: string): Promise<Strategy[]> {
+    const items = await this.queryAll({
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+      ExpressionAttributeValues: { ":pk": `EVENT#${eventId}`, ":sk": "STRATEGY#" },
+    });
+    return items.map(toStrategy);
   }
 
   async listAnswers(eventId: string): Promise<EventAnswer[]> {
@@ -640,6 +683,18 @@ function toLineup(item: Record<string, unknown>): Lineup {
   };
   if (item.note) lineup.note = String(item.note);
   return lineup;
+}
+
+function toStrategy(item: Record<string, unknown>): Strategy {
+  return {
+    eventId: String(item.eventId),
+    sessionId: String(item.sessionId),
+    version: Number(item.version),
+    body: String(item.body ?? ""),
+    assignments: Array.isArray(item.assignments) ? (item.assignments as Strategy["assignments"]) : [],
+    publishedAt: String(item.publishedAt),
+    publishedBy: String(item.publishedBy),
+  };
 }
 
 function toEvent(item: Record<string, unknown>): AllianceEvent {
