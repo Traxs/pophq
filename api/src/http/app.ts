@@ -2,9 +2,10 @@ import { Hono } from "hono";
 import { createHash } from "node:crypto";
 import { ulid } from "ulid";
 import { parseNewAccount } from "../domain/accounts.js";
-import { ConflictError, DomainError, NotFoundError, UnauthorizedError, ValidationError } from "../domain/errors.js";
+import { ConflictError, DomainError, ForbiddenError, NotFoundError, UnauthorizedError, ValidationError } from "../domain/errors.js";
 import { parseAttendance, reliabilityOf } from "../domain/attendance.js";
 import {
+  EVENT_KINDS,
   countAnswers,
   isClosed,
   parseAnswerChoice,
@@ -12,13 +13,14 @@ import {
   parseNewEvent,
   rankSignUps,
   standingFor,
+  type EventKind,
 } from "../domain/events.js";
 import { parseEventType, STARTER_TYPES } from "../domain/eventTypes.js";
 import { parseLineup, placeIn } from "../domain/lineups.js";
 import { parseStrategy } from "../domain/strategy.js";
 import { parseEventResult } from "../domain/results.js";
 import { canonicalJson, issueAgentToken } from "../domain/agentTokens.js";
-import { authenticateAgent, publicAgentToken, type BotIssuerCanUse } from "./agentAuth.js";
+import { authenticateAgent, effectiveBotScopes, publicAgentToken, type BotIssuerGroups } from "./agentAuth.js";
 import { listEventTypes } from "../ops/eventTypes.js";
 import { parsePlayerId } from "../domain/identity.js";
 import { allianceGrowth, buckets, currentOf, seriesOf } from "../domain/metrics.js";
@@ -56,10 +58,10 @@ export interface AppDeps {
   /** Change history; without it, timelines are unavailable. */
   history?: HistoryStore;
   /** Live issuer-rights check. Bot tokens fail closed when no directory is configured. */
-  botIssuerCanUse?: BotIssuerCanUse;
+  botIssuerGroups?: BotIssuerGroups;
 }
 
-export function createApp({ repo, verifier, now = () => new Date(), extend, isPaused, logins, history, botIssuerCanUse = async () => false }: AppDeps) {
+export function createApp({ repo, verifier, now = () => new Date(), extend, isPaused, logins, history, botIssuerGroups = async () => undefined }: AppDeps) {
   const app = new Hono<Env>().basePath("/v1");
 
   app.use("*", async (c, next) => {
@@ -102,15 +104,39 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
 
   app.get("/health", (c) => c.json({ status: "ok" }));
 
-  // Agent-only surface. These routes never accept human JWTs and agent credentials never pass
-  // through to the broader web API. Dry-run is the default for every write.
+  // Bot-specific surface. Normal GET routes also accept bot tokens as their live issuer;
+  // normal write routes do not. Dry-run is the default for the one scoped bot write.
   app.get("/agent/doctor", async (c) => {
-    const token = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "results:read", now(), botIssuerCanUse);
-    return c.json({ status: "ok", tokenId: token.tokenId, scopes: token.scopes, expiresAt: token.expiresAt });
+    const { token } = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "all:read", now(), botIssuerGroups);
+    return c.json({ status: "ok", tokenId: token.tokenId, scopes: effectiveBotScopes(token), expiresAt: token.expiresAt });
+  });
+
+  /** Minimal event discovery for result bots; no sign-ups, notes, accounts or officer data. */
+  app.get("/agent/events", async (c) => {
+    await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "all:read", now(), botIssuerGroups);
+    const requestedFrom = c.req.query("from");
+    if (requestedFrom && Number.isNaN(Date.parse(requestedFrom))) throw new ValidationError("from must be an ISO date or timestamp.");
+    const requestedKind = c.req.query("kind");
+    if (requestedKind && !EVENT_KINDS.includes(requestedKind as EventKind)) throw new ValidationError("Unknown event kind.");
+    const from = requestedFrom
+      ? new Date(requestedFrom).toISOString()
+      : new Date(now().getTime() - PAST_EVENTS_MS).toISOString();
+    const events = await repo.listEvents("POP", from);
+    return c.json({
+      items: events
+        .filter((event) => !requestedKind || event.kind === requestedKind)
+        .map((event) => ({
+          eventId: event.eventId,
+          kind: event.kind,
+          title: event.title,
+          startsAt: event.startsAt,
+          sessions: event.sessions.map((session) => ({ id: session.id, label: session.label, startsAt: session.startsAt })),
+        })),
+    });
   });
 
   app.get("/agent/events/:id/sessions/:sid/result-context", async (c) => {
-    await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "results:read", now(), botIssuerCanUse);
+    await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "all:read", now(), botIssuerGroups);
     const event = await repo.getEvent(c.req.param("id"));
     if (!event) throw new NotFoundError("Event not found.");
     const session = event.sessions.find((candidate) => candidate.id === c.req.param("sid"));
@@ -126,7 +152,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
   });
 
   app.put("/agent/events/:id/sessions/:sid/result", async (c) => {
-    const token = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "results:write", now(), botIssuerCanUse);
+    const { token } = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "results:write", now(), botIssuerGroups);
     const event = await repo.getEvent(c.req.param("id"));
     if (!event) throw new NotFoundError("Event not found.");
     const session = event.sessions.find((candidate) => candidate.id === c.req.param("sid"));
@@ -176,9 +202,18 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const header = c.req.header("authorization") ?? "";
     const match = /^Bearer\s+(.+)$/i.exec(header);
     if (!match?.[1]) throw new UnauthorizedError();
-    const token = await verifier(match[1]);
-    const linked = new Set(await repo.linkedAccounts(token.sub));
-    const principal: Principal = { sub: token.sub, groups: parseGroups(token.groups), linkedAccounts: linked };
+    let principal: Principal;
+    let linked: Set<string>;
+    if (match[1].startsWith("s26_")) {
+      if (c.req.method !== "GET") throw new ForbiddenError("Bot tokens cannot use normal write routes.");
+      const authenticated = await authenticateAgent(repo, header, c.req.header("origin"), "all:read", now(), botIssuerGroups);
+      linked = new Set(await repo.linkedAccounts(authenticated.token.issuedBy));
+      principal = { sub: authenticated.token.issuedBy, groups: authenticated.issuerGroups, linkedAccounts: linked };
+    } else {
+      const token = await verifier(match[1]);
+      linked = new Set(await repo.linkedAccounts(token.sub));
+      principal = { sub: token.sub, groups: parseGroups(token.groups), linkedAccounts: linked };
+    }
     const acting = resolveActingAccount(c.req.header("x-account-id"), linked);
     if (acting) principal.actingAs = acting;
     c.set("principal", principal);

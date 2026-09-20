@@ -13,7 +13,13 @@ import urllib.request
 from pathlib import Path
 
 
-def request(method: str, path: str, body: object | None = None, idempotency_key: str | None = None) -> object:
+def request(
+    method: str,
+    path: str,
+    body: object | None = None,
+    idempotency_key: str | None = None,
+    account_id: str | None = None,
+) -> object:
     base = os.environ.get("POPHQ_URL", "").rstrip("/")
     # POPHQ_AGENT_TOKEN remains a compatibility fallback for credentials configured
     # before the UI adopted the clearer "Bot token" name.
@@ -26,6 +32,8 @@ def request(method: str, path: str, body: object | None = None, idempotency_key:
         headers["Content-Type"] = "application/json"
     if idempotency_key:
         headers["Idempotency-Key"] = idempotency_key
+    if account_id:
+        headers["X-Account-Id"] = account_id
     req = urllib.request.Request(f"{base}/v1{path}", data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=30) as response:
@@ -50,6 +58,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="s26", description="POP HQ result agent")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("doctor")
+    get = sub.add_parser("get", help="Read any POP HQ API path allowed to the token issuer")
+    get.add_argument("path", help="Path below /v1, for example /events or /roster")
+    get.add_argument("--account-id", help="Act as one of the issuer's linked Player IDs")
+    events = sub.add_parser("list-events")
+    events.add_argument("--kind", choices=["foundry", "bear", "svs", "other"])
+    events.add_argument("--from", dest="from_value", help="ISO date or timestamp; defaults to seven days ago")
     context = sub.add_parser("result-context")
     context.add_argument("event_id")
     context.add_argument("session_id")
@@ -64,6 +78,13 @@ def main() -> None:
 
     if args.command == "doctor":
         result = request("GET", "/agent/doctor")
+    elif args.command == "get":
+        if not args.path.startswith("/") or args.path.startswith("//"):
+            raise SystemExit("Path must start with one / and is resolved below /v1.")
+        result = request("GET", args.path, account_id=args.account_id)
+    elif args.command == "list-events":
+        query = urllib.parse.urlencode({key: value for key, value in {"kind": args.kind, "from": args.from_value}.items() if value})
+        result = request("GET", f"/agent/events{f'?{query}' if query else ''}")
     elif args.command == "result-context":
         event = urllib.parse.quote(args.event_id, safe="")
         session = urllib.parse.quote(args.session_id, safe="")
