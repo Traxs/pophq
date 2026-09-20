@@ -139,6 +139,7 @@ export function SessionProvider({
       event: guard(inner.event),
       createEvent: guard(inner.createEvent),
       updateEvent: guard(inner.updateEvent),
+      configureEventSession: guard(inner.configureEventSession),
       answer: guard(inner.answer),
       attendance: guard(inner.attendance),
       reliability: guard(inner.reliability),

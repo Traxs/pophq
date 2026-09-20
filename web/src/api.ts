@@ -357,6 +357,8 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
     createEvent: (input: NewEvent) => request<AllianceEvent>("POST", "/events", input),
     updateEvent: (eventId: string, changes: EventChanges) =>
       request<AllianceEvent>("PATCH", `/events/${eventId}`, changes),
+    configureEventSession: (eventId: string, session: { id: string; label: string }) =>
+      request<{ event: AllianceEvent; assignedSignups: number }>("POST", `/events/${eventId}/session`, session),
     attendance: (eventId: string, playerId: string, status: AttendanceStatus, sessionId?: string) =>
       request<{ status: AttendanceStatus }>("PUT", `/events/${eventId}/attendance/${playerId}`, {
         status,

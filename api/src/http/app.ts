@@ -6,6 +6,7 @@ import { ConflictError, DomainError, ForbiddenError, NotFoundError, Unauthorized
 import { parseAttendance, reliabilityOf } from "../domain/attendance.js";
 import {
   EVENT_KINDS,
+  configureLegacySession,
   countAnswers,
   isClosed,
   parseAnswerChoice,
@@ -488,6 +489,25 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const updated = parseEventChanges(event, await readJson(c.req.raw), now());
     await repo.updateEvent(updated, { id: p.sub, via: "web", reason: "event edited" });
     return c.json(updated);
+  });
+
+  /**
+   * Repairs a legacy event that predates selectable parts. Existing yes answers are assigned to
+   * the new part in the same transaction so result tooling never observes a half-migrated event.
+   */
+  app.post("/events/:id/session", async (c) => {
+    const p = c.get("principal");
+    requireOfficer(p);
+    const event = await repo.getEvent(c.req.param("id"));
+    if (!event) throw new NotFoundError("Event not found.");
+    if (event.sessions.length > 0) throw new ConflictError("This event already has a configured part.");
+    const updated = configureLegacySession(event, await readJson(c.req.raw), now());
+    const assignedSignups = await repo.configureLegacySession(
+      updated,
+      await repo.listAnswers(event.eventId),
+      { id: p.sub, via: "web", reason: "legacy event part configured" },
+    );
+    return c.json({ event: updated, assignedSignups }, 201);
   });
 
   /** Upcoming events with the answer of the account the person is acting for. */
