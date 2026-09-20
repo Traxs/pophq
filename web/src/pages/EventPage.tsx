@@ -4,9 +4,11 @@ import {
   type Answer,
   type AttendanceStatus,
   type EventDetail,
+  type EventOutcome,
   type EventMember,
   type LineupEntryView,
   type PublishedLineup,
+  type PublishedResult,
   type PublishedStrategy,
   type SessionView,
   STRATEGY_ROLES,
@@ -91,6 +93,21 @@ export function EventPage({ eventId }: { eventId: string }) {
     }
   };
 
+  const recordResult = async (
+    sessionId: string,
+    input: Parameters<typeof api.recordResult>[2],
+  ) => {
+    setError(null);
+    try {
+      const result = await api.recordResult(eventId, sessionId, input);
+      toast(`Result saved (v${result.version})`);
+      dataChanged();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Couldn't save the result.");
+      throw e;
+    }
+  };
+
   if (error && !event) return <ErrorBanner message={error} onRetry={() => navigate("/events")} />;
   if (!event) return <div className="card skeleton" style={{ height: 200 }} />;
 
@@ -129,7 +146,7 @@ export function EventPage({ eventId }: { eventId: string }) {
                 myPlayerId={account?.playerId}
                 strategyTemplate={event.strategyTemplate ?? ""}
                 onJoin={() => void choose("yes", session.id)}
-                {...(isOfficer ? { onPublish: publish, onPublishStrategy: publishStrategy } : {})}
+                {...(isOfficer ? { onPublish: publish, onPublishStrategy: publishStrategy, onRecordResult: recordResult } : {})}
               />
             </li>
           ))}
@@ -167,6 +184,7 @@ function SessionCard({
   onPublish,
   strategyTemplate,
   onPublishStrategy,
+  onRecordResult,
 }: {
   session: SessionView;
   closed: boolean;
@@ -185,6 +203,7 @@ function SessionCard({
     assignments: StrategyDraftAssignment[],
     version: number,
   ) => Promise<void>;
+  onRecordResult?: (sessionId: string, input: Parameters<ReturnType<typeof useSession>["api"]["recordResult"]>[2]) => Promise<void>;
 }) {
   const starters = session.starters;
   const subs = session.subs ?? 0;
@@ -280,6 +299,8 @@ function SessionCard({
 
       {session.strategy && <StrategyView strategy={session.strategy} myPlayerId={myPlayerId} />}
 
+      {session.result && <ResultView result={session.result} />}
+
       {session.yourAssignment && (
         <p className="pill pill-flat">
           Your assignment: {session.yourAssignment.role}
@@ -342,7 +363,95 @@ function SessionCard({
       {isOfficer && onPublishStrategy && (
         <StrategyEditor session={session} template={strategyTemplate} onPublish={onPublishStrategy} />
       )}
+      {isOfficer && onRecordResult && Date.parse(session.startsAt) <= Date.now() && (
+        <ResultEditor session={session} onSave={onRecordResult} />
+      )}
     </article>
+  );
+}
+
+function ResultView({ result }: { result: PublishedResult }) {
+  const outcome = result.outcome === "win" ? "Victory" : result.outcome === "loss" ? "Defeat" : "Draw";
+  return (
+    <section className="strategy stack" aria-label="Event result">
+      <h3 className="section-label">
+        Result · {outcome} <span className="muted small">· recorded {relativeDay(result.recordedAt)}</span>
+      </h3>
+      <p className="pill pill-flat">Score: {full(result.ourScore)} – {full(result.opponentScore)}</p>
+      {(result.ourMatchmakingPower !== undefined || result.opponentMatchmakingPower !== undefined) && (
+        <p className="muted small">
+          Matchmaking power: {result.ourMatchmakingPower === undefined ? "–" : compact(result.ourMatchmakingPower)} vs{" "}
+          {result.opponentMatchmakingPower === undefined ? "–" : compact(result.opponentMatchmakingPower)}
+          {result.opponentCombatants !== undefined ? ` · ${result.opponentCombatants} opponents` : ""}
+        </p>
+      )}
+      {result.notes && <p className="event-notes">{result.notes}</p>}
+      {result.playerPoints.map((row) => (
+        <p key={row.playerId} className="pill pill-up">{row.name}: {full(row.points)} points</p>
+      ))}
+    </section>
+  );
+}
+
+function ResultEditor({
+  session,
+  onSave,
+}: {
+  session: SessionView;
+  onSave: (sessionId: string, input: Parameters<ReturnType<typeof useSession>["api"]["recordResult"]>[2]) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const current = session.result;
+  const [outcome, setOutcome] = useState<EventOutcome>("win");
+  const [ourScore, setOurScore] = useState("");
+  const [opponentScore, setOpponentScore] = useState("");
+  const [ourPower, setOurPower] = useState("");
+  const [opponentPower, setOpponentPower] = useState("");
+  const [opponents, setOpponents] = useState("");
+  const [notes, setNotes] = useState("");
+  const [points, setPoints] = useState<Record<string, string>>({});
+  const start = () => {
+    setOutcome(current?.outcome ?? "win");
+    setOurScore(current ? String(current.ourScore) : "");
+    setOpponentScore(current ? String(current.opponentScore) : "");
+    setOurPower(current?.ourMatchmakingPower === undefined ? "" : String(current.ourMatchmakingPower));
+    setOpponentPower(current?.opponentMatchmakingPower === undefined ? "" : String(current.opponentMatchmakingPower));
+    setOpponents(current?.opponentCombatants === undefined ? "" : String(current.opponentCombatants));
+    setNotes(current?.notes ?? "");
+    setPoints(Object.fromEntries((current?.playerPoints ?? []).map((row) => [row.playerId, String(row.points)])));
+    setOpen(true);
+  };
+  if (!open) return <button type="button" className="btn btn-quiet btn-small" onClick={start}>{current ? `Edit result (v${current.version})` : "Record result"}</button>;
+  const players = session.lineup?.entries ?? session.signedUpList;
+  return (
+    <div className="strategy-editor stack">
+      <div className="form-grid">
+        <label className="field"><span>Outcome</span><select value={outcome} onChange={(e) => setOutcome(e.target.value as EventOutcome)}><option value="win">Victory</option><option value="loss">Defeat</option><option value="draw">Draw</option></select></label>
+        <label className="field"><span>Our score</span><input type="number" min="0" required value={ourScore} onChange={(e) => setOurScore(e.target.value)} /></label>
+        <label className="field"><span>Opponent score</span><input type="number" min="0" required value={opponentScore} onChange={(e) => setOpponentScore(e.target.value)} /></label>
+        <label className="field"><span>Our matchmaking power</span><input type="number" min="0" value={ourPower} onChange={(e) => setOurPower(e.target.value)} /></label>
+        <label className="field"><span>Opponent matchmaking power</span><input type="number" min="0" value={opponentPower} onChange={(e) => setOpponentPower(e.target.value)} /></label>
+        <label className="field"><span>Opponent combatants</span><input type="number" min="0" max="100" value={opponents} onChange={(e) => setOpponents(e.target.value)} /></label>
+      </div>
+      <label className="field"><span>Notes</span><textarea rows={3} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} /></label>
+      {players.length > 0 && <div className="strategy-assignment-editor">{players.map((player) => <label key={player.playerId} className="field"><span>{player.name} points</span><input type="number" min="0" value={points[player.playerId] ?? ""} onChange={(e) => setPoints((old) => ({ ...old, [player.playerId]: e.target.value }))} /></label>)}</div>}
+      <div className="row-actions">
+        <button type="button" className="btn btn-primary btn-small" disabled={saving || ourScore === "" || opponentScore === ""} onClick={() => {
+          setSaving(true);
+          void onSave(session.id, {
+            outcome, ourScore: Number(ourScore), opponentScore: Number(opponentScore),
+            ...(ourPower === "" ? {} : { ourMatchmakingPower: Number(ourPower) }),
+            ...(opponentPower === "" ? {} : { opponentMatchmakingPower: Number(opponentPower) }),
+            ...(opponents === "" ? {} : { opponentCombatants: Number(opponents) }),
+            ...(notes.trim() ? { notes: notes.trim() } : {}),
+            playerPoints: Object.entries(points).filter(([, value]) => value !== "").map(([playerId, value]) => ({ playerId, points: Number(value) })),
+            expectedVersion: current?.version ?? 0,
+          }).then(() => setOpen(false)).finally(() => setSaving(false));
+        }}>{saving ? "Saving…" : "Save result"}</button>
+        <button type="button" className="btn btn-quiet btn-small" disabled={saving} onClick={() => setOpen(false)}>Cancel</button>
+      </div>
+    </div>
   );
 }
 

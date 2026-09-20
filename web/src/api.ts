@@ -142,6 +142,22 @@ export interface PublishedStrategy {
   assignments: StrategyAssignmentView[];
 }
 
+export type EventOutcome = "win" | "loss" | "draw";
+
+export interface PublishedResult {
+  version: number;
+  outcome: EventOutcome;
+  ourScore: number;
+  opponentScore: number;
+  ourMatchmakingPower?: number;
+  opponentMatchmakingPower?: number;
+  opponentCombatants?: number;
+  notes?: string;
+  recordedAt: string;
+  /** Officers receive every known entry; members receive only their own. */
+  playerPoints: { playerId: string; name: string; points: number }[];
+}
+
 /** A session as the event page shows it: with live counts and where you stand. */
 export interface SessionView extends EventSession {
   signedUp: number;
@@ -151,6 +167,8 @@ export interface SessionView extends EventSession {
   lineup: PublishedLineup | null;
   /** Null until officers publish the plan for this part. */
   strategy: PublishedStrategy | null;
+  /** Null until an officer records the outcome. */
+  result?: PublishedResult | null;
   /** Your place in the published lineup, if you are in it. */
   yourPlace?: { role: LineupRole; position: number };
   yourAssignment?: { role: StrategyRole; duty?: string; note?: string };
@@ -352,6 +370,21 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
         assignments,
         expectedVersion,
       }),
+    recordResult: (
+      eventId: string,
+      sessionId: string,
+      input: {
+        outcome: EventOutcome;
+        ourScore: number;
+        opponentScore: number;
+        ourMatchmakingPower?: number;
+        opponentMatchmakingPower?: number;
+        opponentCombatants?: number;
+        notes?: string;
+        playerPoints: { playerId: string; points: number }[];
+        expectedVersion: number;
+      },
+    ) => request<PublishedResult>("POST", `/events/${eventId}/sessions/${sessionId}/result`, input),
     answer: (eventId: string, playerId: string, answer: Answer, sessionId?: string) =>
       request<{ answer: Answer; sessionId?: string }>("PUT", `/events/${eventId}/answers/${playerId}`, {
         answer,

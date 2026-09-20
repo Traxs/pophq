@@ -8,6 +8,7 @@ import type { Repository } from "../data/repository.js";
 import { ANSWERS, parseNewEvent, type AllianceEvent } from "../domain/events.js";
 import { parseLineup } from "../domain/lineups.js";
 import { parseStrategy } from "../domain/strategy.js";
+import { parseEventResult } from "../domain/results.js";
 
 const DAY = 86_400_000;
 
@@ -191,6 +192,13 @@ export async function addDemoEvents(repo: Repository, now: Date, actor: Actor): 
   const planned = [
     {
       kind: "foundry" as const,
+      title: "Foundry last week",
+      startsAt: at(-1, 19),
+      notes: "Completed demo event with a recorded result.",
+      sessions: [{ id: "L1", label: "Legion 1", startsAt: at(-1, 19), starters: 30, subs: 10 }],
+    },
+    {
+      kind: "foundry" as const,
       title: "Foundry Saturday",
       startsAt: at(6, 19),
       notes: "Two legions, be online 10 minutes early.",
@@ -205,7 +213,12 @@ export async function addDemoEvents(repo: Repository, now: Date, actor: Actor): 
   ];
   const created: AllianceEvent[] = [];
   for (const input of planned) {
-    const event = parseNewEvent(input, { eventId: ulid(now.getTime()), createdBy: actor.id, now });
+    // The completed fixture is created as historical demo data; live officer routes still refuse
+    // creating events whose start is already in the past.
+    const creationTime = Date.parse(input.startsAt) <= now.getTime()
+      ? new Date(Date.parse(input.startsAt) - 24 * 60 * 60 * 1000)
+      : now;
+    const event = parseNewEvent(input, { eventId: ulid(now.getTime()), createdBy: actor.id, now: creationTime });
     await repo.createEvent(event, actor);
     if (event.kind === "foundry") {
       const session = event.sessions[0]!;
@@ -237,6 +250,26 @@ export async function addDemoEvents(repo: Repository, now: Date, actor: Actor): 
         { eventId: event.eventId, sessionId: session.id, publishedBy: actor.id, now, currentVersion: 0 },
       );
       await repo.putStrategy(strategy, actor);
+      if (Date.parse(session.startsAt) <= now.getTime()) {
+        const result = parseEventResult(
+          {
+            outcome: "win",
+            ourScore: 1_240,
+            opponentScore: 980,
+            ourMatchmakingPower: 2_430_000_000,
+            opponentMatchmakingPower: 2_510_000_000,
+            opponentCombatants: 28,
+            notes: "Demo result: prototypes held through the final phase.",
+            playerPoints: [
+              { playerId: "100000001", points: 52_400 },
+              { playerId: "100000008", points: 48_900 },
+            ],
+          },
+          session,
+          { eventId: event.eventId, recordedBy: actor.id, now, currentVersion: 0 },
+        );
+        await repo.putResult(result, actor);
+      }
     }
     created.push(event);
   }

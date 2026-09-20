@@ -141,6 +141,7 @@ export function SessionProvider({
       reliability: guard(inner.reliability),
       publishLineup: guard(inner.publishLineup),
       publishStrategy: guard(inner.publishStrategy),
+      recordResult: guard(inner.recordResult),
     };
   }, [user, acting, endSession]);
 

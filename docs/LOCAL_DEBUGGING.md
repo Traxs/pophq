@@ -143,9 +143,9 @@ Do not use local dev routes to infer Lambda behavior. Production uses runtime `/
 - TypeScript checks for API, web, and infra: passed;
 - TypeScript 7 preview checks for API, web, and infra: passed;
 - dependency declaration check: passed;
-- API/domain unit tests: 169 passed;
+- API/domain unit tests: 171 passed;
 - web unit tests: 80 passed;
 - infrastructure tests: 21 passed;
-- integration tests: 14 files and 105 tests passed in the normal parallel run (about 43 s);
+- integration tests: 15 files and 108 tests passed in the normal parallel run (about 31 s);
 - gitleaks: full repository scan passed with no leaks found;
 - Docker services: DynamoDB Local, mock OIDC, and Discord sink healthy.

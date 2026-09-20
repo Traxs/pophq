@@ -64,3 +64,9 @@ export const strategyKey = (eventId: string, sessionId: string) => ({
   PK: `EVENT#${eventId}`,
   SK: `STRATEGY#${sessionId}`,
 });
+
+/** Officer-recorded outcome for one event part (P5.6b); replaced and versioned on correction. */
+export const resultKey = (eventId: string, sessionId: string) => ({
+  PK: `EVENT#${eventId}`,
+  SK: `RESULT#${sessionId}`,
+});

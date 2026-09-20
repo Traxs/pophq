@@ -15,6 +15,7 @@ import {
 import { parseEventType, STARTER_TYPES } from "../domain/eventTypes.js";
 import { parseLineup, placeIn } from "../domain/lineups.js";
 import { parseStrategy } from "../domain/strategy.js";
+import { parseEventResult } from "../domain/results.js";
 import { listEventTypes } from "../ops/eventTypes.js";
 import { parsePlayerId } from "../domain/identity.js";
 import { allianceGrowth, buckets, currentOf, seriesOf } from "../domain/metrics.js";
@@ -391,6 +392,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const yesAnswers = answers.filter((a) => a.answer === "yes");
     const lineups = new Map((await repo.listLineups(event.eventId)).map((l) => [l.sessionId, l]));
     const strategies = new Map((await repo.listStrategies(event.eventId)).map((strategy) => [strategy.sessionId, strategy]));
+    const results = new Map((await repo.listResults(event.eventId)).map((result) => [result.sessionId, result]));
     // People in a published lineup need their strength shown too, even if an officer put someone
     // there who never answered.
     const needStrength = [
@@ -461,6 +463,25 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       const yourAssignment = acting
         ? strategy?.assignments.find((assignment) => assignment.playerId === acting)
         : undefined;
+      const recordedResult = results.get(session.id);
+      const result = recordedResult
+        ? {
+            version: recordedResult.version,
+            outcome: recordedResult.outcome,
+            ourScore: recordedResult.ourScore,
+            opponentScore: recordedResult.opponentScore,
+            ...(recordedResult.ourMatchmakingPower !== undefined ? { ourMatchmakingPower: recordedResult.ourMatchmakingPower } : {}),
+            ...(recordedResult.opponentMatchmakingPower !== undefined
+              ? { opponentMatchmakingPower: recordedResult.opponentMatchmakingPower }
+              : {}),
+            ...(recordedResult.opponentCombatants !== undefined ? { opponentCombatants: recordedResult.opponentCombatants } : {}),
+            ...(recordedResult.notes ? { notes: recordedResult.notes } : {}),
+            recordedAt: recordedResult.recordedAt,
+            playerPoints: recordedResult.playerPoints
+              .filter((row) => isOfficer(p) || row.playerId === acting)
+              .map((row) => ({ ...row, name: byName.get(row.playerId) ?? row.playerId })),
+          }
+        : null;
       return {
         ...session,
         signedUp: entries.length,
@@ -469,6 +490,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         signedUpList: ranked,
         lineup,
         strategy,
+        result,
         ...(myPlace ? { yourPlace: { role: myPlace.role, position: myPlace.position } } : {}),
         ...(yourAssignment
           ? {
@@ -600,6 +622,31 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
 
     await repo.putStrategy(strategy, { id: p.sub, via: "web", reason: "strategy published" });
     return c.json(strategy, 201);
+  });
+
+  /** Records or corrects the outcome of one event part (P5.6b). */
+  app.post("/events/:id/sessions/:sid/result", async (c) => {
+    const p = c.get("principal");
+    requireOfficer(p);
+    const event = await repo.getEvent(c.req.param("id"));
+    if (!event) throw new NotFoundError("Event not found.");
+    const session = event.sessions.find((candidate) => candidate.id === c.req.param("sid"));
+    if (!session) throw new NotFoundError("That part of the event doesn't exist.");
+    if (Date.parse(session.startsAt) > now().getTime()) throw new ValidationError("Record the result after this event part starts.");
+
+    const current = await repo.getResult(event.eventId, session.id);
+    const result = parseEventResult(await readJson(c.req.raw), session, {
+      eventId: event.eventId,
+      recordedBy: p.sub,
+      now: now(),
+      currentVersion: current?.version ?? 0,
+    });
+    const known = new Set((await repo.listAccounts(event.alliance)).map((account) => account.playerId));
+    const strangers = result.playerPoints.filter((row) => !known.has(row.playerId)).map((row) => row.playerId);
+    if (strangers.length > 0) throw new ValidationError(`Not members of ${event.alliance}: ${strangers.join(", ")}.`);
+
+    await repo.putResult(result, { id: p.sub, via: "web", reason: "event result recorded" });
+    return c.json(result, 201);
   });
 
   /** Answers for a game account: the player for their own accounts, officers for anyone. */
