@@ -19,6 +19,10 @@ export interface EventSession {
   id: string;
   label: string;
   startsAt: string;
+  /** How many start; the rest who sign up are substitutes. Absent means no limit. */
+  starters?: number;
+  /** How many substitutes are taken along. */
+  subs?: number;
 }
 
 export interface AllianceEvent {
@@ -62,6 +66,8 @@ const SessionSchema = z.object({
     .optional(),
   label: z.string().trim().min(1, "Every session needs a name.").max(30),
   startsAt: ISO,
+  starters: z.number().int().min(1).max(500).optional(),
+  subs: z.number().int().min(0).max(500).optional(),
 });
 
 const NewEventSchema = z.object({
@@ -132,6 +138,8 @@ export function parseNewEvent(input: unknown, ctx: NewEventContext): AllianceEve
     id: session.id ?? `S${index + 1}`,
     label: session.label,
     startsAt: session.startsAt,
+    ...(session.starters === undefined ? {} : { starters: session.starters }),
+    ...(session.subs === undefined ? {} : { subs: session.subs }),
   }));
   if (new Set(sessions.map((s) => s.id)).size !== sessions.length) {
     throw new ValidationError("Each session needs its own id.");
@@ -267,4 +275,41 @@ export function countAnswers(answers: readonly EventAnswer[], expected: number):
     if (a.answer === "yes" && a.sessionId) bySession[a.sessionId] = (bySession[a.sessionId] ?? 0) + 1;
   }
   return { ...counts, pending: Math.max(0, expected - answers.length), bySession };
+}
+
+export interface SessionStanding {
+  sessionId: string;
+  /** Position among the people signed up for this part, strongest first. */
+  position: number;
+  signedUp: number;
+  /** "starter" or "sub" by the estimate; officers decide the real lineup (P5.4). */
+  likely: "starter" | "sub";
+  /** True while this is only an estimate, i.e. no lineup has been published yet. */
+  estimate: true;
+}
+
+/**
+ * Where someone stands in a part of an event, if officers picked by strength. Ranking is by the
+ * given strength, strongest first; people without a known strength come last, earliest answer
+ * first. It is an estimate and says so: officers pick the real lineup.
+ */
+export function standingFor(
+  sessionId: string,
+  entries: readonly { playerId: string; strength?: number | undefined; answeredAt: string }[],
+  playerId: string,
+  starters: number | undefined,
+): SessionStanding | undefined {
+  const ordered = [...entries].toSorted((a, b) => {
+    if ((a.strength ?? -1) !== (b.strength ?? -1)) return (b.strength ?? -1) - (a.strength ?? -1);
+    return a.answeredAt.localeCompare(b.answeredAt);
+  });
+  const index = ordered.findIndex((e) => e.playerId === playerId);
+  if (index < 0) return undefined;
+  return {
+    sessionId,
+    position: index + 1,
+    signedUp: ordered.length,
+    likely: starters === undefined || index < starters ? "starter" : "sub",
+    estimate: true,
+  };
 }

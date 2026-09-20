@@ -75,6 +75,25 @@ export interface EventSession {
   id: string;
   label: string;
   startsAt: string;
+  /** How many start; the rest are substitutes. Absent means no limit. */
+  starters?: number;
+  subs?: number;
+}
+
+export interface SessionStanding {
+  sessionId: string;
+  position: number;
+  signedUp: number;
+  likely: "starter" | "sub";
+  estimate: true;
+}
+
+/** A session as the event page shows it: with live counts and where you stand. */
+export interface SessionView extends EventSession {
+  signedUp: number;
+  spotsLeft: number | null;
+  signedUpNames: string[];
+  yourStanding?: SessionStanding;
 }
 
 export interface AllianceEvent {
@@ -113,9 +132,15 @@ export interface EventMember {
   answer: Answer | null;
   sessionId: string | null;
   answeredAt: string | null;
+  /** Officer view only. */
+  power: number | null;
+  foundryStrength: number | null;
+  furnace: string | number | null;
+  lastReportAt: string | null;
 }
 
-export interface EventDetail extends EventListItem {
+export interface EventDetail extends Omit<EventListItem, "sessions"> {
+  sessions: SessionView[];
   counts: AnswerCounts;
   /** Officers only. */
   members?: EventMember[];

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ValidationError } from "./errors.js";
-import { countAnswers, deadlineFor, isClosed, parseAnswer, parseNewEvent, type EventAnswer } from "./events.js";
+import { countAnswers, deadlineFor, isClosed, parseAnswer, parseNewEvent, standingFor, type EventAnswer } from "./events.js";
 
 const now = new Date("2026-09-19T12:00:00Z");
 const ctx = { eventId: "01J0000000000000000000000A", createdBy: "officer-1", now };
@@ -132,5 +132,35 @@ describe("countAnswers", () => {
 
   it("never reports a negative pending count", () => {
     expect(countAnswers([answer("1", "yes")], 0)).toEqual({ yes: 1, no: 0, maybe: 0, pending: 0, bySession: {} });
+  });
+});
+
+describe("standingFor", () => {
+  const entries = [
+    { playerId: "weak", strength: 1000, answeredAt: "2026-09-01T10:00:00Z" },
+    { playerId: "strong", strength: 9000, answeredAt: "2026-09-02T10:00:00Z" },
+    { playerId: "middle", strength: 5000, answeredAt: "2026-09-03T10:00:00Z" },
+    { playerId: "unknown-a", answeredAt: "2026-09-04T10:00:00Z" },
+    { playerId: "unknown-b", answeredAt: "2026-09-05T10:00:00Z" },
+  ];
+
+  it("ranks by strength, strongest first", () => {
+    expect(standingFor("L1", entries, "strong", 2)).toMatchObject({ position: 1, likely: "starter", signedUp: 5 });
+    expect(standingFor("L1", entries, "middle", 2)).toMatchObject({ position: 2, likely: "starter" });
+    expect(standingFor("L1", entries, "weak", 2)).toMatchObject({ position: 3, likely: "sub" });
+  });
+
+  it("puts people without a known strength last, earliest answer first", () => {
+    expect(standingFor("L1", entries, "unknown-a", 2)?.position).toBe(4);
+    expect(standingFor("L1", entries, "unknown-b", 2)?.position).toBe(5);
+  });
+
+  it("is always marked as an estimate, and everyone starts when there is no limit", () => {
+    const standing = standingFor("L1", entries, "weak", undefined)!;
+    expect(standing).toMatchObject({ likely: "starter", estimate: true });
+  });
+
+  it("is undefined for someone who did not sign up for that part", () => {
+    expect(standingFor("L1", entries, "nobody", 2)).toBeUndefined();
   });
 });

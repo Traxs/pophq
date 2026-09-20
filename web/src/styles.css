@@ -1203,3 +1203,73 @@ th[aria-sort="descending"] .th-btn {
   grid-template-columns: 1fr 1.2fr;
   gap: 8px;
 }
+
+/* Event detail */
+.session {
+  display: grid;
+  gap: 8px;
+}
+.session-joined {
+  border-color: var(--accent);
+}
+.meter {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.meter span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.signups summary {
+  cursor: pointer;
+}
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--line);
+  text-underline-offset: 3px;
+}
+.table-wrap {
+  overflow-x: auto;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.table th,
+.table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.pill-warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+/* Nothing may push the page sideways on a phone. */
+.app,
+.content,
+.card,
+.table-wrap {
+  min-width: 0;
+  max-width: 100%;
+}
+.content {
+  overflow-x: hidden;
+}

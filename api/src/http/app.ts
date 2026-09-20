@@ -2,11 +2,11 @@ import { Hono } from "hono";
 import { ulid } from "ulid";
 import { parseNewAccount } from "../domain/accounts.js";
 import { ConflictError, DomainError, NotFoundError, UnauthorizedError, ValidationError } from "../domain/errors.js";
-import { countAnswers, isClosed, parseAnswerChoice, parseEventChanges, parseNewEvent } from "../domain/events.js";
+import { countAnswers, isClosed, parseAnswerChoice, parseEventChanges, parseNewEvent, standingFor } from "../domain/events.js";
 import { parseEventType } from "../domain/eventTypes.js";
 import { listEventTypes } from "../ops/eventTypes.js";
 import { parsePlayerId } from "../domain/identity.js";
-import { allianceGrowth, buckets, seriesOf } from "../domain/metrics.js";
+import { allianceGrowth, buckets, currentOf, seriesOf } from "../domain/metrics.js";
 import { currentValues, parseReport } from "../domain/measurements.js";
 import {
   defaultActing,
@@ -330,10 +330,41 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     if (!event) throw new NotFoundError("Event not found.");
     const answers = await repo.listAnswers(event.eventId);
     const accounts = await repo.listAccounts(event.alliance);
-    const expected = accounts.filter((a) => a.status === "active" || a.status === "guest");
+    // Anyone who can receive data can attend: members, guests, and accounts whose membership
+    // is not confirmed yet (imported). Otherwise the table would show fewer people than answered.
+    const expected = accounts.filter((a) => a.status === "active" || a.status === "guest" || a.status === "unknown");
     const counts = countAnswers(answers, expected.length);
+    const acting = defaultActing(p);
+
+    // Foundry strength of everyone who signed up, for the capacity view and the estimate.
+    const yesAnswers = answers.filter((a) => a.answer === "yes");
+    const strengthOf = new Map<string, number | undefined>(
+      await Promise.all(
+        yesAnswers.map(
+          async (a) => [a.playerId, currentOf(await repo.listReports(a.playerId), "foundry_strength")] as const,
+        ),
+      ),
+    );
+    const byName = new Map(accounts.map((a) => [a.playerId, a.name]));
+    const sessions = event.sessions.map((session) => {
+      const entries = yesAnswers
+        .filter((a) => a.sessionId === session.id)
+        .map((a) => ({ playerId: a.playerId, strength: strengthOf.get(a.playerId), answeredAt: a.answeredAt }));
+      const standing = acting ? standingFor(session.id, entries, acting, session.starters) : undefined;
+      return {
+        ...session,
+        signedUp: entries.length,
+        spotsLeft:
+          session.starters === undefined ? null : Math.max(0, session.starters + (session.subs ?? 0) - entries.length),
+        // Names only: strength numbers stay with officers (decision in docs/PLAN.md).
+        signedUpNames: entries.map((e) => byName.get(e.playerId) ?? e.playerId),
+        ...(standing ? { yourStanding: standing } : {}),
+      };
+    });
+
     const body: Record<string, unknown> = {
       ...event,
+      sessions,
       closed: isClosed(event, now()),
       counts,
       myAnswer: (() => {
@@ -347,14 +378,26 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     };
     if (isOfficer(p)) {
       const byPlayer = new Map(answers.map((a) => [a.playerId, a]));
-      body.members = expected.map((account) => ({
-        playerId: account.playerId,
-        name: account.name,
-        rank: account.rank ?? null,
-        answer: byPlayer.get(account.playerId)?.answer ?? null,
-        sessionId: byPlayer.get(account.playerId)?.sessionId ?? null,
-        answeredAt: byPlayer.get(account.playerId)?.answeredAt ?? null,
-      }));
+      // Officers see the numbers they need to balance the legions (P8/EVT-04).
+      const reports = new Map(
+        await Promise.all(expected.map(async (a) => [a.playerId, await repo.listReports(a.playerId)] as const)),
+      );
+      body.members = expected.map((account) => {
+        const own = reports.get(account.playerId) ?? [];
+        const current = currentValues(own);
+        return {
+          playerId: account.playerId,
+          name: account.name,
+          rank: account.rank ?? null,
+          answer: byPlayer.get(account.playerId)?.answer ?? null,
+          sessionId: byPlayer.get(account.playerId)?.sessionId ?? null,
+          answeredAt: byPlayer.get(account.playerId)?.answeredAt ?? null,
+          power: currentOf(own, "city_power") ?? null,
+          foundryStrength: currentOf(own, "foundry_strength") ?? null,
+          furnace: current.furnace_level?.value ?? null,
+          lastReportAt: own.length > 0 ? (current.city_power?.effectiveAt ?? null) : null,
+        };
+      });
     }
     return c.json(body);
   });

@@ -177,9 +177,10 @@ describe("Foundry legions", () => {
 
   it("keeps both legions in one event, starting when the first one does", async () => {
     const detail = await h.call("GET", `/events/${foundryId}`, OFFICER);
-    expect(detail.body.sessions).toEqual([
-      { id: "L1", label: "Legion 1", startsAt: inDays(10, 12) },
-      { id: "L2", label: "Legion 2", startsAt: inDays(10, 19) },
+    const sessions = detail.body.sessions as { id: string; label: string; startsAt: string; signedUp: number }[];
+    expect(sessions.map((s) => ({ id: s.id, label: s.label, startsAt: s.startsAt, signedUp: s.signedUp }))).toEqual([
+      { id: "L1", label: "Legion 1", startsAt: inDays(10, 12), signedUp: 0 },
+      { id: "L2", label: "Legion 2", startsAt: inDays(10, 19), signedUp: 0 },
     ]);
     expect(detail.body.startsAt).toBe(inDays(10, 12));
   });
@@ -232,5 +233,72 @@ describe("Foundry legions", () => {
     await h.call("PUT", `/events/${foundryId}/answers/100000005`, { ...OFFICER, body: { answer: "yes", sessionId: "L2" } });
     const detail = await h.call("GET", `/events/${foundryId}`, OFFICER);
     expect(detail.body.counts).toMatchObject({ yes: 2, no: 1, bySession: { L1: 1, L2: 1 } });
+  });
+});
+
+describe("legion capacity and standing", () => {
+  let h: Harness;
+  let eventId: string;
+
+  beforeAll(async () => {
+    h = await createHarness();
+    await seedDemo(h.repo, new Date());
+    const res = await h.call("POST", "/events", {
+      ...OFFICER,
+      body: {
+        kind: "foundry",
+        title: "Foundry",
+        startsAt: inDays(10),
+        sessions: [
+          { id: "L1", label: "Legion 1", startsAt: inDays(10, 12), starters: 2, subs: 1 },
+          { id: "L2", label: "Legion 2", startsAt: inDays(10, 19), starters: 30, subs: 10 },
+        ],
+      },
+    });
+    eventId = res.body.eventId as string;
+  });
+  afterAll(() => h.cleanup());
+
+  it("shows how full a legion is and how many spots are left", async () => {
+    const before = await h.call("GET", `/events/${eventId}`, PLAYER);
+    const l1 = (before.body.sessions as { id: string; signedUp: number; spotsLeft: number }[]).find((s) => s.id === "L1")!;
+    expect(l1).toMatchObject({ signedUp: 0, spotsLeft: 3 }); // 2 starters + 1 sub
+
+    await h.call("PUT", `/events/${eventId}/answers/100000001`, { ...PLAYER, body: { answer: "yes", sessionId: "L1" } });
+    const after = await h.call("GET", `/events/${eventId}`, PLAYER);
+    const filled = (after.body.sessions as { id: string; signedUp: number; spotsLeft: number; signedUpNames: string[] }[]).find(
+      (s) => s.id === "L1",
+    )!;
+    expect(filled).toMatchObject({ signedUp: 1, spotsLeft: 2 });
+    expect(filled.signedUpNames).toEqual(["Poppy"]);
+  });
+
+  it("tells a member where they stand, marked as an estimate", async () => {
+    // Two stronger members sign up, pushing the weaker one past the two starter spots.
+    for (const pid of ["100000005", "100000008"]) {
+      await h.call("PUT", `/events/${eventId}/answers/${pid}`, { ...OFFICER, body: { answer: "yes", sessionId: "L1" } });
+    }
+    const res = await h.call("GET", `/events/${eventId}`, PLAYER);
+    const l1 = (res.body.sessions as { id: string; yourStanding?: { position: number; likely: string; estimate: boolean } }[]).find(
+      (s) => s.id === "L1",
+    )!;
+    expect(l1.yourStanding).toMatchObject({ estimate: true });
+    expect(["starter", "sub"]).toContain(l1.yourStanding!.likely);
+    expect(l1.yourStanding!.position).toBeGreaterThanOrEqual(1);
+
+    // The legion they did not join has no standing for them.
+    const l2 = (res.body.sessions as { id: string; yourStanding?: unknown }[]).find((s) => s.id === "L2")!;
+    expect(l2.yourStanding).toBeUndefined();
+  });
+
+  it("keeps other members' strength numbers to officers", async () => {
+    const asPlayer = await h.call("GET", `/events/${eventId}`, PLAYER);
+    expect(JSON.stringify(asPlayer.body.sessions)).not.toContain("foundryStrength");
+    expect(asPlayer.body.members).toBeUndefined();
+
+    const asOfficer = await h.call("GET", `/events/${eventId}`, OFFICER);
+    const members = asOfficer.body.members as { name: string; power: number | null; foundryStrength: number | null }[];
+    expect(members.length).toBeGreaterThan(30);
+    expect(members.some((m) => m.power !== null)).toBe(true);
   });
 });

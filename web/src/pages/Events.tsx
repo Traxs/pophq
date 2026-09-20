@@ -5,6 +5,7 @@ import { Sheet } from "../components/Sheet";
 import { useToast } from "../components/Toast";
 import { dayTime, shortTime, untilText } from "../format";
 import { leadDaysOf, previewDeadline, toLocalInput } from "../eventTiming";
+import { navigate } from "../router";
 import { useSession } from "../session";
 import { NoAccount } from "./Home";
 
@@ -207,7 +208,11 @@ function EventCard({
         <span className="badge">{kindLabel(event.kind)}</span>
         <span className="muted small">{event.closed ? "Answers closed" : `Answers close ${untilText(event.deadlineAt)}`}</span>
       </div>
-      <h3 className="event-title">{event.title}</h3>
+      <h3 className="event-title">
+        <button type="button" className="link-btn" onClick={() => navigate(`/events/${event.eventId}`)}>
+          {event.title}
+        </button>
+      </h3>
       <p className="muted">
         {event.sessions.length > 0
           ? `${dayTime(event.sessions[0]!.startsAt)}${event.sessions.length > 1 ? ` and ${shortTime(event.sessions.at(-1)!.startsAt)}` : ""}`
