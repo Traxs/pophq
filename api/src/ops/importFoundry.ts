@@ -462,11 +462,12 @@ export async function applyEventImport(repo: Repository, plan: EventImportPlan, 
         "officer",
         actor,
         undefined,
-        { afterDeadline: true },
+        // Recording history, including for events that already happened.
+        { historic: true },
       );
       result.signUpsWritten += 1;
     } catch {
-      // The event already started, or the account may not receive data.
+      // The account may not receive data (transferred out, archived).
       result.signUpsRefused += 1;
     }
   }
