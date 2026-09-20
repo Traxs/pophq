@@ -122,6 +122,8 @@ npm run import:foundry -w api -- --bundle /path/to/foundry --apply    # writes t
 npm run import:foundry -w api -- --bundle /path/to/foundry --apply --aws   # writes to the PopHq stack
 ```
 
+The same command also brings in events (one per day, with a part per legion), the attendance recorded for them, and sign-ups. Attendance keeps the moment, source and evidence it was recorded with, rather than the time of the import.
+
 The import keeps its distance from guesses: accounts without a numeric Player ID are listed for an officer instead of invented, imported accounts get membership `unknown` (another system's snapshot does not prove who is in the alliance today), an account POP HQ already knows keeps its name and rank, and every observation keeps its own date, precision and source. Record ids come from the bundle, so importing the same bundle twice changes nothing.
 
 Alliance charts count confirmed members and guests; accounts with unknown membership are counted separately and included only on request (`?cohort=all`).

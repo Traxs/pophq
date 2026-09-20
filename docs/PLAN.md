@@ -129,7 +129,8 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 - [ ] P10.1 Playwright end-to-end tests on phone and desktop in CI
 - [ ] P10.2 Security review against OWASP LLM/agentic guidance; half-day Hermes red-team session
 - [x] P10.3a Hermes bundle import: dry run by default, stable ids so repeating changes nothing, accounts without a numeric Player ID reported instead of invented, imported membership stays "unknown" (LCH-04)
-- [ ] P10.3b Import the rest of a bundle: name history, alt links, events with lineups, attendance and outcomes
+- [x] P10.3b Import events, attendance and sign-ups: one event per day with a part per legion; attendance keeps its own date, source and evidence; sign-ups for events that already started are refused and counted, never forced
+- [ ] P10.3c Import name history, alt links, published lineups and event outcomes
 - [ ] P10.4 Launch: officers first, launch post, bulk approval, first-report push (LCH-02)
 - [ ] P10.5 Archive the Cloudflare app's D1 data as CSV, then retire it with the owner's go-ahead (LCH-03)
 
