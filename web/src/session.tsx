@@ -135,7 +135,10 @@ export function SessionProvider({
       events: guard(inner.events),
       event: guard(inner.event),
       createEvent: guard(inner.createEvent),
+      updateEvent: guard(inner.updateEvent),
       answer: guard(inner.answer),
+      attendance: guard(inner.attendance),
+      reliability: guard(inner.reliability),
     };
   }, [user, acting, endSession]);
 

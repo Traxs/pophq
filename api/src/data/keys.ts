@@ -13,6 +13,9 @@ export const reportKey = (playerId: string, reportId: string) => ({
   SK: `REPORT#${reportId}`,
 });
 
+/** Event types are alliance-wide, so they share one partition and list in a single query. */
+export const eventTypeKey = (typeId: string) => ({ PK: "EVENTTYPES", SK: `TYPE#${typeId}` });
+
 export const eventKey = (eventId: string) => ({ PK: `EVENT#${eventId}`, SK: "META" });
 
 /** Events of an alliance, sorted by start time (GSI1). */
@@ -29,6 +32,16 @@ export const answerKey = (eventId: string, playerId: string) => ({
 export const answerIndexKey = (playerId: string, startsAt: string, eventId: string) => ({
   GSI1PK: `ACCOUNT#${playerId}`,
   GSI1SK: `ANSWER#${startsAt}#${eventId}`,
+});
+
+/** Attendance: one record per game account per event, readable per event and per account. */
+export const attendanceKey = (eventId: string, playerId: string) => ({
+  PK: `EVENT#${eventId}`,
+  SK: `ATTEND#${playerId}`,
+});
+export const attendanceIndexKey = (playerId: string, recordedAt: string, eventId: string) => ({
+  GSI1PK: `ACCOUNT#${playerId}`,
+  GSI1SK: `ATTEND#${recordedAt}#${eventId}`,
 });
 
 /** One item per login that holds a seat, plus a counter so the cap is enforced atomically (FM-08). */

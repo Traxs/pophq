@@ -1,10 +1,22 @@
 import { Hono } from "hono";
 import { ulid } from "ulid";
 import { parseNewAccount } from "../domain/accounts.js";
-import { DomainError, NotFoundError, UnauthorizedError, ValidationError } from "../domain/errors.js";
-import { countAnswers, isClosed, parseAnswer, parseNewEvent } from "../domain/events.js";
+import { ConflictError, DomainError, NotFoundError, UnauthorizedError, ValidationError } from "../domain/errors.js";
+import { parseAttendance, reliabilityOf } from "../domain/attendance.js";
+import {
+  countAnswers,
+  isClosed,
+  parseAnswerChoice,
+  parseEventChanges,
+  parseNewEvent,
+  rankSignUps,
+  standingFor,
+} from "../domain/events.js";
+import { parseEventType } from "../domain/eventTypes.js";
+import { listEventTypes } from "../ops/eventTypes.js";
 import { parsePlayerId } from "../domain/identity.js";
-import { allianceGrowth, buckets, seriesOf } from "../domain/metrics.js";
+import { allianceGrowth, buckets, currentOf, seriesOf } from "../domain/metrics.js";
+import { monthlyAttendance, monthlyValues, trailingAverage } from "../domain/trends.js";
 import { currentValues, parseReport } from "../domain/measurements.js";
 import {
   defaultActing,
@@ -146,6 +158,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
   app.get("/roster", async (c) => {
     requireOfficer(c.get("principal"));
     const alliance = (c.req.query("alliance") ?? "POP").toUpperCase();
+    const at = now();
     const accounts = await repo.listAccounts(alliance);
     // One query per account is fine at alliance size (~100); a summary item replaces this later.
     const items = await Promise.all(
@@ -160,8 +173,17 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           })
           .toSorted((a, b) => a.at.localeCompare(b.at));
         const cur = currentValues(reports);
+        const attendance = await repo.attendanceFor(account.playerId);
         return {
           ...account,
+          // Six trailing months for the small graphs in the table (MET-02).
+          powerTrend: monthlyValues(
+            series.map((p) => ({ at: p.at, value: p.power })),
+            at,
+          ),
+          strengthTrend: monthlyValues(seriesOf(reports, "foundry_strength"), at),
+          // Trailing three-month average, so one bad night does not look like a collapse.
+          attendanceTrend: trailingAverage(monthlyAttendance(attendance, at)),
           power: series.at(-1)?.power ?? null,
           previousPower: series.at(-2)?.power ?? null,
           lastReportAt: series.at(-1)?.at ?? null,
@@ -247,6 +269,35 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     });
   });
 
+  // ---- Event types (EVT-01) ----
+
+  /** The types events can be created from. Everyone may read them; officers may change them. */
+  app.get("/event-types", async (c) => {
+    const p = c.get("principal");
+    const types = await listEventTypes(repo, { id: p.sub, via: "web" });
+    return c.json({ items: types.filter((t) => !t.archived), archived: types.filter((t) => t.archived) });
+  });
+
+  app.post("/event-types", async (c) => {
+    const p = c.get("principal");
+    requireOfficer(p);
+    const type = parseEventType(await readJson(c.req.raw), p.sub);
+    if (await repo.getEventType(type.typeId)) throw new ConflictError(`An event type "${type.typeId}" already exists.`);
+    await repo.putEventType(type, { id: p.sub, via: "web", reason: "new event type" });
+    return c.json(type, 201);
+  });
+
+  app.patch("/event-types/:typeId", async (c) => {
+    const p = c.get("principal");
+    requireOfficer(p);
+    const existing = await repo.getEventType(c.req.param("typeId"));
+    if (!existing) throw new NotFoundError("Event type not found.");
+    const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+    const updated = parseEventType({ ...existing, ...body, typeId: existing.typeId }, existing.createdBy);
+    await repo.putEventType(updated, { id: p.sub, via: "web", reason: "event type changed" });
+    return c.json(updated);
+  });
+
   // ---- Events (EVT-01..EVT-04) ----
 
   /** Officers schedule an event; answers close at the deadline. */
@@ -260,6 +311,46 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     });
     await repo.createEvent(event, { id: p.sub, via: "web" });
     return c.json(event, 201);
+  });
+
+  /**
+   * Officers record who actually turned up (EVT-07). One record per game account per event;
+   * recording it again replaces the earlier record and keeps the old one in the history.
+   */
+  app.put("/events/:id/attendance/:pid", async (c) => {
+    const p = c.get("principal");
+    requireOfficer(p);
+    const pid = parsePlayerId(c.req.param("pid"));
+    const event = await repo.getEvent(c.req.param("id"));
+    if (!event) throw new NotFoundError("Event not found.");
+    const input = parseAttendance(await readJson(c.req.raw));
+    if (input.sessionId && !event.sessions.some((s) => s.id === input.sessionId)) {
+      throw new ValidationError("That part of the event doesn't exist.");
+    }
+    const saved = await repo.setAttendance(
+      { ...input, eventId: event.eventId, playerId: pid, source: "officer" },
+      { id: p.sub, via: "web", reason: "attendance" },
+    );
+    return c.json(saved);
+  });
+
+  /** A member's reliability: how often they kept a commitment. Own account, or any for officers. */
+  app.get("/accounts/:pid/reliability", async (c) => {
+    const p = c.get("principal");
+    const pid = parsePlayerId(c.req.param("pid"));
+    if (!p.linkedAccounts.has(pid)) requireOfficer(p);
+    return c.json(reliabilityOf(await repo.attendanceFor(pid)));
+  });
+
+  /** Officers change an event: title, type, start, deadline or notes. Answers stay. */
+  app.patch("/events/:id", async (c) => {
+    const p = c.get("principal");
+    requireOfficer(p);
+    const event = await repo.getEvent(c.req.param("id"));
+    if (!event) throw new NotFoundError("Event not found.");
+    const updated = parseEventChanges(event, await readJson(c.req.raw), now());
+    await repo.updateEvent(updated, { id: p.sub, via: "web", reason: "event edited" });
+    return c.json(updated);
   });
 
   /** Upcoming events with the answer of the account the person is acting for. */
@@ -276,6 +367,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       ...event,
       closed: isClosed(event, at),
       myAnswer: byEvent.get(event.eventId)?.answer ?? null,
+      mySessionId: byEvent.get(event.eventId)?.sessionId ?? null,
     }));
     return c.json({ items });
   });
@@ -287,26 +379,100 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     if (!event) throw new NotFoundError("Event not found.");
     const answers = await repo.listAnswers(event.eventId);
     const accounts = await repo.listAccounts(event.alliance);
-    const expected = accounts.filter((a) => a.status === "active" || a.status === "guest");
+    // Anyone who can receive data can attend: members, guests, and accounts whose membership
+    // is not confirmed yet (imported). Otherwise the table would show fewer people than answered.
+    const expected = accounts.filter((a) => a.status === "active" || a.status === "guest" || a.status === "unknown");
     const counts = countAnswers(answers, expected.length);
+    const acting = defaultActing(p);
+
+    // Foundry strength and reliability of everyone who signed up, for the estimate.
+    const yesAnswers = answers.filter((a) => a.answer === "yes");
+    const strengthOf = new Map<string, number | undefined>(
+      await Promise.all(
+        yesAnswers.map(
+          async (a) => [a.playerId, currentOf(await repo.listReports(a.playerId), "foundry_strength")] as const,
+        ),
+      ),
+    );
+    const reliabilityOfPlayer = new Map(
+      await Promise.all(
+        yesAnswers.map(async (a) => [a.playerId, reliabilityOf(await repo.attendanceFor(a.playerId))] as const),
+      ),
+    );
+    const byName = new Map(accounts.map((a) => [a.playerId, a.name]));
+    const sessions = event.sessions.map((session) => {
+      const entries = yesAnswers
+        .filter((a) => a.sessionId === session.id)
+        .map((a) => ({
+          playerId: a.playerId,
+          strength: strengthOf.get(a.playerId),
+          attendanceRate: reliabilityOfPlayer.get(a.playerId)?.rate,
+          answeredAt: a.answeredAt,
+        }));
+      const standing = acting ? standingFor(session.id, entries, acting, session.starters) : undefined;
+      // Everyone sees who signed up with their Foundry strength and likely role (that is what
+      // decides the lineup). Reliability is officer business, as are power, furnace and notes.
+      const ranked = rankSignUps(entries, session.starters).map((entry) => ({
+        playerId: entry.playerId,
+        name: byName.get(entry.playerId) ?? entry.playerId,
+        foundryStrength: entry.strength ?? null,
+        ...(isOfficer(p) ? { attendanceRate: entry.attendanceRate ?? null } : {}),
+        position: entry.position,
+        likely: entry.likely,
+      }));
+      return {
+        ...session,
+        signedUp: entries.length,
+        spotsLeft:
+          session.starters === undefined ? null : Math.max(0, session.starters + (session.subs ?? 0) - entries.length),
+        signedUpList: ranked,
+        ...(standing ? { yourStanding: standing } : {}),
+      };
+    });
+
     const body: Record<string, unknown> = {
       ...event,
+      sessions,
       closed: isClosed(event, now()),
       counts,
       myAnswer: (() => {
         const acting = defaultActing(p);
         return acting ? (answers.find((a) => a.playerId === acting)?.answer ?? null) : null;
       })(),
+      mySessionId: (() => {
+        const acting = defaultActing(p);
+        return acting ? (answers.find((a) => a.playerId === acting)?.sessionId ?? null) : null;
+      })(),
     };
     if (isOfficer(p)) {
       const byPlayer = new Map(answers.map((a) => [a.playerId, a]));
-      body.members = expected.map((account) => ({
-        playerId: account.playerId,
-        name: account.name,
-        rank: account.rank ?? null,
-        answer: byPlayer.get(account.playerId)?.answer ?? null,
-        answeredAt: byPlayer.get(account.playerId)?.answeredAt ?? null,
-      }));
+      const attendance = new Map((await repo.listAttendance(event.eventId)).map((a) => [a.playerId, a]));
+      const history = new Map(
+        await Promise.all(expected.map(async (a) => [a.playerId, await repo.attendanceFor(a.playerId)] as const)),
+      );
+      // Officers see the numbers they need to balance the legions (P8/EVT-04).
+      const reports = new Map(
+        await Promise.all(expected.map(async (a) => [a.playerId, await repo.listReports(a.playerId)] as const)),
+      );
+      body.members = expected.map((account) => {
+        const own = reports.get(account.playerId) ?? [];
+        const current = currentValues(own);
+        return {
+          playerId: account.playerId,
+          name: account.name,
+          rank: account.rank ?? null,
+          answer: byPlayer.get(account.playerId)?.answer ?? null,
+          sessionId: byPlayer.get(account.playerId)?.sessionId ?? null,
+          answeredAt: byPlayer.get(account.playerId)?.answeredAt ?? null,
+          attended: attendance.get(account.playerId)?.status ?? null,
+          strengthTrend: monthlyValues(seriesOf(own, "foundry_strength"), now()),
+          attendanceTrend: trailingAverage(monthlyAttendance(history.get(account.playerId) ?? [], now())),
+          power: currentOf(own, "city_power") ?? null,
+          foundryStrength: currentOf(own, "foundry_strength") ?? null,
+          furnace: current.furnace_level?.value ?? null,
+          lastReportAt: own.length > 0 ? (current.city_power?.effectiveAt ?? null) : null,
+        };
+      });
     }
     return c.json(body);
   });
@@ -319,14 +485,16 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const event = await repo.getEvent(c.req.param("id"));
     if (!event) throw new NotFoundError("Event not found.");
     const body = (await readJson(c.req.raw)) as Record<string, unknown>;
-    const answer = parseAnswer(body.answer);
+    const choice = parseAnswerChoice(event, body);
     const saved = await repo.setAnswer(
       event,
       pid,
-      answer,
+      choice,
       role,
-      { id: p.sub, via: "web" },
+      { id: p.sub, via: "web", ...(role === "officer" ? { reason: "officer edit" } : {}) },
       typeof body.note === "string" ? body.note.trim().slice(0, 200) : undefined,
+      // Officers keep adjusting the list after answers close, up to the start of the event.
+      { afterDeadline: role === "officer" },
     );
     return c.json(saved);
   });

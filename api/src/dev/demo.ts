@@ -209,7 +209,7 @@ export async function randomAnswers(repo: Repository, now: Date, actor: Actor) {
     for (const account of accounts) {
       if (random() < 0.25) continue; // a quarter stay silent, like real life
       const answer = ANSWERS[random() < 0.7 ? 0 : random() < 0.5 ? 1 : 2] ?? "yes";
-      await repo.setAnswer(event, account.playerId, answer, "player", actor);
+      await repo.setAnswer(event, account.playerId, { answer }, "player", actor);
       answered += 1;
     }
   }

@@ -76,6 +76,11 @@ export function untilText(iso: string, now: Date = new Date()): string {
   return `in ${Math.round(hours / 24)} days`;
 }
 
+const timeFmt = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
+
+/** Just the clock time, for a second session on the same day. */
+export const shortTime = (iso: string): string => timeFmt.format(new Date(iso));
+
 export function initials(name: string): string {
   const caps = name.match(/\p{Lu}/gu);
   if (caps && caps.length >= 2) return (caps[0]! + caps[1]!).toUpperCase();

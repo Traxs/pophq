@@ -104,7 +104,17 @@ Locally the invite flow uses a stand-in directory in DynamoDB Local, so invited 
 
 ## Events
 
-Officers schedule events (Foundry, Bear hunt, SvS, other) with a start time and an answer deadline, which defaults to one hour before the start. Members answer Yes / Maybe / No per game account, so someone with alts answers once per account, and may change their mind until the deadline. The deadline is checked in the same write as the answer, so a late answer cannot slip through (FM-09). Officers see counts and the lists behind them, including who has not answered, and may answer on someone's behalf.
+Officers schedule events (Foundry, Bear hunt, SvS, other) with a start time. Answers close a set number of days before the start, per type: **Foundry three days**, because officers register the participants in game afterwards; other types an hour before unless changed. The deadline falls at the end of that day in the officer's time zone, and can be overridden per event. Officers can edit an event later; moving the start moves the deadline with it. Event types are defined by officers: each carries how many days before the start answers close, which parts people choose between, and a strategy template. New events inherit from a type and can still be changed.
+
+After an event, officers mark who turned up (present, absent, excused, or left unknown when nobody checked). Reliability is the share of kept commitments over the last ten **checked** events: an excused absence or an event nobody checked never lowers it, so a missing screenshot cannot cost a member their spot.
+
+Who starts and who substitutes is estimated as **0.7 × (Foundry strength ÷ strongest signed up) + 0.3 × attendance rate**, with unknown attendance counted as reliable; officers publish the real lineup. Members see the sign-up table with strength and likely role; the reliability score is officer-only. After the deadline members can no longer change their answer, but officers keep editing who is coming until the event starts.
+
+Tables carry small six-month graphs: **Strength 6m** is the Foundry strength at the end of each month (a level, carried forward when nothing was reported), and **Attendance 6m** is a trailing average — each month averaged with the two before it — on a fixed 0–100% scale with a faint halfway mark, green above half and red below. One bad night therefore bends the line instead of dropping it to the floor. A month with nothing recorded is a gap, never a zero, and a single reading shows as a dot rather than a fake trend.
+
+Opening an event shows each part with its capacity (a Foundry legion takes 30 starters and 10 substitutes, set per event), how full it is, who signed up, and — until officers publish the lineup — an estimate of your role ranked by Foundry strength, clearly marked as an estimate. Officers additionally see a table of every member with their answer, legion, Foundry strength, power, furnace and last report, with totals per legion.
+
+A Foundry is **one event with two legions**: members pick Legion 1 or Legion 2 (or "Can't"), never both, and switching legions replaces the earlier pick. Other events keep the plain Yes / Maybe / No. Members answer per game account, so someone with alts answers once per account, and may change their mind until the deadline. The deadline is checked in the same write as the answer, so a late answer cannot slip through (FM-09). Officers see counts and the lists behind them, including who has not answered, and may answer on someone's behalf.
 
 ## Importing a Hermes bundle
 
@@ -113,6 +123,8 @@ npm run import:foundry -w api -- --bundle /path/to/foundry            # dry run:
 npm run import:foundry -w api -- --bundle /path/to/foundry --apply    # writes to the local table
 npm run import:foundry -w api -- --bundle /path/to/foundry --apply --aws   # writes to the PopHq stack
 ```
+
+The same command also brings in events (one per day, with a part per legion), the attendance recorded for them, and sign-ups. Attendance keeps the moment, source and evidence it was recorded with, rather than the time of the import.
 
 The import keeps its distance from guesses: accounts without a numeric Player ID are listed for an officer instead of invented, imported accounts get membership `unknown` (another system's snapshot does not prove who is in the alliance today), an account POP HQ already knows keeps its name and rank, and every observation keeps its own date, precision and source. Record ids come from the bundle, so importing the same bundle twice changes nothing.
 

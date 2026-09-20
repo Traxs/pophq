@@ -76,12 +76,19 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 
 ## Milestone 5: Events, lineups and attendance
 
-- [x] P5.1a Events with kind (Foundry, Bear, SvS, Other), start time and answer deadline (EVT-02); officer-defined types and legion sessions still to come (EVT-01)
+- [x] P5.1a Events with kind (Foundry, Bear, SvS, Other), start time and answer deadline (EVT-02); officers can edit an event afterwards
+- [x] P5.1b Answers close a set number of days before the start, per type (Foundry three days, because officers register people in game afterwards), at the end of that day in the officer's time zone; overridable per event
+- [x] P5.1c Legion sessions: a Foundry is one event with two legions; a player signs up for exactly one, and switching replaces the earlier pick. Officers see counts and lists per legion
+- [x] P5.1d Officer-defined event types (EVT-01): each carries its lead time, its parts and a strategy template; the four POP plays today are written on first use
+- [x] P5.3b Event page: parts with capacity (Foundry 30 starters + 10 subs, set per event), how full each is, who signed up, and an honest estimate of your role by Foundry strength until officers publish the lineup
+- [x] P5.3c Officer table on the event page: answer, legion, Foundry strength, power, furnace, last report, with totals per legion, plus six-month graphs: strength as the monthly level, attendance as a three-month trailing average
+- [x] P5.3d Split capacity bar: starting places and substitute places are shown separately, because a substitute place is not a free place
 - [x] P5.2 Answers per game account with the deadline checked in the same write (EVT-03, FM-09); players answer for their own accounts, officers for anyone
 - [x] P5.3a Officer view: counts and lists by answer including who has not answered (EVT-04); battle time, furnace and Helios columns still to come
 - [ ] P5.4 Lineups: one item per session, versioned, capacity 30 + 10 enforced in the write (EVT-04, EVT-05, FM-10); public view with own entry highlighted
 - [ ] P5.5 Strategy versions (Markdown + assignment table) on the event page (EVT-06)
-- [ ] P5.6 Actual attendance (Unknown default) and results (EVT-07, EVT-08); attendance score (last 10 confirmed commitments)
+- [x] P5.6a Attendance (EVT-07): officers record present / absent / excused / unknown per game account and part; recording again replaces the earlier record and the old one stays in the history. Reliability is the share of kept commitments over the last ten checked events, and feeds the lineup ranking
+- [ ] P5.6b Event results (EVT-08) and attendance from screenshots via Hermes
 - [ ] P5.7 Reminders every 15 minutes from due-reminder index, versioned keys (EVT-09, FM-18); not-answered list
 - [x] P5.8a Dev tools: demo events and random answers; lineup and outcome tools follow with P5.4/P5.6
 - [ ] P5.9 Foundry map with zones (EVT-10, Should)
@@ -123,11 +130,16 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 - [ ] P10.1 Playwright end-to-end tests on phone and desktop in CI
 - [ ] P10.2 Security review against OWASP LLM/agentic guidance; half-day Hermes red-team session
 - [x] P10.3a Hermes bundle import: dry run by default, stable ids so repeating changes nothing, accounts without a numeric Player ID reported instead of invented, imported membership stays "unknown" (LCH-04)
-- [ ] P10.3b Import the rest of a bundle: name history, alt links, events with lineups, attendance and outcomes
+- [x] P10.3b Import events, attendance and sign-ups: one event per day with a part per legion; attendance keeps its own date, source and evidence; sign-ups for events that already started are refused and counted, never forced
+- [ ] P10.3c Import name history, alt links, published lineups and event outcomes
 - [ ] P10.4 Launch: officers first, launch post, bulk approval, first-report push (LCH-02)
 - [ ] P10.5 Archive the Cloudflare app's D1 data as CSV, then retire it with the owner's go-ahead (LCH-03)
 
 ## Decisions made during the build
+
+- **2026-09-20, who starts and who substitutes:** ranked by **0.7 × (Foundry strength ÷ strongest signed up) + 0.3 × attendance rate**. Unknown attendance counts as fully reliable, so nobody is punished for missing data; until attendance is tracked the ranking is strength alone. It is shown as an estimate everywhere until officers publish the lineup (P5.4).
+- **2026-09-20, sign-up list visibility:** every member sees who signed up with their Foundry strength and likely role, because that is what decides the lineup. The reliability (attendance) score is officer-only, as are power, furnace, notes and the change log.
+- **2026-09-20, the answer lock binds members, not officers:** after the deadline members can no longer change their answer, while officers (and later Hermes tokens) keep editing who is coming until the event starts, recorded as an officer entry.
 
 - **2026-09-19, POP HQ is the record, Hermes is the reasoning:** Hermes pulls roster, power, events, attendance and history to build strategy, and writes back only as **proposals** an officer accepts (recorded as "via agent, approved by X"). Data arrives from four sources: members themselves, Hermes reading screenshots, officers typing for others, and occasional CSV import.
 - **2026-09-19, conflicting values:** the newest observation of a value wins, whoever reported it; the previous one stays in the timeline with its source and time. Ordering is by observed time, then recorded time, then record id.

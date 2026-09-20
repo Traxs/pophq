@@ -1,6 +1,7 @@
 import { ErrorBanner, OfflineBanner, TabBar, TopBar } from "./components/Chrome";
 import { ToastProvider } from "./components/Toast";
 import { Dev } from "./pages/Dev";
+import { EventPage } from "./pages/EventPage";
 import { Events } from "./pages/Events";
 import { Home } from "./pages/Home";
 import { Members } from "./pages/Members";
@@ -40,6 +41,8 @@ function Shell() {
 }
 
 function Page({ path }: { path: string }) {
+  const eventId = path.startsWith("/events/") ? path.slice("/events/".length) : undefined;
+  if (eventId) return <EventPage eventId={eventId} />;
   switch (path) {
     case "/events":
       return <Events />;

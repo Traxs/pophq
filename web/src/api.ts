@@ -35,6 +35,10 @@ export interface Reports {
 }
 
 export interface RosterRow extends GameAccount {
+  /** Six trailing months, oldest first; null for a month with nothing to say. */
+  powerTrend: (number | null)[];
+  strengthTrend: (number | null)[];
+  attendanceTrend: (number | null)[];
   power: number | null;
   previousPower: number | null;
   lastReportAt: string | null;
@@ -71,6 +75,42 @@ export interface InviteResult {
 export type EventKind = "foundry" | "bear" | "svs" | "other";
 export type Answer = "yes" | "no" | "maybe";
 
+export interface EventSession {
+  id: string;
+  label: string;
+  startsAt: string;
+  /** How many start; the rest are substitutes. Absent means no limit. */
+  starters?: number;
+  subs?: number;
+}
+
+export interface SessionStanding {
+  sessionId: string;
+  position: number;
+  signedUp: number;
+  likely: "starter" | "sub";
+  estimate: true;
+}
+
+export interface SignUpEntry {
+  playerId: string;
+  name: string;
+  /** The number that decides the lineup; visible to every member. */
+  foundryStrength: number | null;
+  /** Share of kept commitments; officers only, and only once attendance is tracked. */
+  attendanceRate?: number | null;
+  position: number;
+  likely: "starter" | "sub";
+}
+
+/** A session as the event page shows it: with live counts and where you stand. */
+export interface SessionView extends EventSession {
+  signedUp: number;
+  spotsLeft: number | null;
+  signedUpList: SignUpEntry[];
+  yourStanding?: SessionStanding;
+}
+
 export interface AllianceEvent {
   eventId: string;
   alliance: string;
@@ -79,12 +119,16 @@ export interface AllianceEvent {
   startsAt: string;
   deadlineAt: string;
   notes?: string;
+  /** Parts people choose between, e.g. the two Foundry legions. Empty for a plain event. */
+  sessions: EventSession[];
   createdBy: string;
 }
 
 export interface EventListItem extends AllianceEvent {
   closed: boolean;
   myAnswer: Answer | null;
+  /** Which session they picked, when the event has sessions. */
+  mySessionId: string | null;
 }
 
 export interface AnswerCounts {
@@ -92,6 +136,18 @@ export interface AnswerCounts {
   no: number;
   maybe: number;
   pending: number;
+  /** Yes answers per session id, e.g. { L1: 19, L2: 30 }. */
+  bySession: Record<string, number>;
+}
+
+export type AttendanceStatus = "present" | "absent" | "excused" | "unknown";
+
+export interface Reliability {
+  rate?: number;
+  kept: number;
+  missed: number;
+  excused: number;
+  sample: number;
 }
 
 export interface EventMember {
@@ -99,10 +155,20 @@ export interface EventMember {
   name: string;
   rank: string | null;
   answer: Answer | null;
+  sessionId: string | null;
   answeredAt: string | null;
+  /** Officer view only. */
+  attended: AttendanceStatus | null;
+  strengthTrend: (number | null)[];
+  attendanceTrend: (number | null)[];
+  power: number | null;
+  foundryStrength: number | null;
+  furnace: string | number | null;
+  lastReportAt: string | null;
 }
 
-export interface EventDetail extends EventListItem {
+export interface EventDetail extends Omit<EventListItem, "sessions"> {
+  sessions: SessionView[];
   counts: AnswerCounts;
   /** Officers only. */
   members?: EventMember[];
@@ -112,9 +178,16 @@ export interface NewEvent {
   kind: EventKind;
   title: string;
   startsAt: string;
+  /** Parts people choose between; a player picks at most one. */
+  sessions?: { id?: string; label: string; startsAt: string }[];
+  /** Whole days before the start; the deadline is the end of that day in the officer's time zone. */
+  answersCloseDaysBefore?: number;
+  timeZoneOffsetMinutes?: number;
   deadlineAt?: string;
   notes?: string;
 }
+
+export type EventChanges = Partial<NewEvent>;
 
 export interface GrowthPoint {
   at: string;
@@ -197,7 +270,18 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
     events: () => request<{ items: EventListItem[] }>("GET", "/events"),
     event: (eventId: string) => request<EventDetail>("GET", `/events/${eventId}`),
     createEvent: (input: NewEvent) => request<AllianceEvent>("POST", "/events", input),
-    answer: (eventId: string, playerId: string, answer: Answer) =>
-      request<{ answer: Answer }>("PUT", `/events/${eventId}/answers/${playerId}`, { answer }),
+    updateEvent: (eventId: string, changes: EventChanges) =>
+      request<AllianceEvent>("PATCH", `/events/${eventId}`, changes),
+    attendance: (eventId: string, playerId: string, status: AttendanceStatus, sessionId?: string) =>
+      request<{ status: AttendanceStatus }>("PUT", `/events/${eventId}/attendance/${playerId}`, {
+        status,
+        ...(sessionId ? { sessionId } : {}),
+      }),
+    reliability: (playerId: string) => request<Reliability>("GET", `/accounts/${playerId}/reliability`),
+    answer: (eventId: string, playerId: string, answer: Answer, sessionId?: string) =>
+      request<{ answer: Answer; sessionId?: string }>("PUT", `/events/${eventId}/answers/${playerId}`, {
+        answer,
+        ...(sessionId ? { sessionId } : {}),
+      }),
   };
 }

@@ -8,7 +8,17 @@ import { parseArgs } from "node:util";
 import { CloudFormationClient, DescribeStacksCommand } from "@aws-sdk/client-cloudformation";
 import { createBaseClient, createDocClient } from "../src/data/client.js";
 import { Repository } from "../src/data/repository.js";
-import { applyImport, planImport, type BundleObservation, type BundlePlayer } from "../src/ops/importFoundry.js";
+import {
+  applyEventImport,
+  applyImport,
+  planEventImport,
+  planImport,
+  type BundleAttendance,
+  type BundleEvent,
+  type BundleObservation,
+  type BundlePlayer,
+  type BundleSignup,
+} from "../src/ops/importFoundry.js";
 
 const REGION = "eu-central-1";
 
@@ -29,7 +39,14 @@ const fail = (message: string): never => {
 const bundle = values.bundle ?? fail("Usage: npm run import:foundry -w api -- --bundle <dir> [--apply] [--aws]");
 const read = <T>(file: string): T => JSON.parse(readFileSync(join(bundle, "json", file), "utf8")) as T;
 
-const plan = planImport(read<BundlePlayer[]>("players.json"), read<BundleObservation[]>("strength_observations.json"));
+const players = read<BundlePlayer[]>("players.json");
+const plan = planImport(players, read<BundleObservation[]>("strength_observations.json"));
+const eventPlan = planEventImport(
+  players,
+  read<BundleEvent[]>("events.json"),
+  read<BundleAttendance[]>("attendance.json"),
+  read<BundleSignup[]>("signups.json"),
+);
 
 console.info(`Bundle ${bundle}`);
 console.info(`  accounts with a Player ID : ${plan.accounts.length}`);
@@ -41,6 +58,14 @@ if (plan.skipped.length > 0) {
   console.info(`  not usable: ${plan.skipped.length}`);
   for (const s of plan.skipped.slice(0, 5)) console.info(`      - ${s.id}: ${s.reason}`);
 }
+console.info(`  events (one per day, a part per legion): ${eventPlan.events.length}`);
+for (const e of eventPlan.events) {
+  console.info(`      - ${e.title} ${e.startsAt.slice(0, 10)}: ${e.sessions.map((s) => `${s.label} ${s.startsAt.slice(11, 16)}`).join(", ")}`);
+}
+console.info(`  attendance records : ${eventPlan.attendance.length}`);
+console.info(`  sign-ups           : ${eventPlan.signUps.length}`);
+if (eventPlan.skipped.length > 0) console.info(`  event data not usable: ${eventPlan.skipped.length}`);
+
 const metrics = new Set(plan.reports.map((r) => r.metric));
 const dates = new Set(plan.reports.map((r) => r.effectiveAt.slice(0, 10)));
 console.info(`  metrics: ${[...metrics].join(", ")} on ${[...dates].toSorted().join(", ")}`);
@@ -72,8 +97,15 @@ const repo = new Repository(
   createDocClient(createBaseClient({ tableName, region: REGION, ...(endpoint ? { endpoint } : {}) })),
   tableName,
 );
-const result = await applyImport(repo, plan, { id: "foundry-import", via: "migration", reason: "Hermes bundle" });
+const importActor = { id: "foundry-import", via: "migration" as const, reason: "Hermes bundle" };
+const result = await applyImport(repo, plan, importActor);
 console.info(
   `Accounts: ${result.accountsCreated} created, ${result.accountsKept} already known. ` +
     `Observations: ${result.reportsWritten} written, ${result.reportsAlreadyThere} already there.`,
+);
+const eventResult = await applyEventImport(repo, eventPlan, importActor);
+console.info(
+  `Events: ${eventResult.eventsCreated} created, ${eventResult.eventsKept} already there. ` +
+    `Attendance: ${eventResult.attendanceWritten}. ` +
+    `Sign-ups: ${eventResult.signUpsWritten} written, ${eventResult.signUpsRefused} refused (event already started).`,
 );

@@ -8,7 +8,9 @@ import {
   type DynamoDBDocumentClient,
 } from "@aws-sdk/lib-dynamodb";
 import type { GameAccount } from "../domain/accounts.js";
+import type { AttendanceRecord } from "../domain/attendance.js";
 import type { AllianceEvent, Answer, EventAnswer } from "../domain/events.js";
+import type { EventType } from "../domain/eventTypes.js";
 import { ConflictError, NotFoundError } from "../domain/errors.js";
 import { searchKey } from "../domain/identity.js";
 import type { Report } from "../domain/measurements.js";
@@ -17,10 +19,13 @@ import {
   accountKey,
   answerIndexKey,
   answerKey,
+  attendanceIndexKey,
+  attendanceKey,
   accountLinkLockKey,
   allianceIndexKey,
   eventIndexKey,
   eventKey,
+  eventTypeKey,
   loginLinkKey,
   reportKey,
   seatCounterKey,
@@ -131,6 +136,75 @@ export class Repository {
     }
   }
 
+  // ---- Attendance (EVT-07) ----
+
+  /** Records who turned up. One record per account per event; a later record replaces an earlier one. */
+  async setAttendance(
+    record: Omit<AttendanceRecord, "recordedAt">,
+    actor: Actor,
+    recordedAt = this.clock().toISOString(),
+  ): Promise<AttendanceRecord> {
+    const full: AttendanceRecord = { ...record, recordedAt };
+    await this.db.send(
+      new PutCommand({
+        TableName: this.table,
+        Item: {
+          ...attendanceKey(record.eventId, record.playerId),
+          ...attendanceIndexKey(record.playerId, recordedAt, record.eventId),
+          type: "attendance",
+          ...full,
+          ...newItemMeta(actor, this.clock()),
+        },
+      }),
+    );
+    return full;
+  }
+
+  async listAttendance(eventId: string): Promise<AttendanceRecord[]> {
+    const items = await this.queryAll({
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+      ExpressionAttributeValues: { ":pk": `EVENT#${eventId}`, ":sk": "ATTEND#" },
+    });
+    return items.map(toAttendance);
+  }
+
+  /** One account's attendance across events, newest first. */
+  async attendanceFor(playerId: string, limit = 50): Promise<AttendanceRecord[]> {
+    const items = await this.queryAll({
+      IndexName: "GSI1",
+      KeyConditionExpression: "GSI1PK = :pk AND begins_with(GSI1SK, :sk)",
+      ExpressionAttributeValues: { ":pk": `ACCOUNT#${playerId}`, ":sk": "ATTEND#" },
+      ScanIndexForward: false,
+      Limit: limit,
+    });
+    return items.map(toAttendance);
+  }
+
+  // ---- Event types (EVT-01) ----
+
+  /** Creates or replaces a type. Officers own these; events inherit from them. */
+  async putEventType(type: EventType, actor: Actor): Promise<void> {
+    await this.db.send(
+      new PutCommand({
+        TableName: this.table,
+        Item: { ...eventTypeKey(type.typeId), type: "event-type", ...type, ...newItemMeta(actor, this.clock()) },
+      }),
+    );
+  }
+
+  async getEventType(typeId: string): Promise<EventType | undefined> {
+    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: eventTypeKey(typeId) }));
+    return res.Item ? toEventType(res.Item) : undefined;
+  }
+
+  async listEventTypes(): Promise<EventType[]> {
+    const items = await this.queryAll({
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+      ExpressionAttributeValues: { ":pk": "EVENTTYPES", ":sk": "TYPE#" },
+    });
+    return items.map(toEventType);
+  }
+
   // ---- Events (EVT-01..EVT-03) ----
 
   async createEvent(event: AllianceEvent, actor: Actor): Promise<void> {
@@ -151,6 +225,29 @@ export class Repository {
       );
     } catch (err) {
       if (err instanceof ConditionalCheckFailedException) throw new ConflictError("That event already exists.");
+      throw err;
+    }
+  }
+
+  /** Replaces an event's details; the event must exist. Answers are untouched. */
+  async updateEvent(event: AllianceEvent, actor: Actor): Promise<void> {
+    const meta = newItemMeta(actor, this.clock());
+    try {
+      await this.db.send(
+        new PutCommand({
+          TableName: this.table,
+          Item: {
+            ...eventKey(event.eventId),
+            ...eventIndexKey(event.alliance, event.startsAt, event.eventId),
+            type: "event",
+            ...event,
+            ...meta,
+          },
+          ConditionExpression: "attribute_exists(PK)",
+        }),
+      );
+    } catch (err) {
+      if (err instanceof ConditionalCheckFailedException) throw new NotFoundError("Event not found.");
       throw err;
     }
   }
@@ -190,23 +287,26 @@ export class Repository {
   }
 
   /**
-   * Records an answer. The event must exist and its deadline must still be open at the moment
-   * of the write, so a late answer can't slip through between reading and writing (FM-09).
+   * Records an answer. The event must exist, and for members the deadline must still be open at
+   * the moment of the write, so a late answer can't slip through between reading and writing
+   * (FM-09). Officers keep editing until the event starts: lineups change to the last minute.
    */
   async setAnswer(
     event: Pick<AllianceEvent, "eventId" | "startsAt" | "deadlineAt">,
     playerId: string,
-    answer: Answer,
+    choice: { answer: Answer; sessionId?: string },
     source: EventAnswer["source"],
     actor: Actor,
     note?: string,
+    options: { afterDeadline?: boolean } = {},
   ): Promise<EventAnswer> {
     const now = this.clock();
     const meta = newItemMeta(actor, now);
     const record: EventAnswer = {
       eventId: event.eventId,
       playerId,
-      answer,
+      answer: choice.answer,
+      ...(choice.sessionId ? { sessionId: choice.sessionId } : {}),
       answeredAt: now.toISOString(),
       source,
       ...(note ? { note } : {}),
@@ -219,7 +319,10 @@ export class Repository {
               ConditionCheck: {
                 TableName: this.table,
                 Key: eventKey(event.eventId),
-                ConditionExpression: "attribute_exists(PK) AND deadlineAt > :now",
+                // Officers may write after the deadline, but never after the event has started.
+                ConditionExpression: options.afterDeadline
+                  ? "attribute_exists(PK) AND startsAt > :now"
+                  : "attribute_exists(PK) AND deadlineAt > :now",
                 ExpressionAttributeValues: { ":now": now.toISOString() },
               },
             },
@@ -251,7 +354,9 @@ export class Repository {
     } catch (err) {
       const reasons = cancellationCodes(err);
       if (reasons?.[0] === "ConditionalCheckFailed") {
-        throw new ConflictError("Answers for this event are closed.");
+        throw new ConflictError(
+          options.afterDeadline ? "The event has already started." : "Answers for this event are closed.",
+        );
       }
       if (reasons?.[1] === "ConditionalCheckFailed") {
         throw new NotFoundError(`Game account ${playerId} can't answer (unknown or no longer active).`);
@@ -480,6 +585,8 @@ function toEvent(item: Record<string, unknown>): AllianceEvent {
     title: String(item.title),
     startsAt: String(item.startsAt),
     deadlineAt: String(item.deadlineAt),
+    // Events created before sessions existed simply have none.
+    sessions: Array.isArray(item.sessions) ? (item.sessions as AllianceEvent["sessions"]) : [],
     createdBy: String(item.createdBy),
   };
   if (item.notes) event.notes = String(item.notes);
@@ -494,6 +601,34 @@ function toAnswer(item: Record<string, unknown>): EventAnswer {
     answeredAt: String(item.answeredAt),
     source: item.source as EventAnswer["source"],
   };
+  if (item.sessionId) answer.sessionId = String(item.sessionId);
   if (item.note) answer.note = String(item.note);
   return answer;
+}
+
+function toEventType(item: Record<string, unknown>): EventType {
+  const type: EventType = {
+    typeId: String(item.typeId),
+    name: String(item.name),
+    leadDays: Number(item.leadDays ?? 0),
+    sessions: Array.isArray(item.sessions) ? (item.sessions as EventType["sessions"]) : [],
+    archived: Boolean(item.archived),
+    createdBy: String(item.createdBy),
+  };
+  if (item.strategyTemplate) type.strategyTemplate = String(item.strategyTemplate);
+  return type;
+}
+
+function toAttendance(item: Record<string, unknown>): AttendanceRecord {
+  const record: AttendanceRecord = {
+    eventId: String(item.eventId),
+    playerId: String(item.playerId),
+    status: item.status as AttendanceRecord["status"],
+    source: item.source as AttendanceRecord["source"],
+    recordedAt: String(item.recordedAt),
+  };
+  if (item.sessionId) record.sessionId = String(item.sessionId);
+  if (item.note) record.note = String(item.note);
+  if (item.evidenceRef) record.evidenceRef = String(item.evidenceRef);
+  return record;
 }
