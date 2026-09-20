@@ -301,8 +301,12 @@ function OfficerTable({ event, members }: { event: EventDetail; members: EventMe
               <th scope="col" className="num">
                 Foundry
               </th>
-              <th scope="col">6 months</th>
-              <th scope="col">Attendance</th>
+              <th scope="col" title="Foundry strength at the end of each of the last six months">
+                Strength 6m
+              </th>
+              <th scope="col" title="Attendance, averaged over each month and the two before it">
+                Attendance 6m
+              </th>
               <th scope="col" className="num">
                 Power
               </th>
@@ -327,7 +331,7 @@ function OfficerTable({ event, members }: { event: EventDetail; members: EventMe
                     values={m.attendanceTrend}
                     domain={[0, 1]}
                     midline
-                    label={`${m.name}: attendance over six months`}
+                    label={`${m.name}: attendance, three-month trailing average over the last six months`}
                   />
                 </td>
                 <td className="num">{m.power === null ? "–" : compact(m.power)}</td>

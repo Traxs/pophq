@@ -53,3 +53,16 @@ export function monthlyAttendance(
     return inMonth.filter((r) => r.status === "present").length / inMonth.length;
   });
 }
+
+/**
+ * Smooths a monthly series into a trailing average: each point is the average of that month
+ * and the `window - 1` months before it, counting only months that had something to say.
+ * A month with nothing in its whole window stays null rather than inventing a value.
+ */
+export function trailingAverage(values: readonly (number | null)[], window = 3): (number | null)[] {
+  return values.map((_, i) => {
+    const slice = values.slice(Math.max(0, i - window + 1), i + 1).filter((v): v is number => v !== null);
+    if (slice.length === 0) return null;
+    return slice.reduce((sum, v) => sum + v, 0) / slice.length;
+  });
+}

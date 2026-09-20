@@ -81,7 +81,7 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 - [x] P5.1c Legion sessions: a Foundry is one event with two legions; a player signs up for exactly one, and switching replaces the earlier pick. Officers see counts and lists per legion
 - [x] P5.1d Officer-defined event types (EVT-01): each carries its lead time, its parts and a strategy template; the four POP plays today are written on first use
 - [x] P5.3b Event page: parts with capacity (Foundry 30 starters + 10 subs, set per event), how full each is, who signed up, and an honest estimate of your role by Foundry strength until officers publish the lineup
-- [x] P5.3c Officer table on the event page: answer, legion, Foundry strength, power, furnace, last report, with totals per legion, plus six-month trailing graphs for strength and attendance
+- [x] P5.3c Officer table on the event page: answer, legion, Foundry strength, power, furnace, last report, with totals per legion, plus six-month graphs: strength as the monthly level, attendance as a three-month trailing average
 - [x] P5.3d Split capacity bar: starting places and substitute places are shown separately, because a substitute place is not a free place
 - [x] P5.2 Answers per game account with the deadline checked in the same write (EVT-03, FM-09); players answer for their own accounts, officers for anyone
 - [x] P5.3a Officer view: counts and lists by answer including who has not answered (EVT-04); battle time, furnace and Helios columns still to come

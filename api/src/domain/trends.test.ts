@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { monthlyAttendance, monthlyValues, monthsEnding } from "./trends.js";
+import { monthlyAttendance, monthlyValues, monthsEnding, trailingAverage } from "./trends.js";
 
 const now = new Date("2026-09-20T12:00:00Z");
 
@@ -53,5 +53,23 @@ describe("monthlyAttendance", () => {
 
   it("leaves a month null when nothing was checked, and ignores excused records", () => {
     expect(monthlyAttendance([record("excused", "2026-09"), record("unknown", "2026-09")], now, 2)).toEqual([null, null]);
+  });
+});
+
+describe("trailingAverage", () => {
+  it("averages each month with the months before it", () => {
+    expect(trailingAverage([1, 0, 1, 1], 3)).toEqual([1, 0.5, 2 / 3, 2 / 3]);
+  });
+
+  it("skips months with nothing recorded instead of treating them as zero", () => {
+    expect(trailingAverage([1, null, 0], 3)).toEqual([1, 1, 0.5]);
+  });
+
+  it("stays null while the whole window is empty", () => {
+    expect(trailingAverage([null, null, 1], 2)).toEqual([null, null, 1]);
+  });
+
+  it("uses only the window, so old months stop counting", () => {
+    expect(trailingAverage([1, 1, 0, 0], 2)).toEqual([1, 1, 0.5, 0]);
   });
 });

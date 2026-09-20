@@ -16,7 +16,7 @@ import { parseEventType } from "../domain/eventTypes.js";
 import { listEventTypes } from "../ops/eventTypes.js";
 import { parsePlayerId } from "../domain/identity.js";
 import { allianceGrowth, buckets, currentOf, seriesOf } from "../domain/metrics.js";
-import { monthlyAttendance, monthlyValues } from "../domain/trends.js";
+import { monthlyAttendance, monthlyValues, trailingAverage } from "../domain/trends.js";
 import { currentValues, parseReport } from "../domain/measurements.js";
 import {
   defaultActing,
@@ -182,7 +182,8 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
             at,
           ),
           strengthTrend: monthlyValues(seriesOf(reports, "foundry_strength"), at),
-          attendanceTrend: monthlyAttendance(attendance, at),
+          // Trailing three-month average, so one bad night does not look like a collapse.
+          attendanceTrend: trailingAverage(monthlyAttendance(attendance, at)),
           power: series.at(-1)?.power ?? null,
           previousPower: series.at(-2)?.power ?? null,
           lastReportAt: series.at(-1)?.at ?? null,
@@ -465,7 +466,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           answeredAt: byPlayer.get(account.playerId)?.answeredAt ?? null,
           attended: attendance.get(account.playerId)?.status ?? null,
           strengthTrend: monthlyValues(seriesOf(own, "foundry_strength"), now()),
-          attendanceTrend: monthlyAttendance(history.get(account.playerId) ?? [], now()),
+          attendanceTrend: trailingAverage(monthlyAttendance(history.get(account.playerId) ?? [], now())),
           power: currentOf(own, "city_power") ?? null,
           foundryStrength: currentOf(own, "foundry_strength") ?? null,
           furnace: current.furnace_level?.value ?? null,
