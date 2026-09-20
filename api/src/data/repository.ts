@@ -9,6 +9,7 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import type { GameAccount } from "../domain/accounts.js";
 import type { AllianceEvent, Answer, EventAnswer } from "../domain/events.js";
+import type { EventType } from "../domain/eventTypes.js";
 import { ConflictError, NotFoundError } from "../domain/errors.js";
 import { searchKey } from "../domain/identity.js";
 import type { Report } from "../domain/measurements.js";
@@ -21,6 +22,7 @@ import {
   allianceIndexKey,
   eventIndexKey,
   eventKey,
+  eventTypeKey,
   loginLinkKey,
   reportKey,
   seatCounterKey,
@@ -129,6 +131,31 @@ export class Repository {
       }
       throw err;
     }
+  }
+
+  // ---- Event types (EVT-01) ----
+
+  /** Creates or replaces a type. Officers own these; events inherit from them. */
+  async putEventType(type: EventType, actor: Actor): Promise<void> {
+    await this.db.send(
+      new PutCommand({
+        TableName: this.table,
+        Item: { ...eventTypeKey(type.typeId), type: "event-type", ...type, ...newItemMeta(actor, this.clock()) },
+      }),
+    );
+  }
+
+  async getEventType(typeId: string): Promise<EventType | undefined> {
+    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: eventTypeKey(typeId) }));
+    return res.Item ? toEventType(res.Item) : undefined;
+  }
+
+  async listEventTypes(): Promise<EventType[]> {
+    const items = await this.queryAll({
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+      ExpressionAttributeValues: { ":pk": "EVENTTYPES", ":sk": "TYPE#" },
+    });
+    return items.map(toEventType);
   }
 
   // ---- Events (EVT-01..EVT-03) ----
@@ -523,4 +550,17 @@ function toAnswer(item: Record<string, unknown>): EventAnswer {
   if (item.sessionId) answer.sessionId = String(item.sessionId);
   if (item.note) answer.note = String(item.note);
   return answer;
+}
+
+function toEventType(item: Record<string, unknown>): EventType {
+  const type: EventType = {
+    typeId: String(item.typeId),
+    name: String(item.name),
+    leadDays: Number(item.leadDays ?? 0),
+    sessions: Array.isArray(item.sessions) ? (item.sessions as EventType["sessions"]) : [],
+    archived: Boolean(item.archived),
+    createdBy: String(item.createdBy),
+  };
+  if (item.strategyTemplate) type.strategyTemplate = String(item.strategyTemplate);
+  return type;
 }

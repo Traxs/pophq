@@ -13,6 +13,9 @@ export const reportKey = (playerId: string, reportId: string) => ({
   SK: `REPORT#${reportId}`,
 });
 
+/** Event types are alliance-wide, so they share one partition and list in a single query. */
+export const eventTypeKey = (typeId: string) => ({ PK: "EVENTTYPES", SK: `TYPE#${typeId}` });
+
 export const eventKey = (eventId: string) => ({ PK: `EVENT#${eventId}`, SK: "META" });
 
 /** Events of an alliance, sorted by start time (GSI1). */

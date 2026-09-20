@@ -1,8 +1,10 @@
 import { Hono } from "hono";
 import { ulid } from "ulid";
 import { parseNewAccount } from "../domain/accounts.js";
-import { DomainError, NotFoundError, UnauthorizedError, ValidationError } from "../domain/errors.js";
+import { ConflictError, DomainError, NotFoundError, UnauthorizedError, ValidationError } from "../domain/errors.js";
 import { countAnswers, isClosed, parseAnswerChoice, parseEventChanges, parseNewEvent } from "../domain/events.js";
+import { parseEventType } from "../domain/eventTypes.js";
+import { listEventTypes } from "../ops/eventTypes.js";
 import { parsePlayerId } from "../domain/identity.js";
 import { allianceGrowth, buckets, seriesOf } from "../domain/metrics.js";
 import { currentValues, parseReport } from "../domain/measurements.js";
@@ -245,6 +247,35 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       cohort,
       unknownMembership: unknown.length,
     });
+  });
+
+  // ---- Event types (EVT-01) ----
+
+  /** The types events can be created from. Everyone may read them; officers may change them. */
+  app.get("/event-types", async (c) => {
+    const p = c.get("principal");
+    const types = await listEventTypes(repo, { id: p.sub, via: "web" });
+    return c.json({ items: types.filter((t) => !t.archived), archived: types.filter((t) => t.archived) });
+  });
+
+  app.post("/event-types", async (c) => {
+    const p = c.get("principal");
+    requireOfficer(p);
+    const type = parseEventType(await readJson(c.req.raw), p.sub);
+    if (await repo.getEventType(type.typeId)) throw new ConflictError(`An event type "${type.typeId}" already exists.`);
+    await repo.putEventType(type, { id: p.sub, via: "web", reason: "new event type" });
+    return c.json(type, 201);
+  });
+
+  app.patch("/event-types/:typeId", async (c) => {
+    const p = c.get("principal");
+    requireOfficer(p);
+    const existing = await repo.getEventType(c.req.param("typeId"));
+    if (!existing) throw new NotFoundError("Event type not found.");
+    const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+    const updated = parseEventType({ ...existing, ...body, typeId: existing.typeId }, existing.createdBy);
+    await repo.putEventType(updated, { id: p.sub, via: "web", reason: "event type changed" });
+    return c.json(updated);
   });
 
   // ---- Events (EVT-01..EVT-04) ----
