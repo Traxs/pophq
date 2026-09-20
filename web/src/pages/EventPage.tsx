@@ -56,6 +56,11 @@ export function EventPage({ eventId }: { eventId: string }) {
         {dayTime(event.startsAt)} ·{" "}
         {event.closed ? "answers closed" : `answers close ${untilText(event.deadlineAt)} (${dayTime(event.deadlineAt)})`}
       </p>
+      {event.closed && isOfficer && (
+        <p className="banner banner-warn">
+          Answers are closed for members. You can still change who is coming until the event starts.
+        </p>
+      )}
       {event.notes && <p className="event-notes">{event.notes}</p>}
 
       {error && <p className="banner banner-error" role="alert">{error}</p>}
@@ -66,9 +71,10 @@ export function EventPage({ eventId }: { eventId: string }) {
             <li key={session.id}>
               <SessionCard
                 session={session}
-                closed={event.closed}
+                closed={event.closed && !isOfficer}
                 busy={busy}
                 canAnswer={account !== undefined}
+                myPlayerId={account?.playerId}
                 onJoin={() => void choose("yes", session.id)}
               />
             </li>
@@ -82,7 +88,7 @@ export function EventPage({ eventId }: { eventId: string }) {
         <button
           type="button"
           className="btn btn-quiet btn-block"
-          disabled={event.closed || busy !== null}
+          disabled={(event.closed && !isOfficer) || busy !== null}
           onClick={() => void choose("no")}
         >
           {event.myAnswer === "no" ? "Marked as not coming" : "I can't make it"}
@@ -99,12 +105,14 @@ function SessionCard({
   closed,
   busy,
   canAnswer,
+  myPlayerId,
   onJoin,
 }: {
   session: SessionView;
   closed: boolean;
   busy: string | null;
   canAnswer: boolean;
+  myPlayerId: string | undefined;
   onJoin: () => void;
 }) {
   const capacity = session.starters === undefined ? null : session.starters + (session.subs ?? 0);
@@ -153,16 +161,42 @@ function SessionCard({
         </p>
       )}
 
-      {session.signedUpNames.length > 0 && (
+      {session.signedUpList.length > 0 && (
         <details className="signups">
-          <summary className="text-btn">Who signed up ({session.signedUpNames.length})</summary>
-          <ul className="member-chips">
-            {session.signedUpNames.map((name) => (
-              <li key={name} className="chip-static">
-                {name}
-              </li>
-            ))}
-          </ul>
+          <summary className="text-btn">Who signed up ({session.signedUpList.length})</summary>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th scope="col">#</th>
+                  <th scope="col">Member</th>
+                  <th scope="col" className="num">
+                    Foundry
+                  </th>
+                  <th scope="col">Attendance</th>
+                  <th scope="col">Likely</th>
+                </tr>
+              </thead>
+              <tbody>
+                {session.signedUpList.map((entry) => (
+                  <tr key={entry.playerId} className={entry.playerId === myPlayerId ? "row-me" : undefined}>
+                    <td className="num">{entry.position}</td>
+                    <td>{entry.name}</td>
+                    <td className="num">{entry.foundryStrength === null ? "–" : full(entry.foundryStrength)}</td>
+                    <td>{entry.attendanceRate === null ? "–" : `${Math.round(entry.attendanceRate * 100)}%`}</td>
+                    <td>
+                      <span className={entry.likely === "starter" ? "pill pill-up" : "pill pill-warn"}>
+                        {entry.likely === "starter" ? "Starter" : "Sub"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="muted small">
+            Ranked by Foundry strength (70%) and attendance (30%) — an estimate until officers publish the lineup.
+          </p>
         </details>
       )}
     </article>

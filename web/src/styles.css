@@ -1273,3 +1273,7 @@ th[aria-sort="descending"] .th-btn {
 .content {
   overflow-x: hidden;
 }
+
+.row-me {
+  background: var(--accent-soft);
+}

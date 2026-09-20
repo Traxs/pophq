@@ -240,8 +240,9 @@ export class Repository {
   }
 
   /**
-   * Records an answer. The event must exist and its deadline must still be open at the moment
-   * of the write, so a late answer can't slip through between reading and writing (FM-09).
+   * Records an answer. The event must exist, and for members the deadline must still be open at
+   * the moment of the write, so a late answer can't slip through between reading and writing
+   * (FM-09). Officers keep editing until the event starts: lineups change to the last minute.
    */
   async setAnswer(
     event: Pick<AllianceEvent, "eventId" | "startsAt" | "deadlineAt">,
@@ -250,6 +251,7 @@ export class Repository {
     source: EventAnswer["source"],
     actor: Actor,
     note?: string,
+    options: { afterDeadline?: boolean } = {},
   ): Promise<EventAnswer> {
     const now = this.clock();
     const meta = newItemMeta(actor, now);
@@ -270,7 +272,10 @@ export class Repository {
               ConditionCheck: {
                 TableName: this.table,
                 Key: eventKey(event.eventId),
-                ConditionExpression: "attribute_exists(PK) AND deadlineAt > :now",
+                // Officers may write after the deadline, but never after the event has started.
+                ConditionExpression: options.afterDeadline
+                  ? "attribute_exists(PK) AND startsAt > :now"
+                  : "attribute_exists(PK) AND deadlineAt > :now",
                 ExpressionAttributeValues: { ":now": now.toISOString() },
               },
             },
@@ -302,7 +307,9 @@ export class Repository {
     } catch (err) {
       const reasons = cancellationCodes(err);
       if (reasons?.[0] === "ConditionalCheckFailed") {
-        throw new ConflictError("Answers for this event are closed.");
+        throw new ConflictError(
+          options.afterDeadline ? "The event has already started." : "Answers for this event are closed.",
+        );
       }
       if (reasons?.[1] === "ConditionalCheckFailed") {
         throw new NotFoundError(`Game account ${playerId} can't answer (unknown or no longer active).`);

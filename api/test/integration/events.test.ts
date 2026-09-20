@@ -143,6 +143,40 @@ describe("events", () => {
     );
   });
 
+  it("locks members out after the deadline but lets officers keep editing", async () => {
+    const late = await h.call("POST", "/events", {
+      ...OFFICER,
+      body: {
+        kind: "foundry",
+        title: "Closing now",
+        startsAt: inDays(1),
+        deadlineAt: new Date(Date.now() + 1200).toISOString(),
+        sessions: [{ id: "L1", label: "Legion 1", startsAt: inDays(1), starters: 30, subs: 10 }],
+      },
+    });
+    const id = late.body.eventId as string;
+    expect((await h.call("PUT", `/events/${id}/answers/100000001`, { ...PLAYER, body: { answer: "yes", sessionId: "L1" } })).status).toBe(200);
+
+    await new Promise((r) => setTimeout(r, 1400)); // the deadline passes
+
+    const member = await h.call("PUT", `/events/${id}/answers/100000001`, { ...PLAYER, body: { answer: "no" } });
+    expect(member.status).toBe(409);
+
+    // Officers keep adjusting the list right up to the start (lineups change late).
+    const officer = await h.call("PUT", `/events/${id}/answers/100000001`, {
+      ...OFFICER,
+      body: { answer: "yes", sessionId: "L1" },
+    });
+    expect(officer.status).toBe(200);
+    expect(officer.body).toMatchObject({ source: "officer" });
+
+    const added = await h.call("PUT", `/events/${id}/answers/100000005`, {
+      ...OFFICER,
+      body: { answer: "yes", sessionId: "L1" },
+    });
+    expect(added.status).toBe(200);
+  });
+
   it("returns 404 for unknown events and 400 for a bad answer", async () => {
     expect((await h.call("GET", "/events/01J000000000000000000NOPE", PLAYER)).status).toBe(404);
     expect((await h.call("PUT", `/events/${eventId}/answers/100000001`, { ...PLAYER, body: { answer: "sure" } })).status).toBe(
@@ -266,11 +300,11 @@ describe("legion capacity and standing", () => {
 
     await h.call("PUT", `/events/${eventId}/answers/100000001`, { ...PLAYER, body: { answer: "yes", sessionId: "L1" } });
     const after = await h.call("GET", `/events/${eventId}`, PLAYER);
-    const filled = (after.body.sessions as { id: string; signedUp: number; spotsLeft: number; signedUpNames: string[] }[]).find(
-      (s) => s.id === "L1",
-    )!;
+    const filled = (
+      after.body.sessions as { id: string; signedUp: number; spotsLeft: number; signedUpList: { name: string }[] }[]
+    ).find((s) => s.id === "L1")!;
     expect(filled).toMatchObject({ signedUp: 1, spotsLeft: 2 });
-    expect(filled.signedUpNames).toEqual(["Poppy"]);
+    expect(filled.signedUpList.map((e) => e.name)).toEqual(["Poppy"]);
   });
 
   it("tells a member where they stand, marked as an estimate", async () => {
@@ -291,9 +325,16 @@ describe("legion capacity and standing", () => {
     expect(l2.yourStanding).toBeUndefined();
   });
 
-  it("keeps other members' strength numbers to officers", async () => {
+  it("shows everyone the sign-up list with strength and likely role, and the rest to officers", async () => {
     const asPlayer = await h.call("GET", `/events/${eventId}`, PLAYER);
-    expect(JSON.stringify(asPlayer.body.sessions)).not.toContain("foundryStrength");
+    const l1 = (asPlayer.body.sessions as { id: string; signedUpList: { name: string; foundryStrength: number | null; likely: string; position: number }[] }[]).find(
+      (s) => s.id === "L1",
+    )!;
+    expect(l1.signedUpList.length).toBeGreaterThan(0);
+    expect(l1.signedUpList[0]).toMatchObject({ position: 1 });
+    expect(["starter", "sub"]).toContain(l1.signedUpList[0]!.likely);
+    // Power, furnace and the officer table stay with officers.
+    expect(JSON.stringify(asPlayer.body.sessions)).not.toContain("furnace");
     expect(asPlayer.body.members).toBeUndefined();
 
     const asOfficer = await h.call("GET", `/events/${eventId}`, OFFICER);

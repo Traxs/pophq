@@ -2,7 +2,15 @@ import { Hono } from "hono";
 import { ulid } from "ulid";
 import { parseNewAccount } from "../domain/accounts.js";
 import { ConflictError, DomainError, NotFoundError, UnauthorizedError, ValidationError } from "../domain/errors.js";
-import { countAnswers, isClosed, parseAnswerChoice, parseEventChanges, parseNewEvent, standingFor } from "../domain/events.js";
+import {
+  countAnswers,
+  isClosed,
+  parseAnswerChoice,
+  parseEventChanges,
+  parseNewEvent,
+  rankSignUps,
+  standingFor,
+} from "../domain/events.js";
 import { parseEventType } from "../domain/eventTypes.js";
 import { listEventTypes } from "../ops/eventTypes.js";
 import { parsePlayerId } from "../domain/identity.js";
@@ -351,13 +359,22 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         .filter((a) => a.sessionId === session.id)
         .map((a) => ({ playerId: a.playerId, strength: strengthOf.get(a.playerId), answeredAt: a.answeredAt }));
       const standing = acting ? standingFor(session.id, entries, acting, session.starters) : undefined;
+      // Everyone sees who signed up with their Foundry strength and likely role (that is what
+      // decides the lineup); power, furnace and notes stay with officers.
+      const ranked = rankSignUps(entries, session.starters).map((entry) => ({
+        playerId: entry.playerId,
+        name: byName.get(entry.playerId) ?? entry.playerId,
+        foundryStrength: entry.strength ?? null,
+        attendanceRate: entry.attendanceRate ?? null,
+        position: entry.position,
+        likely: entry.likely,
+      }));
       return {
         ...session,
         signedUp: entries.length,
         spotsLeft:
           session.starters === undefined ? null : Math.max(0, session.starters + (session.subs ?? 0) - entries.length),
-        // Names only: strength numbers stay with officers (decision in docs/PLAN.md).
-        signedUpNames: entries.map((e) => byName.get(e.playerId) ?? e.playerId),
+        signedUpList: ranked,
         ...(standing ? { yourStanding: standing } : {}),
       };
     });
@@ -416,8 +433,10 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       pid,
       choice,
       role,
-      { id: p.sub, via: "web" },
+      { id: p.sub, via: "web", ...(role === "officer" ? { reason: "officer edit" } : {}) },
       typeof body.note === "string" ? body.note.trim().slice(0, 200) : undefined,
+      // Officers keep adjusting the list after answers close, up to the start of the event.
+      { afterDeadline: role === "officer" },
     );
     return c.json(saved);
   });

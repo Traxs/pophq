@@ -88,11 +88,22 @@ export interface SessionStanding {
   estimate: true;
 }
 
+export interface SignUpEntry {
+  playerId: string;
+  name: string;
+  /** The number that decides the lineup; visible to every member. */
+  foundryStrength: number | null;
+  /** Share of kept commitments, once attendance is tracked. */
+  attendanceRate: number | null;
+  position: number;
+  likely: "starter" | "sub";
+}
+
 /** A session as the event page shows it: with live counts and where you stand. */
 export interface SessionView extends EventSession {
   signedUp: number;
   spotsLeft: number | null;
-  signedUpNames: string[];
+  signedUpList: SignUpEntry[];
   yourStanding?: SessionStanding;
 }
 

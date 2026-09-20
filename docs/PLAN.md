@@ -134,6 +134,10 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 
 ## Decisions made during the build
 
+- **2026-09-20, who starts and who substitutes:** ranked by **0.7 × (Foundry strength ÷ strongest signed up) + 0.3 × attendance rate**. Unknown attendance counts as fully reliable, so nobody is punished for missing data; until attendance is tracked the ranking is strength alone. It is shown as an estimate everywhere until officers publish the lineup (P5.4).
+- **2026-09-20, sign-up list visibility:** every member sees who signed up with their Foundry strength, attendance and likely role, because that is what decides the lineup. Power, furnace, notes and the change log stay with officers.
+- **2026-09-20, the answer lock binds members, not officers:** after the deadline members can no longer change their answer, while officers (and later Hermes tokens) keep editing who is coming until the event starts, recorded as an officer entry.
+
 - **2026-09-19, POP HQ is the record, Hermes is the reasoning:** Hermes pulls roster, power, events, attendance and history to build strategy, and writes back only as **proposals** an officer accepts (recorded as "via agent, approved by X"). Data arrives from four sources: members themselves, Hermes reading screenshots, officers typing for others, and occasional CSV import.
 - **2026-09-19, conflicting values:** the newest observation of a value wins, whoever reported it; the previous one stays in the timeline with its source and time. Ordering is by observed time, then recorded time, then record id.
 - **2026-09-19, who sees what:** members see their own timeline and charts only; officers see every member's history, the change log, notes and alt links.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ValidationError } from "./errors.js";
-import { countAnswers, deadlineFor, isClosed, parseAnswer, parseNewEvent, standingFor, type EventAnswer } from "./events.js";
+import { countAnswers, deadlineFor, isClosed, parseAnswer, parseNewEvent, rankSignUps, standingFor, type EventAnswer } from "./events.js";
 
 const now = new Date("2026-09-19T12:00:00Z");
 const ctx = { eventId: "01J0000000000000000000000A", createdBy: "officer-1", now };
@@ -132,6 +132,61 @@ describe("countAnswers", () => {
 
   it("never reports a negative pending count", () => {
     expect(countAnswers([answer("1", "yes")], 0)).toEqual({ yes: 1, no: 0, maybe: 0, pending: 0, bySession: {} });
+  });
+});
+
+describe("rankSignUps", () => {
+  const at = (day: number) => `2026-09-0${day}T10:00:00Z`;
+
+  it("puts reliability above a small strength advantage", () => {
+    const ranked = rankSignUps(
+      [
+        { playerId: "flaky", strength: 9000, attendanceRate: 0.5, answeredAt: at(1) },
+        { playerId: "reliable", strength: 8000, attendanceRate: 1, answeredAt: at(2) },
+      ],
+      1,
+    );
+    expect(ranked.map((r) => r.playerId)).toEqual(["reliable", "flaky"]);
+    expect(ranked[0]).toMatchObject({ position: 1, likely: "starter" });
+    expect(ranked[1]).toMatchObject({ position: 2, likely: "sub" });
+  });
+
+  it("keeps a big strength advantage ahead of perfect attendance", () => {
+    const ranked = rankSignUps(
+      [
+        { playerId: "strong", strength: 9000, attendanceRate: 0.4, answeredAt: at(1) },
+        { playerId: "weak", strength: 2000, attendanceRate: 1, answeredAt: at(2) },
+      ],
+      1,
+    );
+    expect(ranked[0]?.playerId).toBe("strong");
+  });
+
+  it("treats unknown attendance as reliable, so nobody is punished for missing data", () => {
+    const ranked = rankSignUps(
+      [
+        { playerId: "known", strength: 5000, attendanceRate: 1, answeredAt: at(1) },
+        { playerId: "unknown", strength: 5000, answeredAt: at(2) },
+      ],
+      2,
+    );
+    expect(ranked[0]?.score).toBeCloseTo(ranked[1]!.score, 10);
+  });
+
+  it("breaks ties by who answered first", () => {
+    const ranked = rankSignUps(
+      [
+        { playerId: "later", strength: 5000, answeredAt: at(5) },
+        { playerId: "earlier", strength: 5000, answeredAt: at(2) },
+      ],
+      1,
+    );
+    expect(ranked.map((r) => r.playerId)).toEqual(["earlier", "later"]);
+  });
+
+  it("marks everyone a starter when the part has no limit", () => {
+    const ranked = rankSignUps([{ playerId: "a", answeredAt: at(1) }], undefined);
+    expect(ranked[0]?.likely).toBe("starter");
   });
 });
 

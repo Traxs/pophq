@@ -277,6 +277,20 @@ export function countAnswers(answers: readonly EventAnswer[], expected: number):
   return { ...counts, pending: Math.max(0, expected - answers.length), bySession };
 }
 
+/**
+ * How officers pick starters: strength first, reliability second (decision in docs/PLAN.md).
+ * Attendance is the share of commitments actually kept; until attendance is tracked everyone
+ * counts as fully reliable, so the ranking is strength alone and says so.
+ */
+export const STRENGTH_WEIGHT = 0.7;
+export const ATTENDANCE_WEIGHT = 0.3;
+
+export function lineupScore(strength: number | undefined, attendanceRate: number | undefined, strongest: number): number {
+  const strengthShare = strongest > 0 ? (strength ?? 0) / strongest : 0;
+  const attendance = attendanceRate ?? 1; // unknown reliability is not held against anyone
+  return STRENGTH_WEIGHT * strengthShare + ATTENDANCE_WEIGHT * attendance;
+}
+
 export interface SessionStanding {
   sessionId: string;
   /** Position among the people signed up for this part, strongest first. */
@@ -293,23 +307,44 @@ export interface SessionStanding {
  * given strength, strongest first; people without a known strength come last, earliest answer
  * first. It is an estimate and says so: officers pick the real lineup.
  */
+export interface SignUp {
+  playerId: string;
+  strength?: number | undefined;
+  /** Share of kept commitments, 0–1. Undefined until attendance is tracked. */
+  attendanceRate?: number | undefined;
+  answeredAt: string;
+}
+
+export interface RankedSignUp extends SignUp {
+  position: number;
+  score: number;
+  likely: "starter" | "sub";
+}
+
+/**
+ * Orders the people signed up for one part the way officers pick: by score, then by who
+ * answered first. It is an estimate; officers publish the real lineup (P5.4).
+ */
+export function rankSignUps(entries: readonly SignUp[], starters: number | undefined): RankedSignUp[] {
+  const strongest = Math.max(0, ...entries.map((e) => e.strength ?? 0));
+  return [...entries]
+    .map((entry) => ({ ...entry, score: lineupScore(entry.strength, entry.attendanceRate, strongest) }))
+    .toSorted((a, b) => b.score - a.score || a.answeredAt.localeCompare(b.answeredAt))
+    .map((entry, index) => ({
+      ...entry,
+      position: index + 1,
+      likely: starters === undefined || index < starters ? ("starter" as const) : ("sub" as const),
+    }));
+}
+
 export function standingFor(
   sessionId: string,
-  entries: readonly { playerId: string; strength?: number | undefined; answeredAt: string }[],
+  entries: readonly SignUp[],
   playerId: string,
   starters: number | undefined,
 ): SessionStanding | undefined {
-  const ordered = [...entries].toSorted((a, b) => {
-    if ((a.strength ?? -1) !== (b.strength ?? -1)) return (b.strength ?? -1) - (a.strength ?? -1);
-    return a.answeredAt.localeCompare(b.answeredAt);
-  });
-  const index = ordered.findIndex((e) => e.playerId === playerId);
-  if (index < 0) return undefined;
-  return {
-    sessionId,
-    position: index + 1,
-    signedUp: ordered.length,
-    likely: starters === undefined || index < starters ? "starter" : "sub",
-    estimate: true,
-  };
+  const ranked = rankSignUps(entries, starters);
+  const mine = ranked.find((e) => e.playerId === playerId);
+  if (!mine) return undefined;
+  return { sessionId, position: mine.position, signedUp: ranked.length, likely: mine.likely, estimate: true };
 }
