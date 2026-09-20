@@ -46,7 +46,7 @@ export function EventPage({ eventId }: { eventId: string }) {
     try {
       await api.answer(eventId, account.playerId, answer, sessionId);
       const label = sessionId ? event?.sessions.find((s) => s.id === sessionId)?.label : undefined;
-      toast(label ? `You're in for ${label}` : "Marked as not coming");
+      toast(label ? `You're in for ${label}` : "Signup withdrawn");
       dataChanged();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Couldn't save your answer.");
@@ -138,16 +138,18 @@ export function EventPage({ eventId }: { eventId: string }) {
         <p className="muted">This event has no parts to choose between.</p>
       )}
 
-      {account && (
+      {account && event.myAnswer === "yes" ? (
         <button
           type="button"
           className="btn btn-quiet btn-block"
           disabled={(event.closed && !isOfficer) || busy !== null}
           onClick={() => void choose("no")}
         >
-          {event.myAnswer === "no" ? "Marked as not coming" : "I can't make it"}
+          {busy === "no" ? "…" : "Withdraw signup"}
         </button>
-      )}
+      ) : account ? (
+        <p className="pill pill-flat">Not signed up — join either legion above</p>
+      ) : null}
 
       {isOfficer && event.members && <OfficerTable event={event} members={event.members} />}
     </>
@@ -616,8 +618,8 @@ function OfficerTable({ event, members }: { event: EventDetail; members: EventMe
   const answerLabel = (m: EventMember) =>
     m.answer === "yes"
       ? (event.sessions.find((s) => s.id === m.sessionId)?.label ?? "Yes")
-      : m.answer === "no"
-        ? "Can't"
+        : m.answer === "no"
+          ? "Not signed up"
         : m.answer === "maybe"
           ? "Maybe"
           : "—";

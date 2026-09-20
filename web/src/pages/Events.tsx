@@ -182,7 +182,7 @@ function EventCard({
     try {
       await api.answer(event.eventId, accountId, value, sessionId);
       const label = sessionId ? event.sessions.find((s) => s.id === sessionId)?.label : undefined;
-      toast(label ? `You're in for ${label}` : value === "yes" ? "You're in" : value === "no" ? "Marked as not coming" : "Marked as maybe");
+      toast(label ? `You're in for ${label}` : value === "yes" ? "You're in" : value === "no" ? "Signup withdrawn" : "Marked as maybe");
       onAnswered();
     } catch (e) {
       setAnswer(previous.answer);
@@ -244,7 +244,7 @@ function EventCard({
             disabled={event.closed || busy !== null}
             onClick={() => void choose("no")}
           >
-            {busy === "no" ? "…" : "Can't"}
+            {busy === "no" ? "…" : "Not signed up"}
           </button>
         </div>
       ) : (
