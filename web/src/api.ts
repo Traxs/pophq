@@ -103,11 +103,36 @@ export interface SignUpEntry {
   likely: "starter" | "sub";
 }
 
+export type LineupRole = "starter" | "sub";
+
+export interface LineupEntryView {
+  playerId: string;
+  name: string;
+  role: LineupRole;
+  /** Order within the role, 1-based. */
+  position: number;
+  foundryStrength: number | null;
+  /** False when an officer picked someone who never answered. */
+  signedUp: boolean;
+}
+
+/** The lineup officers published for one part: the decision, not the estimate (P5.4). */
+export interface PublishedLineup {
+  version: number;
+  publishedAt: string;
+  note?: string;
+  entries: LineupEntryView[];
+}
+
 /** A session as the event page shows it: with live counts and where you stand. */
 export interface SessionView extends EventSession {
   signedUp: number;
   spotsLeft: number | null;
   signedUpList: SignUpEntry[];
+  /** Null until officers publish; then it replaces the estimate. */
+  lineup: PublishedLineup | null;
+  /** Your place in the published lineup, if you are in it. */
+  yourPlace?: { role: LineupRole; position: number };
   yourStanding?: SessionStanding;
 }
 
@@ -159,6 +184,8 @@ export interface EventMember {
   answeredAt: string | null;
   /** Officer view only. */
   attended: AttendanceStatus | null;
+  /** Where this member ended up in a published lineup, if anywhere. */
+  lineup: { sessionId: string; role: LineupRole; position: number } | null;
   strengthTrend: (number | null)[];
   attendanceTrend: (number | null)[];
   power: number | null;
@@ -278,6 +305,18 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
         ...(sessionId ? { sessionId } : {}),
       }),
     reliability: (playerId: string) => request<Reliability>("GET", `/accounts/${playerId}/reliability`),
+    publishLineup: (
+      eventId: string,
+      sessionId: string,
+      entries: { playerId: string; role: LineupRole }[],
+      expectedVersion: number,
+      note?: string,
+    ) =>
+      request<PublishedLineup>("POST", `/events/${eventId}/sessions/${sessionId}/lineup`, {
+        entries,
+        expectedVersion,
+        ...(note ? { note } : {}),
+      }),
     answer: (eventId: string, playerId: string, answer: Answer, sessionId?: string) =>
       request<{ answer: Answer; sessionId?: string }>("PUT", `/events/${eventId}/answers/${playerId}`, {
         answer,

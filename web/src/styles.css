@@ -1307,3 +1307,42 @@ th[aria-sort="descending"] .th-btn {
   stroke-width: 1;
   stroke-dasharray: 2 2;
 }
+
+/* Published lineups (P5.4): the decision, shown above the ranking it came from. */
+.lineup {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.lineup-list {
+  list-style: none;
+  margin: 4px 0 10px;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.lineup-row {
+  display: grid;
+  grid-template-columns: 1.6rem 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+.lineup-row:nth-child(odd) {
+  background: var(--surface-2);
+}
+.lineup-editor .lineup-row {
+  grid-template-columns: 1fr auto auto;
+}
+.lineup-editor {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.row-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}

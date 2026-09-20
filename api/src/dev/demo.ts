@@ -105,7 +105,8 @@ export async function seedDemo(repo: Repository, now: Date, actor: Actor = { id:
     parseNewAccount({ playerId: "200000001", name: "MirGuest", alliance: "MIR", status: "guest" }),
     parseNewAccount({ playerId: "200000002", name: "GoldGuest", alliance: "24K", status: "guest" }),
   );
-  for (const a of accounts) await repo.createAccount(a, actor);
+  // Concurrently: a sequential loop here is the slowest part of every integration suite's setup.
+  await inBatches(accounts, 8, async (a) => repo.createAccount(a, actor));
   for (const [sub, ids] of Object.entries(PERSONA_LINKS)) {
     for (const id of ids) await repo.linkAccount(sub, id, actor);
   }
@@ -186,7 +187,17 @@ export async function addDemoEvents(repo: Repository, now: Date, actor: Actor): 
     return d.toISOString();
   };
   const planned = [
-    { kind: "foundry" as const, title: "Foundry Saturday", startsAt: at(2, 19), notes: "Two legions, be online 10 minutes early." },
+    {
+      kind: "foundry" as const,
+      title: "Foundry Saturday",
+      startsAt: at(6, 19),
+      notes: "Two legions, be online 10 minutes early.",
+      // The real shape: one event, a part per legion, 30 starters and 10 substitutes each.
+      sessions: [
+        { id: "L1", label: "Legion 1", startsAt: at(6, 12), starters: 30, subs: 10 },
+        { id: "L2", label: "Legion 2", startsAt: at(6, 19), starters: 30, subs: 10 },
+      ],
+    },
     { kind: "bear" as const, title: "Bear hunt", startsAt: at(1, 18) },
     { kind: "svs" as const, title: "SvS preparation call", startsAt: at(5, 20), notes: "Bring your buff wishes." },
   ];
@@ -209,7 +220,12 @@ export async function randomAnswers(repo: Repository, now: Date, actor: Actor) {
     for (const account of accounts) {
       if (random() < 0.25) continue; // a quarter stay silent, like real life
       const answer = ANSWERS[random() < 0.7 ? 0 : random() < 0.5 ? 1 : 2] ?? "yes";
-      await repo.setAnswer(event, account.playerId, { answer }, "player", actor);
+      // A yes for an event with parts has to name one, exactly like a real answer.
+      const sessionId =
+        answer === "yes" && event.sessions.length > 0
+          ? event.sessions[Math.floor(random() * event.sessions.length)]!.id
+          : undefined;
+      await repo.setAnswer(event, account.playerId, { answer, ...(sessionId ? { sessionId } : {}) }, "player", actor);
       answered += 1;
     }
   }
