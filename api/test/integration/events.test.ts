@@ -219,7 +219,7 @@ describe("Foundry legions", () => {
     expect(detail.body.startsAt).toBe(inDays(10, 12));
   });
 
-  it("lets a player pick one legion, and switching replaces the first pick", async () => {
+  it("lets a player switch legions and revoke the signup", async () => {
     const first = await h.call("PUT", `/events/${foundryId}/answers/100000001`, {
       ...PLAYER,
       body: { answer: "yes", sessionId: "L1" },
@@ -238,6 +238,16 @@ describe("Foundry legions", () => {
       (m) => m.playerId === "100000001",
     );
     expect(mine?.sessionId).toBe("L2"); // never in both legions
+
+    const withdrawn = await h.call("PUT", `/events/${foundryId}/answers/100000001`, {
+      ...PLAYER,
+      body: { answer: "no" },
+    });
+    expect(withdrawn.body).toMatchObject({ answer: "no" });
+    expect(withdrawn.body.sessionId).toBeUndefined();
+
+    const afterWithdrawal = await h.call("GET", `/events/${foundryId}`, OFFICER);
+    expect(afterWithdrawal.body.counts).toMatchObject({ yes: 0, no: 1, bySession: {} });
   });
 
   it("requires a legion for yes, and refuses one for no", async () => {
