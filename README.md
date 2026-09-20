@@ -12,7 +12,7 @@ Alliance command center for the POP alliance in Whiteout Survival (State 2612): 
 | `web/` | Web app (React + TypeScript, Vite) |
 | `dev/` | Local stack: DynamoDB Local, a mock sign-in server, a Discord webhook sink |
 | `infra/` | AWS CDK app: CodePipeline (push to `main` deploys) and the app stack |
-| `docs/` | Build plan |
+| `docs/` | Build plan, implementation context, and local debugging guide |
 | `agent/hermes-skill/` | Hermes skill and the `s26` CLI (not started) |
 | `scripts/` | Repository tooling (git hooks, dev runner) |
 
@@ -38,6 +38,8 @@ The local sign-in page shows a **test sign-in picker** (local development only).
 The **Dev** tab (local only) loads more data while the app runs: add random members, backfill months of history for the selected account, run a report round, or reset to the demo set. Its API routes exist only on the local server, never on AWS.
 
 Other commands: `npm run dev:reset` (wipe and re-seed), `npm run dev:down` (stop the stack). Discord messages sent locally can be read at http://localhost:8082/messages.
+
+For architecture/domain orientation and troubleshooting, see [Implementation context](docs/IMPLEMENTATION_CONTEXT.md) and [Local debugging](docs/LOCAL_DEBUGGING.md).
 
 ## Tests
 
