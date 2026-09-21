@@ -72,7 +72,7 @@ export interface InviteResult {
   seats: Seats;
 }
 
-export type AgentScope = "all:read" | "results:read" | "results:write";
+export type AgentScope = "all:read" | "results:read" | "results:write" | "events:write";
 export interface AgentTokenInfo {
   tokenId: string;
   name: string;

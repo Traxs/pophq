@@ -36,7 +36,7 @@ export async function authenticateAgent(
   if (!hasScope) throw new ForbiddenError(`This bot token needs the ${required} scope.`);
   const issuerGroups = await issuerGroupsFor(record.issuedBy);
   if (!issuerGroups) throw new ForbiddenError("The person who issued this bot token no longer has an account.");
-  if (required === "results:write" && !issuerGroups.has("officer") && !issuerGroups.has("owner")) {
+  if (required.endsWith(":write") && !issuerGroups.has("officer") && !issuerGroups.has("owner")) {
     throw new ForbiddenError("The person who issued this bot token no longer has permission for this action.");
   }
   await repo.touchAgentToken(record.tokenId, now);
@@ -61,5 +61,6 @@ export function effectiveBotScopes(record: AgentTokenRecord): AgentScope[] {
   return [
     ...(record.scopes.includes("all:read") || record.scopes.includes("results:read") ? ["all:read" as const] : []),
     ...(record.scopes.includes("results:write") ? ["results:write" as const] : []),
+    ...(record.scopes.includes("events:write") ? ["events:write" as const] : []),
   ];
 }

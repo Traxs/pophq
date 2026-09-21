@@ -496,6 +496,81 @@ export class Repository {
     return { bodyHash: String(res.Item.bodyHash), result: res.Item.result as EventResult };
   }
 
+  /** Creates or replaces an event and records the bot retry key in the same transaction. */
+  async putEventIdempotent(
+    event: AllianceEvent,
+    mode: "create" | "update",
+    actor: Actor,
+    tokenId: string,
+    key: string,
+    bodyHash: string,
+    previous?: AllianceEvent,
+  ): Promise<void> {
+    const meta = newItemMeta(actor, this.clock());
+    const updateCondition = previous
+      ? {
+          ConditionExpression:
+            "attribute_exists(PK) AND alliance = :alliance AND #kind = :kind AND title = :title AND startsAt = :startsAt AND deadlineAt = :deadlineAt AND sessions = :sessions AND createdBy = :createdBy" +
+            (previous.notes ? " AND notes = :notes" : " AND attribute_not_exists(notes)"),
+          ExpressionAttributeNames: { "#kind": "kind" },
+          ExpressionAttributeValues: {
+            ":alliance": previous.alliance,
+            ":kind": previous.kind,
+            ":title": previous.title,
+            ":startsAt": previous.startsAt,
+            ":deadlineAt": previous.deadlineAt,
+            ":sessions": previous.sessions,
+            ":createdBy": previous.createdBy,
+            ...(previous.notes ? { ":notes": previous.notes } : {}),
+          },
+        }
+      : {};
+    try {
+      await this.db.send(new TransactWriteCommand({
+        TransactItems: [
+          {
+            Put: {
+              TableName: this.table,
+              Item: {
+                ...eventKey(event.eventId),
+                ...eventIndexKey(event.alliance, event.startsAt, event.eventId),
+                type: "event",
+                ...event,
+                ...meta,
+              },
+              ...(mode === "create" ? { ConditionExpression: "attribute_not_exists(PK)" } : updateCondition),
+            },
+          },
+          {
+            Put: {
+              TableName: this.table,
+              Item: {
+                ...idempotencyKey(tokenId, key),
+                type: "agent-idempotency",
+                bodyHash,
+                event,
+                createdAt: meta.createdAt,
+                expiresAtEpoch: Math.floor(this.clock().getTime() / 1000) + 24 * 60 * 60,
+              },
+              ConditionExpression: "attribute_not_exists(PK)",
+            },
+          },
+        ],
+      }));
+    } catch (err) {
+      if (err instanceof TransactionCanceledException) {
+        throw new ConflictError("The event changed or this idempotency key was already used. Reload before retrying.");
+      }
+      throw err;
+    }
+  }
+
+  async getIdempotentEvent(tokenId: string, key: string): Promise<{ bodyHash: string; event: AllianceEvent } | undefined> {
+    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: idempotencyKey(tokenId, key) }));
+    if (!res.Item?.event) return undefined;
+    return { bodyHash: String(res.Item.bodyHash), event: res.Item.event as AllianceEvent };
+  }
+
   // ---- Agent tokens (P9.1, narrow result scopes first) ----
 
   async createAgentToken(record: AgentTokenRecord): Promise<void> {

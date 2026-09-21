@@ -122,6 +122,7 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 - [x] P9.1a Issuer-bound bot tokens: officers issue/list/revoke one-time 256-bit credentials; `all:read` plus optional `results:write`, live issuer-group/account checks, five active per officer, 90-day maximum and 30-day unused expiry (AGT-01)
 - [ ] P9.1b General bot-token platform: HMAC pepper in SSM, agents-off switch, and persistent automatic revocation records on officer demotion (AGT-01, AGT-05)
 - [x] P9.2a Bot route guard: bot credentials may use normal GET routes as their issuer plus result discovery/context, are refused from browsers, and normal POST/PUT/PATCH/DELETE routes reject them
+- [x] P9.2b Guarded event maintenance: officer-issued bots with `events:write` may preview and idempotently apply event creation (including historical dates) and event/session metadata edits; existing session ids are durable, edits use a preview hash, and normal web writes remain forbidden
 - [ ] P9.2b Output guards for untrusted text, row budgets, request/write quotas and scopes for other data families
 - [x] P9.3a Result writes: exact dry-run diff by default; apply requires reason, expected version and an atomically stored idempotency key
 - [ ] P9.3b Inbox proposals for large/sensitive changes and `lineup:write` for Hermes (AGT-03, EVT-05)

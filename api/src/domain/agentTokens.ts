@@ -3,7 +3,7 @@ import { ulid } from "ulid";
 import { z } from "zod";
 import { ValidationError } from "./errors.js";
 
-export const AGENT_SCOPES = ["all:read", "results:read", "results:write"] as const;
+export const AGENT_SCOPES = ["all:read", "results:read", "results:write", "events:write"] as const;
 export type AgentScope = (typeof AGENT_SCOPES)[number];
 
 export interface AgentTokenRecord {

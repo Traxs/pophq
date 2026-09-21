@@ -9,6 +9,8 @@ import {
   configureLegacySession,
   countAnswers,
   isClosed,
+  parseAgentEventChanges,
+  parseAgentNewEvent,
   parseAnswerChoice,
   parseEventChanges,
   parseNewEvent,
@@ -134,6 +136,99 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           sessions: event.sessions.map((session) => ({ id: session.id, label: session.label, startsAt: session.startsAt })),
         })),
     });
+  });
+
+  /** Guarded event creation, including faithful historical events. Preview is always the default. */
+  app.post("/agent/events", async (c) => {
+    const { token } = await authenticateAgent(
+      repo,
+      c.req.header("authorization"),
+      c.req.header("origin"),
+      "events:write",
+      now(),
+      botIssuerGroups,
+    );
+    const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+    const apply = c.req.query("apply") === "true";
+    const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+    const key = c.req.header("idempotency-key") ?? "";
+    const bodyHash = createHash("sha256").update(canonicalJson(body)).digest("hex");
+    if (apply) {
+      if (!reason) throw new ValidationError("Applying an agent event change requires a reason.");
+      if (!/^[A-Za-z0-9._:-]{8,100}$/.test(key)) {
+        throw new ValidationError("Applying requires an Idempotency-Key of 8–100 safe characters.");
+      }
+      const previous = await repo.getIdempotentEvent(token.tokenId, key);
+      if (previous) {
+        if (previous.bodyHash !== bodyHash) throw new ConflictError("That Idempotency-Key was already used for different data.");
+        return c.json({ dryRun: false, replayed: true, event: previous.event });
+      }
+    }
+    const event = parseAgentNewEvent(body, {
+      createdBy: `agent:${token.tokenId}`,
+      now: now(),
+    });
+    if (await repo.getEvent(event.eventId)) throw new ConflictError(`Event ${event.eventId} already exists.`);
+    if (!apply) return c.json({ dryRun: true, diff: { before: null, after: event } });
+    await repo.putEventIdempotent(
+      event,
+      "create",
+      { id: token.tokenId, via: `agent:${token.tokenId}`, reason },
+      token.tokenId,
+      key,
+      bodyHash,
+    );
+    c.header("x-change-id", key);
+    return c.json({ dryRun: false, replayed: false, event }, 201);
+  });
+
+  /** Guarded event/session metadata editing. Existing session ids remain durable foreign keys. */
+  app.patch("/agent/events/:id", async (c) => {
+    const { token } = await authenticateAgent(
+      repo,
+      c.req.header("authorization"),
+      c.req.header("origin"),
+      "events:write",
+      now(),
+      botIssuerGroups,
+    );
+    const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+    const apply = c.req.query("apply") === "true";
+    const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+    const expectedHash = typeof body.expectedHash === "string" ? body.expectedHash : "";
+    const key = c.req.header("idempotency-key") ?? "";
+    const bodyHash = createHash("sha256").update(canonicalJson(body)).digest("hex");
+    if (apply) {
+      if (!reason) throw new ValidationError("Applying an agent event change requires a reason.");
+      if (!expectedHash) throw new ValidationError("Applying an event edit requires the expectedHash from its preview.");
+      if (!/^[A-Za-z0-9._:-]{8,100}$/.test(key)) {
+        throw new ValidationError("Applying requires an Idempotency-Key of 8–100 safe characters.");
+      }
+      const previous = await repo.getIdempotentEvent(token.tokenId, key);
+      if (previous) {
+        if (previous.bodyHash !== bodyHash) throw new ConflictError("That Idempotency-Key was already used for different data.");
+        return c.json({ dryRun: false, replayed: true, event: previous.event });
+      }
+    }
+    const current = await repo.getEvent(c.req.param("id"));
+    if (!current) throw new NotFoundError("Event not found.");
+    const currentHash = createHash("sha256").update(canonicalJson(current)).digest("hex");
+    if (apply && expectedHash !== currentHash) {
+      throw new ConflictError("The event changed after preview. Preview the edit again before applying it.");
+    }
+    const updated = parseAgentEventChanges(current, body, now());
+    if (!apply) return c.json({ dryRun: true, expectedHash: currentHash, diff: { before: current, after: updated } });
+    await repo.putEventIdempotent(
+      updated,
+      "update",
+      { id: token.tokenId, via: `agent:${token.tokenId}`, reason },
+      token.tokenId,
+      key,
+      bodyHash,
+      current,
+    );
+    c.header("x-change-id", key);
+    return c.json({ dryRun: false, replayed: false, event: updated });
   });
 
   app.get("/agent/events/:id/sessions/:sid/result-context", async (c) => {

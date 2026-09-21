@@ -11,6 +11,7 @@ export function AgentTokens() {
   const [name, setName] = useState("Results bot");
   const [days, setDays] = useState(30);
   const [write, setWrite] = useState(true);
+  const [eventsWrite, setEventsWrite] = useState(true);
   const [secret, setSecret] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -21,7 +22,7 @@ export function AgentTokens() {
     setBusy(true);
     setError(null);
     try {
-      const scopes: AgentScope[] = write ? ["all:read", "results:write"] : ["all:read"];
+      const scopes: AgentScope[] = ["all:read", ...(write ? ["results:write" as const] : []), ...(eventsWrite ? ["events:write" as const] : [])];
       const issued = await api.issueAgentToken({ name, scopes, expiresInDays: days });
       setSecret(issued.token);
       await load();
@@ -30,18 +31,20 @@ export function AgentTokens() {
     } finally { setBusy(false); }
   };
 
-  const scopeLabel = (scope: AgentScope) => scope === "results:write" ? "Update results" : "Read data";
+  const scopeLabel = (scope: AgentScope) =>
+    scope === "results:write" ? "Update results" : scope === "events:write" ? "Manage events" : "Read data";
 
   return (
     <section className="card bot-token-panel" aria-labelledby="agent-token-title">
       <h2 id="agent-token-title" className="section-label">Bot tokens</h2>
-      <p className="muted small">A bot can read everything you can currently read. Optional result updates are its only write access, and stop working if you are no longer an officer.</p>
+      <p className="muted small">A bot can read everything you can currently read. Optional event and result writes stop working if you are no longer an officer.</p>
       <div className="bot-token-form">
         <div className="form-grid">
           <label className="field"><span>Name</span><input value={name} maxLength={60} onChange={(e) => setName(e.target.value)} /></label>
           <label className="field"><span>Expires</span><select value={days} onChange={(e) => setDays(Number(e.target.value))}><option value={7}>7 days</option><option value={30}>30 days</option><option value={90}>90 days</option></select></label>
         </div>
         <label className="checkbox-row"><input type="checkbox" checked={write} onChange={(e) => setWrite(e.target.checked)} /><span>Allow result updates <span className="muted">(preview remains the default)</span></span></label>
+        <label className="checkbox-row"><input type="checkbox" checked={eventsWrite} onChange={(e) => setEventsWrite(e.target.checked)} /><span>Allow event creation and editing <span className="muted">(including historical events; preview remains the default)</span></span></label>
         <div className="bot-token-actions">
           <button type="button" className="btn btn-primary btn-small" disabled={busy || !name.trim()} onClick={() => void issue()}>{busy ? "Issuing…" : "Issue token"}</button>
         </div>
