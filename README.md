@@ -104,6 +104,8 @@ Officers invite from the Members page: email (optional), Player ID, game name an
 
 Locally the invite flow uses a stand-in directory in DynamoDB Local, so invited emails can't actually sign in there; the test personas cover signed-in flows.
 
+**Troops** are reported per type. Infantry, Lancer and Marksman each have their own FC level — capped by the furnace, since troops cannot pass it — and **Helios** is an upgrade on top of a type's level, so a member can hold it on all three at once. A report states both the level and whether Helios is there, so turning it off is as recordable as turning it on.
+
 ## Events
 
 Officers schedule events (Foundry, SvS, FDT, Canyon, Tundra League, other) with a start time. Answers close a set number of days before the start, per type: **Foundry three days**, because officers register the participants in game afterwards; other types an hour before unless changed. The deadline falls at the end of that day in the officer's time zone, and can be overridden per event. Officers can edit an event later; moving the start moves the deadline with it. Event types are defined by officers: each carries how many days before the start answers close, which parts people choose between, and a strategy template. New events inherit from a type and can still be changed.

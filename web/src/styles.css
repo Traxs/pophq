@@ -1557,3 +1557,20 @@ th[aria-sort="descending"] .th-btn {
 .slot-picked .slot-next {
   color: inherit;
 }
+
+/* Power report: one row per troop type — level, then the Helios upgrade on top of it. */
+.troop-row {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.troop-name {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+.troop-row input[type="text"],
+.troop-row input:not([type]) {
+  width: 100%;
+}

@@ -18,7 +18,8 @@ describe("parseReport", () => {
         values: [
           { metric: "city_power", value: "45,123,456" },
           { metric: "furnace_level", value: "fc5-2" },
-          { metric: "helios", value: "lancer" },
+          { metric: "troop_level_lancer", value: "fc9" },
+          { metric: "helios_lancer", value: "yes" },
         ],
       },
       ctx(),
@@ -27,7 +28,8 @@ describe("parseReport", () => {
     expect(r.values).toEqual([
       { metric: "city_power", value: 45_123_456, unit: "power", precision: "exact" },
       { metric: "furnace_level", value: "FC5-2", unit: "level", precision: "exact" },
-      { metric: "helios", value: "Lancer", unit: "type", precision: "exact" },
+      { metric: "troop_level_lancer", value: "FC9", unit: "level", precision: "exact" },
+      { metric: "helios_lancer", value: "yes", unit: "yes/no", precision: "exact" },
     ]);
   });
 
@@ -40,10 +42,51 @@ describe("parseReport", () => {
     expect(level(v)).toThrow(ValidationError);
   });
 
-  it("keeps Unknown, None and Soon distinct for Helios", () => {
-    for (const v of ["Unknown", "None", "Soon"]) {
-      expect(parseReport({ values: [{ metric: "helios", value: v }] }, ctx()).values[0]?.value).toBe(v);
-    }
+  // Helios is an extension of a troop type's level, so all three can hold it at once.
+  it("records Helios per troop type, not as a choice between them", () => {
+    const r = parseReport(
+      {
+        values: [
+          { metric: "helios_infantry", value: "yes" },
+          { metric: "helios_lancer", value: "yes" },
+          { metric: "helios_marksman", value: "no" },
+        ],
+      },
+      ctx(),
+    );
+    expect(r.values.map((v) => `${v.metric}=${v.value}`)).toEqual([
+      "helios_infantry=yes",
+      "helios_lancer=yes",
+      "helios_marksman=no",
+    ]);
+  });
+
+  it("reads a flag from whatever a form or an import sends", () => {
+    const flag = (value: unknown) =>
+      parseReport({ values: [{ metric: "helios_infantry", value }] }, ctx()).values[0]?.value;
+    expect(flag(true)).toBe("yes");
+    expect(flag("Yes")).toBe("yes");
+    expect(flag(1)).toBe("yes");
+    expect(flag(false)).toBe("no");
+    expect(flag("no")).toBe("no");
+    expect(flag(0)).toBe("no");
+    expect(() => flag("maybe")).toThrow(ValidationError);
+  });
+
+  it("levels troops per type, with the same scale as the furnace", () => {
+    const r = parseReport(
+      {
+        values: [
+          { metric: "troop_level_infantry", value: "FC9" },
+          { metric: "troop_level_marksman", value: "30" },
+        ],
+      },
+      ctx(),
+    );
+    expect(r.values.map((v) => v.value)).toEqual(["FC9", "30"]);
+    expect(() => parseReport({ values: [{ metric: "troop_level_lancer", value: "FC11" }] }, ctx())).toThrow(
+      ValidationError,
+    );
   });
 
   it("rejects unknown and duplicate metrics", () => {
