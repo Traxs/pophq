@@ -216,23 +216,24 @@ export async function addDemoEvents(repo: Repository, now: Date, actor: Actor): 
     {
       kind: "svs" as const,
       title: "SvS preparation call",
-      startsAt: at(5, 20),
+      startsAt: at(5, 12),
       notes: "Bring your buff wishes.",
-      // SvS and FDT ask how much of it you can give, not which slot you take.
+      // SvS and FDT ask how much of it you can give, not which slot you take. Six hours from
+      // 12:00 UTC, so the last half starts at 15:00.
       sessions: [
-        { id: "full", label: "Full time", startsAt: at(5, 20) },
-        { id: "first", label: "First half", startsAt: at(5, 20) },
-        { id: "last", label: "Last half", startsAt: at(5, 22) },
+        { id: "full", label: "Full time", startsAt: at(5, 12) },
+        { id: "first", label: "First half", startsAt: at(5, 12) },
+        { id: "last", label: "Last half", startsAt: at(5, 15) },
       ],
     },
     {
       kind: "fdt" as const,
       title: "FDT",
-      startsAt: at(3, 19),
+      startsAt: at(3, 12),
       sessions: [
-        { id: "full", label: "Full time", startsAt: at(3, 19) },
-        { id: "first", label: "First half", startsAt: at(3, 19) },
-        { id: "last", label: "Last half", startsAt: at(3, 20) },
+        { id: "full", label: "Full time", startsAt: at(3, 12) },
+        { id: "first", label: "First half", startsAt: at(3, 12) },
+        { id: "last", label: "Last half", startsAt: at(3, 15) },
       ],
     },
   ];

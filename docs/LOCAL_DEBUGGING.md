@@ -142,6 +142,22 @@ Check `http://localhost:8081/pophq/.well-known/openid-configuration`, then clear
 
 Run `npm run dev:reset`. Seed is intentionally idempotent, so ordinary `dev:up` says “Demo data already present” rather than overwriting changes.
 
+### Integration tests time out after a few days of use
+
+DynamoDB Local keeps everything in memory and does not give it back: each integration file
+creates and drops its own table, so after a couple of days and a few hundred runs the container
+sits on a gigabyte and slows to the point where `beforeAll` hooks and whole tests exceed their
+timeouts. The failures wander between files from run to run, which is the giveaway — a real
+regression fails the same test every time.
+
+```bash
+docker restart pophq-dev-dynamodb-1 && npm run dev:reset
+```
+
+Measured on 2026-09-21: 1.04 GiB resident and three to four timeouts per run before the restart;
+180 MiB and all 130 tests passing in 7.6 s after it. Do not reach for `--maxWorkers=1` — it hides
+this rather than fixing it, and the suite is meant to run in parallel.
+
 ### Timeline has no new entry
 
 Ensure the API watcher is running: it starts the local history poller. Allow roughly its one-second polling interval, then check API terminal warnings.
