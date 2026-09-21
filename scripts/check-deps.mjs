@@ -10,7 +10,17 @@ import { basename, join } from "node:path";
 
 const WORKSPACES = ["api", "web", "infra"];
 const CODE = /\.(ts|tsx|mts|js|mjs)$/;
-const IMPORT = /(?:^|\s)(?:import|export)[\s\S]*?from\s+["']([^"']+)["']|import\(\s*["']([^"']+)["']\s*\)/g;
+// Bounded on purpose: an unbounded gap between "import" and "from" used to run across whole
+// files and match the word "from" inside a comment, reporting a prose phrase as a package.
+// No import clause contains a semicolon, so a statement end stops the search.
+const IMPORT = /^[ \t]*(?:import|export)\b[^;]*?\bfrom\s*["']([^"']+)["']|\bimport\(\s*["']([^"']+)["']\s*\)/gm;
+
+/** Comments are prose, not code: "…different from "any time"" is not an import. */
+const withoutComments = (src) =>
+  src
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    // Only after whitespace or at the start of a line, so "https://…" inside a string survives.
+    .replace(/(^|\s)\/\/.*$/gm, "$1");
 const builtins = new Set(builtinModules);
 
 /** Tests, scripts and config files never run on AWS, so dev tooling is fine there. */
@@ -40,7 +50,7 @@ for (const ws of WORKSPACES) {
   const devDeps = new Set(Object.keys(pkg.devDependencies ?? {}));
   for (const file of files(ws)) {
     const dev = isDevFile(file);
-    for (const match of readFileSync(file, "utf8").matchAll(IMPORT)) {
+    for (const match of withoutComments(readFileSync(file, "utf8")).matchAll(IMPORT)) {
       const spec = match[1] ?? match[2];
       if (!spec || spec.startsWith(".") || spec.startsWith("node:")) continue;
       const name = packageOf(spec);

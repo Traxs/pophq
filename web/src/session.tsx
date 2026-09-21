@@ -144,6 +144,10 @@ export function SessionProvider({
       attendance: guard(inner.attendance),
       reliability: guard(inner.reliability),
       publishLineup: guard(inner.publishLineup),
+      svsRounds: guard(inner.svsRounds),
+      createSvsRound: guard(inner.createSvsRound),
+      svsRound: guard(inner.svsRound),
+      saveBuffPreferences: guard(inner.saveBuffPreferences),
       publishStrategy: guard(inner.publishStrategy),
       recordResult: guard(inner.recordResult),
     };

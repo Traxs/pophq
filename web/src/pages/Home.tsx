@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { EventListItem } from "../api";
+import { ApiError, type EventListItem, type SvsRoundListItem } from "../api";
 import { change, compact, dayTime, daysBetween, relativeDay, untilText } from "../format";
 import { navigate } from "../router";
 import { REPORT_DUE_DAYS } from "../rules";
@@ -9,9 +9,10 @@ import { ChangePill } from "./Power";
 
 
 export function Home() {
-  const { me, account, api, dataVersion } = useSession();
+  const { me, account, api, isOfficer, dataVersion } = useSession();
   const { latest, previous, loading } = usePower();
   const [nextEvent, setNextEvent] = useState<EventListItem | null>(null);
+  const [round, setRound] = useState<SvsRoundListItem | null>(null);
 
   useEffect(() => {
     api
@@ -24,6 +25,17 @@ export function Home() {
         setNextEvent(open[0] ?? null);
       })
       .catch(() => setNextEvent(null)); // the Events page reports problems
+  }, [api, dataVersion]);
+
+  useEffect(() => {
+    api
+      .svsRounds()
+      .then((r) => {
+        // The round that still wants an answer comes first; otherwise the next one running.
+        const live = r.items.filter((x) => x.state === "collecting" || x.state === "published");
+        setRound(live.toSorted((a, b) => Number(b.state === "collecting") - Number(a.state === "collecting"))[0] ?? null);
+      })
+      .catch(() => setRound(null));
   }, [api, dataVersion]);
 
   if (me && me.accounts.length === 0) return <NoAccount />;
@@ -97,9 +109,107 @@ export function Home() {
         </button>
       )}
 
-      <p className="muted small center">SvS buff slots arrive here in a future update.</p>
+      {round && (
+        <button type="button" className="card todo-row" onClick={() => navigate(`/svs/${round.roundId}`)}>
+          <span className={round.state === "collecting" && !round.answered ? "todo-mark todo-open" : "todo-mark todo-done"} aria-hidden="true">
+            {round.state === "collecting" && !round.answered ? "?" : "✓"}
+          </span>
+          <span className="todo-text">
+            <strong>{round.label}</strong>
+            <span className="muted">
+              {round.state === "collecting"
+                ? round.answered
+                  ? `Your buff times are in · you can change them, closes ${untilText(round.preferenceDeadline)}`
+                  : `Pick your buff times · closes ${untilText(round.preferenceDeadline)}`
+                : "Buff plan published"}
+            </span>
+          </span>
+          <span className="chevron" aria-hidden="true">
+            ›
+          </span>
+        </button>
+      )}
+
+      {!round && isOfficer && <NewRoundCard />}
     </>
   );
+}
+
+/** Officers open the next SvS round from Home, where the missing round is most obvious (BUF-01). */
+function NewRoundCard() {
+  const { api, dataChanged } = useSession();
+  const [open, setOpen] = useState(false);
+  const [label, setLabel] = useState("");
+  const [weekStart, setWeekStart] = useState(nextMonday());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!open) {
+    return (
+      <button type="button" className="text-btn center-block" onClick={() => setOpen(true)}>
+        Start an SvS round
+      </button>
+    );
+  }
+
+  const create = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const created = await api.createSvsRound({ label: label.trim(), weekStart });
+      dataChanged();
+      navigate(`/svs/${created.roundId}`);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Couldn't start the round.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="card stack" aria-labelledby="new-round-title">
+      <h2 id="new-round-title" className="section-label">
+        New SvS round
+      </h2>
+      <p className="muted small">
+        Construction, Research and Training fall on the Monday, Tuesday and Thursday of that week.
+        Times close as the first buff day begins.
+      </p>
+      <label className="field">
+        <span>Name</span>
+        <input value={label} maxLength={60} placeholder="SvS week 41" onChange={(e) => setLabel(e.target.value)} />
+      </label>
+      <label className="field">
+        <span>Monday of the SvS week</span>
+        <input type="date" value={weekStart} onChange={(e) => setWeekStart(e.target.value)} />
+      </label>
+      {error && (
+        <p className="banner banner-error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="row-actions">
+        <button
+          type="button"
+          className="btn btn-primary btn-small"
+          disabled={busy || label.trim().length < 3 || !weekStart}
+          onClick={() => void create()}
+        >
+          {busy ? "Starting…" : "Start round"}
+        </button>
+        <button type="button" className="btn btn-quiet btn-small" disabled={busy} onClick={() => setOpen(false)}>
+          Cancel
+        </button>
+      </div>
+    </section>
+  );
+}
+
+/** The Monday of next week, which is the usual SvS week when an officer opens a round. */
+function nextMonday(from: Date = new Date()): string {
+  const d = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()));
+  d.setUTCDate(d.getUTCDate() + ((8 - d.getUTCDay()) % 7 || 7));
+  return d.toISOString().slice(0, 10);
 }
 
 /** Shown to a signed-in person whose game account an officer hasn't linked yet. */

@@ -260,6 +260,49 @@ export interface EventDetail extends Omit<EventListItem, "sessions"> {
   members?: EventMember[];
 }
 
+export type Buff = "construction" | "research" | "training";
+export type RoundState = "collecting" | "planning" | "published" | "closed";
+
+export interface BuffDayView {
+  id: string;
+  buff: Buff;
+  /** The buff day in UTC, YYYY-MM-DD. */
+  date: string;
+  /** Slot 0's start, so the UI can work out every other slot locally. */
+  startsAt: string;
+  endsAt: string;
+  /** How many people asked for each of the 48 slots. */
+  demand: number[];
+  anyTime: number;
+  unavailable: number;
+}
+
+export interface DayPreferenceInput {
+  dayId: string;
+  slots?: number[];
+  anyTime?: boolean;
+  unavailable?: boolean;
+  note?: string;
+}
+
+export interface SvsRoundListItem {
+  roundId: string;
+  label: string;
+  alliance: string;
+  preferenceDeadline: string;
+  publishedAt?: string;
+  state: RoundState;
+  /** Whether the account you are acting as has answered. */
+  answered: boolean;
+  days: { id: string; buff: Buff; date: string }[];
+}
+
+export interface SvsRoundDetail extends Omit<SvsRoundListItem, "days" | "answered"> {
+  days: BuffDayView[];
+  answeredBy: number;
+  yourPreferences: DayPreferenceInput[] | null;
+}
+
 export interface NewEvent {
   kind: EventKind;
   title: string;
@@ -371,6 +414,12 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
         ...(sessionId ? { sessionId } : {}),
       }),
     reliability: (playerId: string) => request<Reliability>("GET", `/accounts/${playerId}/reliability`),
+    svsRounds: () => request<{ items: SvsRoundListItem[] }>("GET", "/svs-rounds"),
+    createSvsRound: (input: { label: string; weekStart: string }) =>
+      request<SvsRoundListItem>("POST", "/svs-rounds", input),
+    svsRound: (roundId: string) => request<SvsRoundDetail>("GET", `/svs-rounds/${roundId}`),
+    saveBuffPreferences: (roundId: string, playerId: string, days: DayPreferenceInput[]) =>
+      request<{ days: DayPreferenceInput[] }>("PUT", `/svs-rounds/${roundId}/preferences/${playerId}`, { days }),
     publishLineup: (
       eventId: string,
       sessionId: string,

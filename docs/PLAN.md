@@ -96,9 +96,10 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 
 ## Milestone 6: SvS buff slots
 
-- [ ] P6.1 SvS rounds with three buff days and 48 slots each (BUF-01)
-- [ ] P6.2 Preferences, up to 3 per day, locked at the deadline (BUF-02, FM-09)
-- [ ] P6.3 Planning board with demand, conflicts, unassigned list (BUF-03); one slot per game account per day in one transaction (FM-11)
+- [x] P6.1 SvS rounds with three buff days and 48 slots each (BUF-01); Construction/Research/Training default to the Monday, Tuesday and Thursday of the SvS week and are editable per round
+- [x] P6.2 Preferences, up to 3 ranked times per day plus "any time" and "can't this day", locked at the deadline in the same write (BUF-02, FM-09); demand per slot is visible to everyone while choosing
+- [ ] P6.3 Planning board with demand, conflicts, unassigned list (BUF-03); the assignment transaction enforcing one slot per person per day and two per round (FM-11)
+- [ ] P6.3b Kudos in the officer UI: awarding, and the decayed score on the board next to attendance and strength
 - [ ] P6.4 Guests from other alliances (BUF-04); publish with plan version check (BUF-05); my slots on Home (BUF-06)
 - [ ] P6.5 Change / swap requests (BUF-07); calendar file (BUF-08)
 - [ ] P6.6 Dev tools: generate preferences; auto-assign by attendance score in shadow mode (BUF-09)
@@ -144,6 +145,9 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 
 ## Decisions made during the build
 
+- **2026-09-21, who gets a buff slot:** a weighted score rather than officer instinct or first-come — **0.6 × attendance rate + 0.2 × (Foundry strength ÷ strongest) + 0.2 × kudos share**. Attendance leads because a buff slot is a promise to be online at a time; unknown attendance counts as reliable, as in the Foundry lineup. A first choice still beats a second choice before the score is consulted, so the ranking respects what people actually asked for.
+- **2026-09-21, how many slots one person gets:** one per buff day and **at most two across the round**, so the good hours reach more people. The cap is per *person*, not per game account — the only rule in POP HQ that keys on the login rather than the account, because someone with three alts should not take three slots.
+- **2026-09-21, kudos:** officers award points with a reason for what the numbers cannot see, and the points **halve every 90 days**, so the score says who is contributing now. Awards are immutable; a mistake is corrected by awarding the opposite, which keeps the history honest.
 - **2026-09-20, bot reads follow the person and writes stay narrow:** a bot token can call every normal GET route using its issuer's live Cognito groups and linked accounts, so it sees exactly what that person sees and demotion reduces access immediately. Normal write routes reject bot tokens. The only bot write is a result update, which previews an exact diff unless the bot supplies `apply=true`, a reason, the current version and an idempotency key. Browser-origin bot requests are rejected. The initial 256-bit random secrets are stored as SHA-256 hashes; the broader token platform still adds the specified SSM HMAC pepper, quotas and global agents-off switch.
 - **2026-09-20, Foundry is a signup rather than a generic RSVP:** a member is signed up for L1, signed up for L2, or not signed up. Picking the other legion replaces the earlier choice, and “Withdraw signup” records a deliberate not-signed-up response so officers can still distinguish it from no response. Members may switch or withdraw until answers close; officers retain the existing until-start override.
 - **2026-09-20, results are per session and player points stay private:** each legion has its own versioned outcome, score and matchup facts. All members see those aggregate facts; an individual sees only their own points, while officers see and edit the complete points list. Screenshot extraction remains separate until evidence and agent plumbing exist.

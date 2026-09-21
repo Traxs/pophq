@@ -12,7 +12,9 @@ import type { GameAccount } from "../domain/accounts.js";
 import type { AttendanceRecord } from "../domain/attendance.js";
 import type { AllianceEvent, Answer, EventAnswer } from "../domain/events.js";
 import type { EventType } from "../domain/eventTypes.js";
+import type { KudosAward } from "../domain/kudos.js";
 import type { Lineup } from "../domain/lineups.js";
+import type { SlotPreferences, SvsRound } from "../domain/svs.js";
 import type { Strategy } from "../domain/strategy.js";
 import type { EventResult } from "../domain/results.js";
 import type { AgentTokenRecord } from "../domain/agentTokens.js";
@@ -33,6 +35,7 @@ import {
   eventIndexKey,
   eventKey,
   eventTypeKey,
+  kudosKey,
   lineupKey,
   idempotencyKey,
   historicalRecordKey,
@@ -42,6 +45,9 @@ import {
   seatCounterKey,
   seatKey,
   strategyKey,
+  svsPreferencesKey,
+  svsRoundIndexKey,
+  svsRoundKey,
 } from "./keys.js";
 import { newItemMeta, type Actor } from "./meta.js";
 
@@ -929,6 +935,156 @@ export class Repository {
     }
   }
 
+  // ---- SvS buff slots (BUF-01..BUF-06) and kudos ----
+
+  async putRound(round: SvsRound, actor: Actor): Promise<void> {
+    const firstDate = [...round.days].map((d) => d.date).toSorted()[0]!;
+    await this.db.send(
+      new PutCommand({
+        TableName: this.table,
+        Item: {
+          ...svsRoundKey(round.roundId),
+          ...svsRoundIndexKey(round.alliance, firstDate, round.roundId),
+          type: "svs-round",
+          ...round,
+          ...newItemMeta(actor, this.clock()),
+        },
+      }),
+    );
+  }
+
+  async getRound(roundId: string): Promise<SvsRound | undefined> {
+    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: svsRoundKey(roundId) }));
+    return res.Item ? toRound(res.Item) : undefined;
+  }
+
+  /** Rounds of an alliance whose first buff day is on or after `from`, earliest first. */
+  async listRounds(alliance: string, from: string, limit = 20): Promise<SvsRound[]> {
+    const items = await this.queryAll({
+      IndexName: "GSI1",
+      KeyConditionExpression: "GSI1PK = :pk AND GSI1SK >= :from",
+      ExpressionAttributeValues: { ":pk": `SVSROUNDS#${alliance}`, ":from": from },
+      Limit: limit,
+    });
+    return items.map(toRound);
+  }
+
+  /**
+   * Saves what someone can make. The deadline is checked in the same write, so a save that was
+   * in flight when preferences closed is refused rather than slipping in (FM-09). Officers do not
+   * edit preferences: after the deadline they assign slots instead.
+   */
+  async setPreferences(preferences: SlotPreferences, actor: Actor): Promise<SlotPreferences> {
+    const now = this.clock();
+    try {
+      await this.db.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              ConditionCheck: {
+                TableName: this.table,
+                Key: svsRoundKey(preferences.roundId),
+                ConditionExpression: "attribute_exists(PK) AND preferenceDeadline > :now",
+                ExpressionAttributeValues: { ":now": now.toISOString() },
+              },
+            },
+            {
+              ConditionCheck: {
+                TableName: this.table,
+                Key: accountKey(preferences.playerId),
+                ConditionExpression: "attribute_exists(PK) AND #status IN (:active, :guest, :unknown)",
+                ExpressionAttributeNames: { "#status": "status" },
+                ExpressionAttributeValues: WRITABLE_STATUSES,
+              },
+            },
+            {
+              Put: {
+                TableName: this.table,
+                Item: {
+                  ...svsPreferencesKey(preferences.roundId, preferences.playerId),
+                  type: "svs-preferences",
+                  ...preferences,
+                  ...newItemMeta(actor, now),
+                },
+              },
+            },
+          ],
+        }),
+      );
+      return preferences;
+    } catch (err) {
+      const reasons = cancellationCodes(err);
+      if (reasons?.[0] === "ConditionalCheckFailed") throw new ConflictError("Preferences for this round are closed.");
+      if (reasons?.[1] === "ConditionalCheckFailed") {
+        throw new ConflictError(`Game account ${preferences.playerId} doesn't exist or doesn't accept new data.`);
+      }
+      throw err;
+    }
+  }
+
+  async getPreferences(roundId: string, playerId: string): Promise<SlotPreferences | undefined> {
+    const res = await this.db.send(
+      new GetCommand({ TableName: this.table, Key: svsPreferencesKey(roundId, playerId) }),
+    );
+    return res.Item ? toPreferences(res.Item) : undefined;
+  }
+
+  async listPreferences(roundId: string): Promise<SlotPreferences[]> {
+    const items = await this.queryAll({
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+      ExpressionAttributeValues: { ":pk": `SVS#${roundId}`, ":sk": "PREF#" },
+    });
+    return items.map(toPreferences);
+  }
+
+  /** Kudos are immutable: a mistake is corrected by awarding the opposite, never by editing. */
+  async addKudos(award: KudosAward, actor: Actor): Promise<void> {
+    try {
+      await this.db.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              ConditionCheck: {
+                TableName: this.table,
+                Key: accountKey(award.playerId),
+                ConditionExpression: "attribute_exists(PK) AND #status IN (:active, :guest, :unknown)",
+                ExpressionAttributeNames: { "#status": "status" },
+                ExpressionAttributeValues: WRITABLE_STATUSES,
+              },
+            },
+            {
+              Put: {
+                TableName: this.table,
+                Item: {
+                  ...kudosKey(award.playerId, award.awardId),
+                  type: "kudos",
+                  ...award,
+                  ...newItemMeta(actor, this.clock()),
+                },
+                ConditionExpression: "attribute_not_exists(SK)",
+              },
+            },
+          ],
+        }),
+      );
+    } catch (err) {
+      const reasons = cancellationCodes(err);
+      if (reasons?.[0] === "ConditionalCheckFailed") {
+        throw new ConflictError(`Game account ${award.playerId} doesn't exist or doesn't accept new data.`);
+      }
+      if (reasons?.[1] === "ConditionalCheckFailed") throw new ConflictError("That kudos was already recorded.");
+      throw err;
+    }
+  }
+
+  async listKudos(playerId: string): Promise<KudosAward[]> {
+    const items = await this.queryAll({
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+      ExpressionAttributeValues: { ":pk": `ACCOUNT#${playerId}`, ":sk": "KUDOS#" },
+    });
+    return items.map(toKudos);
+  }
+
   async listReports(playerId: string): Promise<Report[]> {
     const items = await this.queryAll({
       KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
@@ -1022,6 +1178,39 @@ function toReport(item: Record<string, unknown>): Report {
   if (item.supersedesReportId) report.supersedesReportId = String(item.supersedesReportId);
   if (item.note) report.note = String(item.note);
   return report;
+}
+
+function toRound(item: Record<string, unknown>): SvsRound {
+  const round: SvsRound = {
+    roundId: String(item.roundId),
+    alliance: String(item.alliance),
+    label: String(item.label),
+    days: Array.isArray(item.days) ? (item.days as SvsRound["days"]) : [],
+    preferenceDeadline: String(item.preferenceDeadline),
+    createdBy: String(item.createdBy),
+  };
+  if (item.publishedAt) round.publishedAt = String(item.publishedAt);
+  return round;
+}
+
+function toPreferences(item: Record<string, unknown>): SlotPreferences {
+  return {
+    roundId: String(item.roundId),
+    playerId: String(item.playerId),
+    days: Array.isArray(item.days) ? (item.days as SlotPreferences["days"]) : [],
+    updatedAt: String(item.updatedAt),
+  };
+}
+
+function toKudos(item: Record<string, unknown>): KudosAward {
+  return {
+    awardId: String(item.awardId),
+    playerId: String(item.playerId),
+    points: Number(item.points),
+    reason: String(item.reason),
+    awardedAt: String(item.awardedAt),
+    awardedBy: String(item.awardedBy),
+  };
 }
 
 function toLineup(item: Record<string, unknown>): Lineup {

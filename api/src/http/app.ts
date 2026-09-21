@@ -20,6 +20,15 @@ import {
 } from "../domain/events.js";
 import { parseEventType, STARTER_TYPES } from "../domain/eventTypes.js";
 import { parseLineup, placeIn } from "../domain/lineups.js";
+import { kudosScore, parseKudos } from "../domain/kudos.js";
+import {
+  dayEndsAt,
+  parseNewRound,
+  parsePreferences,
+  roundState,
+  slotStartsAt,
+  SLOTS_PER_DAY,
+} from "../domain/svs.js";
 import { parseStrategy } from "../domain/strategy.js";
 import { parseEventResult } from "../domain/results.js";
 import { canonicalJson, issueAgentToken } from "../domain/agentTokens.js";
@@ -848,6 +857,108 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const pid = parsePlayerId(c.req.param("pid"));
     if (!p.linkedAccounts.has(pid)) requireOfficer(p);
     return c.json(reliabilityOf(await repo.attendanceFor(pid)));
+  });
+
+  // ---- SvS buff slots (BUF-01..BUF-06) ----
+
+  /** Officers open a round: three buff days and the moment preferences close. */
+  app.post("/svs-rounds", async (c) => {
+    const p = c.get("principal");
+    requireOfficer(p);
+    const round = parseNewRound(await readJson(c.req.raw), { roundId: ulid(), createdBy: p.sub, now: now() });
+    await repo.putRound(round, { id: p.sub, via: "web" });
+    return c.json({ ...round, state: roundState(round, now()) }, 201);
+  });
+
+  /** Rounds that have not finished, earliest first, with whether you have answered. */
+  app.get("/svs-rounds", async (c) => {
+    const p = c.get("principal");
+    const alliance = (c.req.query("alliance") ?? "POP").toUpperCase();
+    const at = now();
+    // A round stays listed until its last buff day is over.
+    const from = new Date(at.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const rounds = await repo.listRounds(alliance, from);
+    const acting = defaultActing(p);
+    const items = await Promise.all(
+      rounds.map(async (round) => ({
+        ...round,
+        state: roundState(round, at),
+        answered: acting ? (await repo.getPreferences(round.roundId, acting)) !== undefined : false,
+      })),
+    );
+    return c.json({ items });
+  });
+
+  /**
+   * One round: its days and slots, your own preferences, and how many people want each slot.
+   * Demand is visible to everyone — it helps members pick a quiet hour, which is the point.
+   */
+  app.get("/svs-rounds/:id", async (c) => {
+    const p = c.get("principal");
+    const round = await repo.getRound(c.req.param("id"));
+    if (!round) throw new NotFoundError("Round not found.");
+    const at = now();
+    const preferences = await repo.listPreferences(round.roundId);
+    const acting = defaultActing(p);
+
+    const days = round.days.map((day) => {
+      const answers = preferences.flatMap((pref) => pref.days.filter((d) => d.dayId === day.id));
+      const demand = Array.from({ length: SLOTS_PER_DAY }, (_, slot) => answers.filter((a) => a.slots.includes(slot)).length);
+      return {
+        ...day,
+        startsAt: slotStartsAt(day, 0),
+        endsAt: dayEndsAt(day),
+        demand,
+        anyTime: answers.filter((a) => a.anyTime).length,
+        unavailable: answers.filter((a) => a.unavailable).length,
+      };
+    });
+
+    return c.json({
+      ...round,
+      state: roundState(round, at),
+      days,
+      answeredBy: preferences.length,
+      yourPreferences: acting ? ((await repo.getPreferences(round.roundId, acting))?.days ?? null) : null,
+    });
+  });
+
+  /** Your times for a round. Members answer for their own accounts, until the deadline. */
+  app.put("/svs-rounds/:id/preferences/:pid", async (c) => {
+    const p = c.get("principal");
+    const pid = parsePlayerId(c.req.param("pid"));
+    // Preferences are the member's own word about when they can play, so officers do not
+    // overwrite them; after the deadline officers assign slots instead.
+    if (!p.linkedAccounts.has(pid)) throw new ForbiddenError("You can only set your own times.");
+    const round = await repo.getRound(c.req.param("id"));
+    if (!round) throw new NotFoundError("Round not found.");
+    const preferences = parsePreferences(round, await readJson(c.req.raw), { playerId: pid, now: now() });
+    const saved = await repo.setPreferences(preferences, { id: p.sub, via: "web" });
+    return c.json(saved);
+  });
+
+  /** Kudos an officer awarded to a game account, with the decayed score they add up to. */
+  app.get("/accounts/:pid/kudos", async (c) => {
+    const p = c.get("principal");
+    const pid = parsePlayerId(c.req.param("pid"));
+    if (!p.linkedAccounts.has(pid)) requireOfficer(p);
+    const awards = await repo.listKudos(pid);
+    return c.json({ items: awards, score: kudosScore(awards, now()) });
+  });
+
+  /** Officers award kudos for what the numbers cannot see. Awards are immutable. */
+  app.post("/accounts/:pid/kudos", async (c) => {
+    const p = c.get("principal");
+    requireOfficer(p);
+    const pid = parsePlayerId(c.req.param("pid"));
+    const award = parseKudos(await readJson(c.req.raw), {
+      awardId: ulid(),
+      playerId: pid,
+      awardedBy: p.sub,
+      now: now(),
+    });
+    await repo.addKudos(award, { id: p.sub, via: "web", reason: "kudos awarded" });
+    return c.json(award, 201);
   });
 
   /** Officers change an event: title, type, start, deadline or notes. Answers stay. */

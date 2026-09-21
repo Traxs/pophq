@@ -124,6 +124,16 @@ After a part starts, officers record its result: victory, defeat or draw; both s
 
 A Foundry is **one event with two legions**: members pick Legion 1, Legion 2 or Not signed up, never both, and switching legions replaces the earlier pick. Other events keep the plain Yes / Maybe / No. Members answer per game account, so someone with alts answers once per account, and may change their mind until the deadline. The deadline is checked in the same write as the answer, so a late answer cannot slip through (FM-09). Officers see counts and the lists behind them, including who has not answered, and may answer on someone's behalf.
 
+## SvS buff slots
+
+An officer opens a round for an SvS week: Construction, Research and Training, which default to that week's Monday, Tuesday and Thursday and can be changed per round. Each buff day is 48 half-hour slots from 00:00 UTC.
+
+While the round is collecting, every member picks **up to three times per day, best first**, or answers "any time works" or "can't this day" — three different answers, and none of them is the same as staying silent. Times are shown in the reader's own time zone, with a **+1** marker on slots that fall on the next local day, so nobody picks Tuesday 01:00 thinking of Monday. The number of people wanting each slot is visible while choosing, so anyone flexible can aim for a quiet hour. Preferences close at the deadline, checked in the same write as the save (FM-09).
+
+Officers then assign. Who gets a contested slot is a formula, not a hunch: **0.6 × attendance rate + 0.2 × (Foundry strength ÷ strongest) + 0.2 × kudos share**, with a first choice beating a second choice before the score is consulted. Unknown attendance counts as reliable, so missing data never costs someone their place. One slot per person per buff day and at most two across the round — the cap is per person, so alts do not multiply someone's share.
+
+**Kudos** are what the numbers cannot see: an officer awards points with a reason, and points halve every 90 days so the score reflects who is contributing now. Awards are immutable; taking points back is its own award, and both stay in the history.
+
 ## Importing a Hermes bundle
 
 ```bash
