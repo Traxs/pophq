@@ -33,3 +33,27 @@ export function roleLabel(groups: readonly string[], rank: string | undefined, a
   if (!role) return rank ?? alliance;
   return rank ? `${role} · ${rank}` : role;
 }
+
+/**
+ * A level as a comparable number: 1–30 as themselves, then FC1–FC10 above them, with a sub-step
+ * as a fraction. So 30 < FC1 < FC5-2 < FC6. Undefined for anything that is not a level.
+ */
+export function levelRank(value: string): number | undefined {
+  const s = value.trim().toUpperCase().replace(/\s+/g, "");
+  if (!isValidLevel(s)) return undefined;
+  const fc = /^FC([1-9]|10)(?:-([1-4]))?$/.exec(s);
+  if (!fc) return Number(s);
+  return 30 + Number(fc[1]) + (fc[2] ? Number(fc[2]) / 10 : 0);
+}
+
+/**
+ * Troops cannot be levelled past the furnace, so a troop level above it is usually a typo — or a
+ * furnace figure that was never updated. The form says so and still saves: POP HQ records what a
+ * member reports rather than arguing with them about the game.
+ */
+export function troopLevelExceedsFurnace(troopLevel: string, furnaceLevel: string): boolean {
+  const troop = levelRank(troopLevel);
+  const furnace = levelRank(furnaceLevel);
+  if (troop === undefined || furnace === undefined) return false;
+  return troop > furnace;
+}

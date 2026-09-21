@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { isReportOverdue, isValidEmail, isValidGameName, isValidLevel, isValidPlayerId, roleLabel } from "./rules";
+import {
+  isReportOverdue,
+  isValidEmail,
+  isValidGameName,
+  isValidLevel,
+  isValidPlayerId,
+  levelRank,
+  roleLabel,
+  troopLevelExceedsFurnace,
+} from "./rules";
 
 describe("isReportOverdue", () => {
   const now = new Date("2026-09-19T12:00:00Z");
@@ -53,5 +62,45 @@ describe("invite field checks", () => {
     expect(isValidGameName("Po")).toBe(true);
     expect(isValidGameName("P")).toBe(false);
     expect(isValidGameName("x".repeat(31))).toBe(false);
+  });
+});
+
+describe("levelRank", () => {
+  it("puts FC levels above the plain ones", () => {
+    expect(levelRank("30")! < levelRank("FC1")!).toBe(true);
+    expect(levelRank("FC5")! < levelRank("FC5-2")!).toBe(true);
+    expect(levelRank("FC5-4")! < levelRank("FC6")!).toBe(true);
+    expect(levelRank("FC10")).toBe(40);
+  });
+
+  it("reads what a member actually types", () => {
+    expect(levelRank(" fc5-2 ")).toBe(levelRank("FC5-2"));
+    expect(levelRank("1")).toBe(1);
+  });
+
+  it("is undefined for anything that is not a level", () => {
+    expect(levelRank("")).toBeUndefined();
+    expect(levelRank("FC11")).toBeUndefined();
+    expect(levelRank("abc")).toBeUndefined();
+  });
+});
+
+describe("troopLevelExceedsFurnace", () => {
+  it("spots troops levelled past the furnace", () => {
+    expect(troopLevelExceedsFurnace("FC10", "FC9")).toBe(true);
+    expect(troopLevelExceedsFurnace("FC5-2", "FC5")).toBe(true);
+    expect(troopLevelExceedsFurnace("FC1", "30")).toBe(true);
+  });
+
+  it("accepts troops at or below the furnace", () => {
+    expect(troopLevelExceedsFurnace("FC9", "FC9")).toBe(false);
+    expect(troopLevelExceedsFurnace("FC8", "FC9")).toBe(false);
+    expect(troopLevelExceedsFurnace("29", "30")).toBe(false);
+  });
+
+  it("stays quiet when either level is missing or unreadable, rather than crying wolf", () => {
+    expect(troopLevelExceedsFurnace("FC9", "")).toBe(false);
+    expect(troopLevelExceedsFurnace("", "FC9")).toBe(false);
+    expect(troopLevelExceedsFurnace("FC9", "nonsense")).toBe(false);
   });
 });
