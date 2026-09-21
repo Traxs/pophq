@@ -100,3 +100,6 @@ export const kudosKey = (playerId: string, awardId: string) => ({
   PK: `ACCOUNT#${playerId}`,
   SK: `KUDOS#${awardId}`,
 });
+
+/** The checklist of jobs for running one event; one item, replaced as officers tick things off. */
+export const checklistKey = (eventId: string) => ({ PK: `EVENT#${eventId}`, SK: "CHECKLIST" });

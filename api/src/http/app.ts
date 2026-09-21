@@ -19,6 +19,7 @@ import {
   type EventKind,
 } from "../domain/events.js";
 import { parseEventType, STARTER_TYPES } from "../domain/eventTypes.js";
+import { applyTick, datedTasks, STARTER_CHECKLISTS } from "../domain/checklists.js";
 import { parseLineup, placeIn } from "../domain/lineups.js";
 import { kudosScore, parseKudos } from "../domain/kudos.js";
 import {
@@ -827,7 +828,74 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       now: now(),
     });
     await repo.createEvent(event, { id: p.sub, via: "web" });
+    // The type's checklist becomes this event's own, so editing one event's jobs never disturbs
+    // the template or another event.
+    const tasks = (await repo.getEventType(event.kind))?.checklist ?? STARTER_CHECKLISTS[event.kind] ?? [];
+    if (tasks.length > 0) {
+      await repo.putChecklist(
+        { eventId: event.eventId, version: 1, entries: tasks.map((t) => ({ ...t })), updatedAt: now().toISOString() },
+        { id: p.sub, via: "web", reason: "checklist from the event type" },
+      );
+    }
     return c.json(event, 201);
+  });
+
+  /**
+   * An officer ticks a job off, or takes the tick back. Any officer may: jobs still have to get
+   * done when the owner is asleep, and the tick records who did it.
+   */
+  app.put("/events/:id/checklist/:taskId", async (c) => {
+    const p = c.get("principal");
+    requireOfficer(p);
+    const event = await repo.getEvent(c.req.param("id"));
+    if (!event) throw new NotFoundError("Event not found.");
+    const current = await repo.getChecklist(event.eventId);
+    if (!current) throw new NotFoundError("This event has no checklist.");
+    const body = (await readJson(c.req.raw)) as { done?: unknown };
+    const acting = defaultActing(p);
+    if (!acting) throw new ForbiddenError("Link a game account before ticking jobs off.");
+    const entries = applyTick(current, c.req.param("taskId"), body.done !== false, { playerId: acting, now: now() });
+    const updated = { ...current, version: current.version + 1, entries, updatedAt: now().toISOString() };
+    await repo.putChecklist(updated, { id: p.sub, via: "web", reason: "checklist tick" });
+    return c.json({ ...updated, tasks: datedTasks(event, entries, now()) });
+  });
+
+  /**
+   * What officers still have to do. Only jobs that can still be done: an "overdue" job missed its
+   * chance when the battle started, and nagging about it is noise — the event page keeps it. The
+   * reader's own events come first, then the oldest job.
+   */
+  app.get("/officer-jobs", async (c) => {
+    const p = c.get("principal");
+    requireOfficer(p);
+    const at = now();
+    const alliance = (c.req.query("alliance") ?? "POP").toUpperCase();
+    const events = await repo.listEvents(alliance, new Date(at.getTime() - PAST_EVENTS_MS).toISOString());
+    const accounts = new Map((await repo.listAccounts(alliance)).map((a) => [a.playerId, a.name]));
+    const jobs = (
+      await Promise.all(
+        events.map(async (event) => {
+          const checklist = await repo.getChecklist(event.eventId);
+          if (!checklist) return [];
+          return datedTasks(event, checklist.entries, at)
+            .filter((task) => task.state === "due")
+            .map((task) => ({
+              eventId: event.eventId,
+              eventTitle: event.title,
+              startsAt: event.startsAt,
+              ownerPlayerId: event.ownerPlayerId ?? null,
+              ownerName: event.ownerPlayerId ? (accounts.get(event.ownerPlayerId) ?? null) : null,
+              mine: event.ownerPlayerId !== undefined && p.linkedAccounts.has(event.ownerPlayerId),
+              taskId: task.id,
+              label: task.label,
+              dueAt: task.dueAt,
+            }));
+        }),
+      )
+    ).flat();
+    // Yours first, then the most overdue.
+    jobs.sort((a, b) => Number(b.mine) - Number(a.mine) || a.dueAt.localeCompare(b.dueAt));
+    return c.json({ items: jobs });
   });
 
   /**
@@ -1162,6 +1230,11 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       ...(eventType?.strategyTemplate ? { strategyTemplate: eventType.strategyTemplate } : {}),
     };
     if (isOfficer(p)) {
+      const checklist = await repo.getChecklist(event.eventId);
+      if (checklist) {
+        body.checklist = { version: checklist.version, tasks: datedTasks(event, checklist.entries, now()) };
+      }
+      body.ownerName = event.ownerPlayerId ? (byName.get(event.ownerPlayerId) ?? null) : null;
       const byPlayer = new Map(answers.map((a) => [a.playerId, a]));
       const attendance = new Map((await repo.listAttendance(event.eventId)).map((a) => [a.playerId, a]));
       const history = new Map(

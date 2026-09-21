@@ -168,6 +168,8 @@ export function EventPage({ eventId }: { eventId: string }) {
         <p className="pill pill-flat">Not signed up — join either legion above</p>
       ) : null}
 
+      {isOfficer && event.checklist && <EventChecklist event={event} />}
+
       {isOfficer && event.members && <OfficerTable event={event} members={event.members} />}
     </>
   );
@@ -702,6 +704,97 @@ function LineupEditor({
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * The jobs for running this event, and who runs it. Any officer can tick one off — the job still
+ * has to get done when the owner is asleep — and the tick records who did it.
+ */
+function EventChecklist({ event }: { event: EventDetail }) {
+  const { api, dataChanged } = useSession();
+  const toast = useToast();
+  const [busy, setBusy] = useState<string | null>(null);
+  const tasks = event.checklist?.tasks ?? [];
+  const left = tasks.filter((t) => t.state !== "done").length;
+
+  const tick = async (taskId: string, done: boolean) => {
+    setBusy(taskId);
+    try {
+      await api.tickJob(event.eventId, taskId, done);
+      dataChanged();
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Couldn't save that");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const setOwner = async (playerId: string) => {
+    try {
+      await api.updateEvent(event.eventId, { ownerPlayerId: playerId });
+      toast(playerId ? "Owner set" : "Handed back to nobody");
+      dataChanged();
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Couldn't change the owner");
+    }
+  };
+
+  const officers = (event.members ?? []).filter((m) => m.rank === "R4" || m.rank === "R5");
+
+  return (
+    <section className="card stack" aria-labelledby="checklist-title">
+      <div>
+        <h2 id="checklist-title" className="section-label">
+          Running this event
+        </h2>
+        <p className="muted small">
+          {left === 0 ? "Everything is done." : `${left} still to do.`} Anyone can tick a job off.
+        </p>
+      </div>
+
+      <label className="field">
+        <span>Who runs it</span>
+        <select value={event.ownerPlayerId ?? ""} onChange={(e) => void setOwner(e.target.value)}>
+          <option value="">Nobody yet</option>
+          {officers.map((m) => (
+            <option key={m.playerId} value={m.playerId}>
+              {m.name}
+              {m.rank ? ` · ${m.rank}` : ""}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <ul className="jobs">
+        {tasks.map((task) => (
+          <li key={task.id} className="job-row">
+            <button
+              type="button"
+              className={task.state === "done" ? "job-tick job-done" : "job-tick"}
+              aria-label={`${task.state === "done" ? "Undo" : "Done"}: ${task.label}`}
+              aria-pressed={task.state === "done"}
+              disabled={busy !== null}
+              onClick={() => void tick(task.id, task.state !== "done")}
+            >
+              {busy === task.id ? "…" : task.state === "done" ? "✓" : "○"}
+            </button>
+            <span className="job-text">
+              <strong className={task.state === "done" ? "job-struck" : undefined}>{task.label}</strong>
+              <span className="muted">
+                {task.state === "done" ? (
+                  `done ${relativeDay(task.doneAt!)}`
+                ) : task.state === "overdue" ? (
+                  <span className="delta-down">missed · was due {dayTime(task.dueAt)}</span>
+                ) : (
+                  `${task.state === "due" ? "due" : "from"} ${dayTime(task.dueAt)}`
+                )}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

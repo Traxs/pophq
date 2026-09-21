@@ -204,6 +204,8 @@ export interface AllianceEvent {
   /** Parts people choose between, e.g. the two Foundry legions. Empty for a plain event. */
   sessions: EventSession[];
   createdBy: string;
+  /** The officer's game account that runs this one. */
+  ownerPlayerId?: string;
 }
 
 export interface EventListItem extends AllianceEvent {
@@ -251,6 +253,33 @@ export interface EventMember {
   lastReportAt: string | null;
 }
 
+export type TaskState = "done" | "overdue" | "due" | "upcoming";
+
+export interface ChecklistTask {
+  id: string;
+  label: string;
+  note?: string;
+  dueAt: string;
+  state: TaskState;
+  doneAt?: string;
+  doneBy?: string;
+}
+
+/** A job an officer still has to do, across every event that has not finished. */
+export interface OfficerJob {
+  eventId: string;
+  eventTitle: string;
+  startsAt: string;
+  ownerPlayerId: string | null;
+  ownerName: string | null;
+  /** True when the reader's own account runs that event. */
+  mine: boolean;
+  taskId: string;
+  label: string;
+  /** Always a job that can still be done: a missed one lives on the event page instead. */
+  dueAt: string;
+}
+
 export interface EventDetail extends Omit<EventListItem, "sessions"> {
   sessions: SessionView[];
   counts: AnswerCounts;
@@ -258,6 +287,10 @@ export interface EventDetail extends Omit<EventListItem, "sessions"> {
   strategyTemplate?: string;
   /** Officers only. */
   members?: EventMember[];
+  /** Officers only: the jobs for running this event. */
+  checklist?: { version: number; tasks: ChecklistTask[] };
+  /** The name behind ownerPlayerId, for display. */
+  ownerName?: string | null;
 }
 
 export type Buff = "construction" | "research" | "training";
@@ -314,6 +347,8 @@ export interface NewEvent {
   timeZoneOffsetMinutes?: number;
   deadlineAt?: string;
   notes?: string;
+  /** The officer's game account that runs it; "" hands it back to nobody. */
+  ownerPlayerId?: string;
 }
 
 export type EventChanges = Partial<NewEvent>;
@@ -414,6 +449,9 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
         ...(sessionId ? { sessionId } : {}),
       }),
     reliability: (playerId: string) => request<Reliability>("GET", `/accounts/${playerId}/reliability`),
+    officerJobs: () => request<{ items: OfficerJob[] }>("GET", "/officer-jobs"),
+    tickJob: (eventId: string, taskId: string, done: boolean) =>
+      request<{ version: number; tasks: ChecklistTask[] }>("PUT", `/events/${eventId}/checklist/${taskId}`, { done }),
     svsRounds: () => request<{ items: SvsRoundListItem[] }>("GET", "/svs-rounds"),
     createSvsRound: (input: { label: string; weekStart: string }) =>
       request<SvsRoundListItem>("POST", "/svs-rounds", input),

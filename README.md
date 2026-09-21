@@ -142,6 +142,8 @@ Officers then assign. Who gets a contested slot is a formula, not a hunch: **0.6
 
 **Kudos** are what the numbers cannot see: an officer awards points with a reason, and points halve every 90 days so the score reflects who is contributing now. Awards are immutable; taking points back is its own award, and both stay in the history.
 
+**Running an event** is a checklist. Each type carries its jobs — a Foundry runs from "post the sign-up call" through registering people, publishing the lineup and setting deployments, to recording who turned up — and every job hangs off one of the event's own moments rather than a fixed date, so moving the event moves the whole list. An event names the officer who runs it, and Home shows each officer what is still to do: their own events first, then anyone else's, with anything a day late in red. Any officer can tick a job off and the tick records who did it. A job whose chance has gone — a lineup for a battle already fought — stops appearing on Home and stays on the event page.
+
 ## Importing a Hermes bundle
 
 ```bash

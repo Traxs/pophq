@@ -144,6 +144,8 @@ export function SessionProvider({
       attendance: guard(inner.attendance),
       reliability: guard(inner.reliability),
       publishLineup: guard(inner.publishLineup),
+      officerJobs: guard(inner.officerJobs),
+      tickJob: guard(inner.tickJob),
       svsRounds: guard(inner.svsRounds),
       createSvsRound: guard(inner.createSvsRound),
       svsRound: guard(inner.svsRound),
