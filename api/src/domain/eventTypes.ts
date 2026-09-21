@@ -91,7 +91,35 @@ export const STARTER_TYPES: readonly Omit<EventType, "createdBy">[] = [
     strategyTemplate: "## Plan\n\n- \n\n## Who does what\n\n- ",
     archived: false,
   },
-  { typeId: "bear", name: "Bear hunt", leadDays: 0, sessions: [], archived: false },
-  { typeId: "svs", name: "SvS", leadDays: 3, sessions: [], archived: false },
+  // SvS and FDT ask how much of the event someone can give, not which time slot they take.
+  // The three answers are ordinary parts: a member picks exactly one, or says they can't come.
+  {
+    typeId: "svs",
+    name: "SvS",
+    leadDays: 3,
+    sessions: [
+      { id: "full", label: "Full time" },
+      { id: "first", label: "First half" },
+      { id: "last", label: "Last half" },
+    ],
+    archived: false,
+  },
+  {
+    typeId: "fdt",
+    name: "FDT",
+    leadDays: 1,
+    sessions: [
+      { id: "full", label: "Full time" },
+      { id: "first", label: "First half" },
+      { id: "last", label: "Last half" },
+    ],
+    archived: false,
+  },
+  // Canyon and Tundra League are a simple "are you in?", so they carry no parts.
+  { typeId: "canyon", name: "Canyon", leadDays: 1, sessions: [], archived: false },
+  { typeId: "tundra", name: "Tundra League", leadDays: 1, sessions: [], archived: false },
+  // The Bear hunt runs every other day and needs no sign-up; it is kept, archived, so past bear
+  // events still have their type behind them.
+  { typeId: "bear", name: "Bear hunt", leadDays: 0, sessions: [], archived: true },
   { typeId: "other", name: "Other", leadDays: 0, sessions: [], archived: false },
 ];

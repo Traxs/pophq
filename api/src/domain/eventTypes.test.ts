@@ -56,10 +56,28 @@ describe("parseEventType", () => {
 });
 
 describe("STARTER_TYPES", () => {
-  it("matches how POP plays: Foundry has two legions and closes three days before", () => {
-    const foundry = STARTER_TYPES.find((t) => t.typeId === "foundry")!;
-    expect(foundry.leadDays).toBe(3);
-    expect(foundry.sessions.map((s) => s.label)).toEqual(["Legion 1", "Legion 2"]);
-    expect(STARTER_TYPES.every((t) => !t.archived)).toBe(true);
+  const byId = (id: string) => STARTER_TYPES.find((t) => t.typeId === id)!;
+
+  it("gives Foundry its two legions and a three-day lead", () => {
+    expect(byId("foundry").leadDays).toBe(3);
+    expect(byId("foundry").sessions.map((s) => s.label)).toEqual(["Legion 1", "Legion 2"]);
+  });
+
+  it("asks SvS and FDT how much of the event someone can give", () => {
+    for (const id of ["svs", "fdt"]) {
+      expect(byId(id).sessions.map((s) => s.label)).toEqual(["Full time", "First half", "Last half"]);
+      expect(byId(id).sessions.map((s) => s.id)).toEqual(["full", "first", "last"]);
+    }
+  });
+
+  it("leaves Canyon and Tundra League without parts, so they are a plain are-you-in", () => {
+    expect(byId("canyon").sessions).toEqual([]);
+    expect(byId("tundra").sessions).toEqual([]);
+  });
+
+  it("keeps the Bear hunt archived: it runs every other day and nobody signs up", () => {
+    expect(byId("bear").archived).toBe(true);
+    // Everything an officer can still schedule stays available.
+    expect(STARTER_TYPES.filter((t) => t.archived).map((t) => t.typeId)).toEqual(["bear"]);
   });
 });

@@ -9,20 +9,28 @@ import { navigate } from "../router";
 import { useSession } from "../session";
 import { NoAccount } from "./Home";
 
+/** What officers can schedule. The Bear hunt runs every other day and needs no sign-up. */
 const KINDS: { value: EventKind; label: string }[] = [
   { value: "foundry", label: "Foundry" },
-  { value: "bear", label: "Bear hunt" },
   { value: "svs", label: "SvS" },
+  { value: "fdt", label: "FDT" },
+  { value: "canyon", label: "Canyon" },
+  { value: "tundra", label: "Tundra League" },
   { value: "other", label: "Other" },
 ];
 
-const ANSWERS: { value: Answer; label: string }[] = [
-  { value: "yes", label: "Yes" },
-  { value: "maybe", label: "Maybe" },
-  { value: "no", label: "No" },
-];
+/** Includes kinds nobody schedules any more, so an event from the archive still reads right. */
+const KIND_LABELS: Record<EventKind, string> = {
+  foundry: "Foundry",
+  svs: "SvS",
+  fdt: "FDT",
+  canyon: "Canyon",
+  tundra: "Tundra League",
+  bear: "Bear hunt",
+  other: "Other",
+};
 
-const kindLabel = (kind: EventKind) => KINDS.find((k) => k.value === kind)?.label ?? "Event";
+const kindLabel = (kind: EventKind) => KIND_LABELS[kind] ?? "Event";
 
 /** How long before the start answers close. Foundry needs days: officers sign people up in game. */
 const LEAD_CHOICES = [
@@ -31,17 +39,37 @@ const LEAD_CHOICES = [
   { days: 1, label: "1 day before" },
   { days: 0, label: "1 hour before" },
 ];
-const DEFAULT_LEAD: Record<EventKind, number> = { foundry: 3, svs: 3, bear: 0, other: 0 };
+const DEFAULT_LEAD: Record<EventKind, number> = {
+  foundry: 3,
+  svs: 3,
+  fdt: 1,
+  canyon: 1,
+  tundra: 1,
+  bear: 0,
+  other: 0,
+};
 const ALL_EVENT_HISTORY = "1970-01-01T00:00:00.000Z";
 
-/** A Foundry is one event with two legions; other types have no parts to choose from. */
-const defaultSessions = (kind: EventKind): { id?: string; label: string; startsAt: string }[] =>
-  kind === "foundry"
-    ? [
-        { id: "L1", label: "Legion 1", startsAt: "" },
-        { id: "L2", label: "Legion 2", startsAt: "" },
-      ]
-    : [];
+/**
+ * A Foundry is one event with two legions. SvS and FDT ask for how much of it someone can give,
+ * which is the same mechanism: three parts, one pick. Canyon and Tundra League are a plain
+ * "are you in?", so they have no parts.
+ */
+const HALVES = [
+  { id: "full", label: "Full time", startsAt: "" },
+  { id: "first", label: "First half", startsAt: "" },
+  { id: "last", label: "Last half", startsAt: "" },
+];
+
+const defaultSessions = (kind: EventKind): { id?: string; label: string; startsAt: string }[] => {
+  if (kind === "foundry") {
+    return [
+      { id: "L1", label: "Legion 1", startsAt: "" },
+      { id: "L2", label: "Legion 2", startsAt: "" },
+    ];
+  }
+  return kind === "svs" || kind === "fdt" ? HALVES.map((h) => ({ ...h })) : [];
+};
 
 export function Events() {
   const { api, me, account, isOfficer, dataVersion, dataChanged } = useSession();
@@ -284,20 +312,19 @@ function EventCard({
           </button>
         </div>
       ) : (
-        <div className="segmented answers" role="radiogroup" aria-label={`Your answer for ${event.title}`}>
-          {ANSWERS.map((a) => (
-            <button
-              key={a.value}
-              type="button"
-              role="radio"
-              aria-checked={answer === a.value}
-              disabled={event.closed || busy !== null}
-              onClick={() => void choose(a.value)}
-            >
-              {busy === a.value ? "…" : a.label}
-            </button>
-          ))}
-        </div>
+        // No parts to choose between: one button to join, and the same button to drop out again.
+        <>
+          <button
+            type="button"
+            className={answer === "yes" ? "btn btn-primary btn-block" : "btn btn-quiet btn-block"}
+            aria-pressed={answer === "yes"}
+            disabled={event.closed || busy !== null}
+            onClick={() => void choose(answer === "yes" ? "no" : "yes")}
+          >
+            {busy !== null ? "…" : answer === "yes" ? "You're in — tap to drop out" : "Join"}
+          </button>
+          {answer === "no" && <p className="muted small">You're down as not coming.</p>}
+        </>
       )}
 
       {error && (
@@ -399,9 +426,12 @@ function EventBreakdown({ detail }: { detail: EventDetail }) {
           { key: "pending", label: `No answer (${detail.counts.pending})`, match: (m: EventMember) => m.answer === null },
         ]
       : [
-          { key: "yes", label: `Yes (${detail.counts.yes})`, match: (m: EventMember) => m.answer === "yes" },
-          { key: "maybe", label: `Maybe (${detail.counts.maybe})`, match: (m: EventMember) => m.answer === "maybe" },
-          { key: "no", label: `No (${detail.counts.no})`, match: (m: EventMember) => m.answer === "no" },
+          { key: "yes", label: `Joined (${detail.counts.yes})`, match: (m: EventMember) => m.answer === "yes" },
+          // "Maybe" is no longer offered; the group appears only while older answers still have one.
+          ...(detail.counts.maybe > 0
+            ? [{ key: "maybe", label: `Maybe (${detail.counts.maybe})`, match: (m: EventMember) => m.answer === "maybe" }]
+            : []),
+          { key: "no", label: `Can't (${detail.counts.no})`, match: (m: EventMember) => m.answer === "no" },
           { key: "pending", label: `No answer (${detail.counts.pending})`, match: (m: EventMember) => m.answer === null },
         ];
   const [filter, setFilter] = useState<string>(groups[0]!.key);

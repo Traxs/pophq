@@ -90,7 +90,7 @@ export interface AgentTokenInfo {
 }
 export interface IssuedAgentToken extends AgentTokenInfo { token: string }
 
-export type EventKind = "foundry" | "bear" | "svs" | "other";
+export type EventKind = "foundry" | "svs" | "fdt" | "canyon" | "tundra" | "bear" | "other";
 export type Answer = "yes" | "no" | "maybe";
 
 export interface EventSession {
