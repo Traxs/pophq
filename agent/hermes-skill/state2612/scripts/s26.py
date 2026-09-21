@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Minimal standard-library client for POP HQ's scoped result agent API."""
+"""Minimal standard-library client for POP HQ's scoped bot API."""
 
 from __future__ import annotations
 
@@ -50,12 +50,12 @@ def request(
 def load_payload(path: str) -> dict[str, object]:
     value = json.load(sys.stdin) if path == "-" else json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(value, dict):
-        raise SystemExit("Result payload must be one JSON object.")
+        raise SystemExit("Payload must be one JSON object.")
     return value
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="s26", description="POP HQ result agent")
+    parser = argparse.ArgumentParser(prog="s26", description="POP HQ bot client")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("doctor")
     get = sub.add_parser("get", help="Read any POP HQ API path allowed to the token issuer")
@@ -74,6 +74,18 @@ def main() -> None:
     put.add_argument("--apply", action="store_true")
     put.add_argument("--reason")
     put.add_argument("--idempotency-key")
+    create_event = sub.add_parser("create-event")
+    create_event.add_argument("json_file", help="JSON file, or - for stdin")
+    create_event.add_argument("--apply", action="store_true")
+    create_event.add_argument("--reason")
+    create_event.add_argument("--idempotency-key")
+    edit_event = sub.add_parser("edit-event")
+    edit_event.add_argument("event_id")
+    edit_event.add_argument("json_file", help="JSON file, or - for stdin")
+    edit_event.add_argument("--apply", action="store_true")
+    edit_event.add_argument("--reason")
+    edit_event.add_argument("--idempotency-key")
+    edit_event.add_argument("--expected-hash", help="expectedHash returned by the reviewed preview")
     args = parser.parse_args()
 
     if args.command == "doctor":
@@ -89,7 +101,7 @@ def main() -> None:
         event = urllib.parse.quote(args.event_id, safe="")
         session = urllib.parse.quote(args.session_id, safe="")
         result = request("GET", f"/agent/events/{event}/sessions/{session}/result-context")
-    else:
+    elif args.command == "put-result":
         if args.apply and (not args.reason or not args.idempotency_key):
             raise SystemExit("--apply requires --reason and --idempotency-key.")
         payload = load_payload(args.json_file)
@@ -99,6 +111,24 @@ def main() -> None:
         session = urllib.parse.quote(args.session_id, safe="")
         suffix = "?apply=true" if args.apply else ""
         result = request("PUT", f"/agent/events/{event}/sessions/{session}/result{suffix}", payload, args.idempotency_key)
+    elif args.command == "create-event":
+        if args.apply and (not args.reason or not args.idempotency_key):
+            raise SystemExit("--apply requires --reason and --idempotency-key.")
+        payload = load_payload(args.json_file)
+        if args.apply:
+            payload["reason"] = args.reason
+        suffix = "?apply=true" if args.apply else ""
+        result = request("POST", f"/agent/events{suffix}", payload, args.idempotency_key)
+    else:
+        if args.apply and (not args.reason or not args.idempotency_key or not args.expected_hash):
+            raise SystemExit("--apply requires --reason, --idempotency-key and --expected-hash.")
+        payload = load_payload(args.json_file)
+        if args.apply:
+            payload["reason"] = args.reason
+            payload["expectedHash"] = args.expected_hash
+        event = urllib.parse.quote(args.event_id, safe="")
+        suffix = "?apply=true" if args.apply else ""
+        result = request("PATCH", f"/agent/events/{event}{suffix}", payload, args.idempotency_key)
     json.dump(result, sys.stdout, indent=2, sort_keys=True)
     sys.stdout.write("\n")
 

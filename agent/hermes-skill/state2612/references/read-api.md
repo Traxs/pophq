@@ -1,6 +1,6 @@
 # Read API
 
-A bot token may use every normal POP HQ `GET /v1/...` route with the issuing person's current permissions and linked accounts. It cannot use normal `POST`, `PUT`, `PATCH`, or `DELETE` routes. Browser-origin requests are rejected.
+A bot token may use every normal POP HQ `GET /v1/...` route with the issuing person's current permissions and linked accounts. Normal web `POST`, `PUT`, `PATCH`, and `DELETE` routes remain forbidden; scoped bot writes use only the guarded event and result routes documented by this skill. Browser-origin requests are rejected.
 
 Use `scripts/s26.py get PATH`, where `PATH` starts below `/v1`:
 

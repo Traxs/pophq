@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { ValidationError } from "./errors.js";
-import { countAnswers, deadlineFor, isClosed, parseAnswer, parseNewEvent, rankSignUps, standingFor, type EventAnswer } from "./events.js";
+import {
+  countAnswers,
+  deadlineFor,
+  isClosed,
+  parseAgentEventChanges,
+  parseAgentNewEvent,
+  parseAnswer,
+  parseNewEvent,
+  rankSignUps,
+  standingFor,
+  type EventAnswer,
+} from "./events.js";
 
 const now = new Date("2026-09-19T12:00:00Z");
 const ctx = { eventId: "01J0000000000000000000000A", createdBy: "officer-1", now };
@@ -70,6 +81,50 @@ describe("parseNewEvent", () => {
     ["an unreadable date", { title: "Broken date", startsAt: "soon" }],
   ])("rejects %s", (_case, input) => {
     expect(() => parseNewEvent(input, ctx)).toThrow(ValidationError);
+  });
+});
+
+describe("agent event maintenance", () => {
+  const historical = parseAgentNewEvent(
+    {
+      eventId: "HISTORY-2026-09-06-L1",
+      kind: "foundry",
+      title: "Foundry September 6",
+      startsAt: "2026-09-06T12:00:00Z",
+      deadlineAt: "2026-09-06T11:00:00Z",
+      sessions: [{ id: "L1", label: "Legion 1", startsAt: "2026-09-06T12:00:00Z" }],
+    },
+    { createdBy: "agent:t", now },
+  );
+
+  it("allows a stable historical event id", () => {
+    expect(historical).toMatchObject({ eventId: "HISTORY-2026-09-06-L1", startsAt: "2026-09-06T12:00:00.000Z" });
+    expect(() => parseAgentNewEvent({ eventId: "bad id", title: "Bad id", startsAt: inTwoDays }, ctx)).toThrow(
+      /event id/i,
+    );
+  });
+
+  it("edits session metadata but preserves durable ids", () => {
+    const changed = parseAgentEventChanges(
+      historical,
+      {
+        title: "Foundry — September 6 L1",
+        sessions: [
+          { id: "L1", label: "Legion 1 early", startsAt: "2026-09-06T12:30:00Z", starters: 30, subs: 10 },
+          { id: "L2", label: "Legion 2", startsAt: "2026-09-06T19:00:00Z", starters: 30, subs: 10 },
+        ],
+      },
+      now,
+    );
+    expect(changed.sessions.map((session) => session.id)).toEqual(["L1", "L2"]);
+    expect(changed.startsAt).toBe("2026-09-06T12:30:00.000Z");
+    expect(() =>
+      parseAgentEventChanges(
+        historical,
+        { sessions: [{ id: "RENAMED", label: "Renamed", startsAt: "2026-09-06T12:00:00Z" }] },
+        now,
+      ),
+    ).toThrow(/cannot be removed or renamed/);
   });
 });
 

@@ -99,6 +99,8 @@ export interface NewEventContext {
   eventId: string;
   createdBy: string;
   now: Date;
+  /** Guarded imports may faithfully record events that already happened. */
+  allowPast?: boolean;
 }
 
 /**
@@ -152,7 +154,7 @@ export function parseNewEvent(input: unknown, ctx: NewEventContext): AllianceEve
   // The event starts when its first session does, so reminders and lists use one moment.
   const startsAtEffective = sessions.length > 0 ? sessions.map((s) => s.startsAt).toSorted()[0]! : startsAt;
   const start = Date.parse(startsAtEffective);
-  if (start <= ctx.now.getTime()) throw new ValidationError("The event must start in the future.");
+  if (!ctx.allowPast && start <= ctx.now.getTime()) throw new ValidationError("The event must start in the future.");
   if (start > ctx.now.getTime() + MAX_AHEAD_MS) throw new ValidationError("The event is more than a year away.");
 
   const leadDays = answersCloseDaysBefore ?? DEFAULT_LEAD_DAYS[rest.kind];
@@ -214,6 +216,88 @@ const EventChangesSchema = z.object({
   answersCloseDaysBefore: z.number().int().min(0).max(60).optional(),
   timeZoneOffsetMinutes: z.number().int().min(-840).max(840).optional(),
 });
+
+const AgentSessionSchema = z.object({
+  id: z.string().trim().regex(/^[A-Za-z0-9_-]{1,8}$/, "Session id must be 1–8 letters, digits, - or _."),
+  label: z.string().trim().min(1, "Every session needs a name.").max(30),
+  startsAt: ISO,
+  starters: z.number().int().min(1).max(500).optional(),
+  subs: z.number().int().min(0).max(500).optional(),
+});
+
+const AgentEventChangesSchema = EventChangesSchema.extend({
+  sessions: z.array(AgentSessionSchema).max(6, "At most six sessions.").optional(),
+});
+
+const AgentEventIdSchema = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z0-9][A-Za-z0-9_-]{2,79}$/, "Event id must be 3–80 letters, digits, - or _.");
+
+/** A bot-created event carries a stable caller-selected id so preview and retry refer to one target. */
+export function parseAgentNewEvent(input: unknown, ctx: Omit<NewEventContext, "eventId" | "allowPast">): AllianceEvent {
+  const eventId = AgentEventIdSchema.safeParse((input as { eventId?: unknown } | null)?.eventId);
+  if (!eventId.success) throw new ValidationError("Invalid event id.");
+  return parseNewEvent(input, { ...ctx, eventId: eventId.data, allowPast: true });
+}
+
+/**
+ * Bots may maintain historical event metadata and parts. Existing part ids cannot disappear:
+ * answers, lineups, strategies and results use them as durable foreign keys.
+ */
+export function parseAgentEventChanges(event: AllianceEvent, input: unknown, now: Date): AllianceEvent {
+  const parsed = AgentEventChangesSchema.safeParse(input);
+  if (!parsed.success) throw new ValidationError("Invalid event change.", z.flattenError(parsed.error).fieldErrors);
+  const changes = parsed.data;
+  if (Object.keys(changes).length === 0) throw new ValidationError("Nothing to change.");
+
+  const sessions: EventSession[] = changes.sessions
+    ? changes.sessions.map((session) => ({
+        id: session.id,
+        label: session.label,
+        startsAt: session.startsAt,
+        ...(session.starters === undefined ? {} : { starters: session.starters }),
+        ...(session.subs === undefined ? {} : { subs: session.subs }),
+      }))
+    : event.sessions;
+  if (new Set(sessions.map((session) => session.id)).size !== sessions.length) {
+    throw new ValidationError("Each session needs its own id.");
+  }
+  const incomingIds = new Set(sessions.map((session) => session.id));
+  const removed = event.sessions.filter((session) => !incomingIds.has(session.id)).map((session) => session.id);
+  if (removed.length > 0) {
+    throw new ValidationError(`Existing session ids cannot be removed or renamed: ${removed.join(", ")}.`);
+  }
+  if (changes.startsAt && event.sessions.length > 0 && !changes.sessions) {
+    throw new ValidationError("Change the session times; an event with parts starts at its earliest session.");
+  }
+
+  const startsAt = sessions.length > 0
+    ? sessions.map((session) => session.startsAt).toSorted()[0]!
+    : (changes.startsAt ?? event.startsAt);
+  const kind = changes.kind ?? event.kind;
+  const deadlineAt =
+    changes.deadlineAt ??
+    (startsAt !== event.startsAt || changes.answersCloseDaysBefore !== undefined || changes.kind
+      ? deadlineFor(startsAt, changes.answersCloseDaysBefore ?? DEFAULT_LEAD_DAYS[kind], changes.timeZoneOffsetMinutes ?? 0)
+      : event.deadlineAt);
+  if (Date.parse(deadlineAt) > Date.parse(startsAt)) throw new ValidationError("Answers must close before the event starts.");
+  if (Date.parse(startsAt) > now.getTime() + MAX_AHEAD_MS) throw new ValidationError("The event is more than a year away.");
+
+  const updated: AllianceEvent = {
+    ...event,
+    kind,
+    title: changes.title ?? event.title,
+    startsAt,
+    deadlineAt,
+    sessions,
+  };
+  if (changes.notes !== undefined) {
+    if (changes.notes) updated.notes = changes.notes;
+    else delete updated.notes;
+  }
+  return updated;
+}
 
 /**
  * Applies an officer's changes to an existing event. Only the fields they sent change; the

@@ -1,6 +1,6 @@
 ---
 name: state2612
-description: Read all POP HQ information available to the bot token's issuing user, and safely preview or apply event results and per-player scores. Use for POP HQ questions, analysis, result imports, corrections, and scoreboard data; writes other than scoped result updates are forbidden.
+description: Read POP HQ information available to the bot token's issuing user, and safely preview or apply event maintenance, results, and per-player scores. Use for POP HQ questions, historical event setup, result imports, corrections, and scoreboard data; other writes remain forbidden.
 ---
 
 # POP HQ bot access
@@ -10,7 +10,7 @@ Use `scripts/s26.py` for POP HQ API calls. It uses only Python's standard librar
 - `POPHQ_URL`: the POP HQ base URL, such as `https://example.cloudfront.net`.
 - `POPHQ_BOT_TOKEN`: the one-time `s26_...` credential issued by an officer.
 
-Never print, persist, or place the token in a command argument. Run `doctor` before work. Read [references/read-api.md](references/read-api.md) when retrieving general POP HQ data, and [references/results-api.md](references/results-api.md) before preparing a result.
+Never print, persist, or place the token in a command argument. Run `doctor` before work. Read [references/read-api.md](references/read-api.md) when retrieving general POP HQ data, [references/events-api.md](references/events-api.md) before creating or editing events, and [references/results-api.md](references/results-api.md) before preparing a result.
 
 ## Reading POP HQ
 
@@ -38,4 +38,8 @@ python3 scripts/s26.py put-result EVENT_ID SESSION_ID result.json
 python3 scripts/s26.py put-result EVENT_ID SESSION_ID result.json --apply --reason "Reviewed scoreboard" --idempotency-key EVENT_ID-SESSION_ID-v1
 ```
 
-The API defaults result writes to dry-run even if the CLI is used incorrectly. `--apply` is intentionally separate from preview. No other write family is available to bot tokens.
+The API defaults guarded writes to dry-run even if the CLI is used incorrectly. `--apply` is intentionally separate from preview. Normal web write routes and every undocumented write family remain forbidden.
+
+## Event workflow
+
+With `events:write`, an officer-issued bot may create events (including historical ones) and edit event/session metadata. Preview every exact change first, then apply only after an officer approves that diff. Creation requires a stable caller-selected event id. Editing cannot remove or rename existing session ids because dependent records use them as foreign keys. Follow [references/events-api.md](references/events-api.md) for payloads, preview hashes and commands.

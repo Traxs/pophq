@@ -26,7 +26,7 @@ describe("bot result agent", () => {
     eventId = event.eventId;
     const issued = await h.call("POST", "/agent-tokens", {
       ...OFFICER,
-      body: { name: "Hermes", scopes: ["all:read", "results:write"], expiresInDays: 30 },
+      body: { name: "Hermes", scopes: ["all:read", "results:write", "events:write"], expiresInDays: 30 },
     });
     token = issued.body.token as string;
   });
@@ -42,7 +42,9 @@ describe("bot result agent", () => {
     expect(token).toMatch(/^s26_[0-9a-z]{26}_[A-Za-z0-9_-]{43}$/);
     const listed = await h.call("GET", "/agent-tokens", OFFICER);
     expect(JSON.stringify(listed.body)).not.toContain(token);
-    expect(listed.body.items).toEqual([expect.objectContaining({ name: "Hermes", scopes: ["all:read", "results:write"] })]);
+    expect(listed.body.items).toEqual([
+      expect.objectContaining({ name: "Hermes", scopes: ["all:read", "results:write", "events:write"] }),
+    ]);
   });
 
   it("reads a narrow result context and refuses browser use", async () => {
@@ -81,6 +83,83 @@ describe("bot result agent", () => {
     expect(me.body).toMatchObject({ sub: "officer", accounts: [{ playerId: "700000001" }] });
     expect((await h.call("POST", "/events", agent({}))).status).toBe(403);
     expect((await h.call("GET", "/events", agent(undefined, { origin: "https://example.test" }))).status).toBe(403);
+  });
+
+  it("previews and idempotently applies historical event creation and editing", async () => {
+    const startsAt = "2026-09-06T19:00:00.000Z";
+    const createBody = {
+      eventId: "HISTORY-2026-09-06-L2",
+      kind: "foundry",
+      title: "Foundry September 6",
+      startsAt,
+      deadlineAt: "2026-09-06T18:00:00.000Z",
+      sessions: [{ id: "L2", label: "Legion 2", startsAt, starters: 30, subs: 10 }],
+    };
+    const preview = await h.call("POST", "/agent/events", agent(createBody));
+    expect(preview.status).toBe(200);
+    expect(preview.body).toMatchObject({ dryRun: true, diff: { before: null, after: { eventId: createBody.eventId } } });
+    expect(await h.repo.getEvent(createBody.eventId)).toBeUndefined();
+
+    const appliedBody = { ...createBody, reason: "Approved historical event import" };
+    const applied = await h.call(
+      "POST",
+      "/agent/events?apply=true",
+      agent(appliedBody, { "idempotency-key": "event-create-001" }),
+    );
+    expect(applied.status).toBe(201);
+    expect(applied.body).toMatchObject({ dryRun: false, replayed: false, event: { eventId: createBody.eventId } });
+    const replay = await h.call(
+      "POST",
+      "/agent/events?apply=true",
+      agent(appliedBody, { "idempotency-key": "event-create-001" }),
+    );
+    expect(replay.body).toMatchObject({ replayed: true, event: { eventId: createBody.eventId } });
+
+    const editBody = {
+      title: "Foundry — September 6 L2",
+      sessions: [{ id: "L2", label: "Legion 2 evening", startsAt, starters: 30, subs: 10 }],
+    };
+    const editPreview = await h.call("PATCH", `/agent/events/${createBody.eventId}`, agent(editBody));
+    expect(editPreview.status).toBe(200);
+    expect(editPreview.body).toMatchObject({
+      dryRun: true,
+      expectedHash: expect.any(String),
+      diff: { after: { title: editBody.title, sessions: [{ id: "L2", label: "Legion 2 evening" }] } },
+    });
+    const editApply = await h.call(
+      "PATCH",
+      `/agent/events/${createBody.eventId}?apply=true`,
+      agent(
+        {
+          ...editBody,
+          expectedHash: editPreview.body.expectedHash,
+          reason: "Approved historical event correction",
+        },
+        { "idempotency-key": "event-edit-001" },
+      ),
+    );
+    expect(editApply.status).toBe(200);
+    expect(editApply.body).toMatchObject({ event: { title: editBody.title } });
+
+    const stale = await h.call(
+      "PATCH",
+      `/agent/events/${createBody.eventId}?apply=true`,
+      agent(
+        {
+          title: "Stale overwrite",
+          expectedHash: editPreview.body.expectedHash,
+          reason: "This preview is stale",
+        },
+        { "idempotency-key": "event-edit-stale" },
+      ),
+    );
+    expect(stale.status).toBe(409);
+    const renamed = await h.call(
+      "PATCH",
+      `/agent/events/${createBody.eventId}`,
+      agent({ sessions: [{ id: "RENAMED", label: "Renamed", startsAt }] }),
+    );
+    expect(renamed.status).toBe(400);
   });
 
   it("defaults to dry-run, requires reason and idempotency to apply, and safely replays", async () => {
@@ -135,6 +214,7 @@ describe("bot result agent", () => {
     const readToken = issued.body.token as string;
     const readHeaders = { authorization: `Bearer ${readToken}` };
     expect((await h.call("GET", "/agent/doctor", { headers: readHeaders })).status).toBe(200);
+    expect((await h.call("POST", "/agent/events", { headers: readHeaders, body: {} })).status).toBe(403);
     expect(
       (
         await h.call("PUT", `/agent/events/${eventId}/sessions/L1/result`, {
@@ -168,6 +248,8 @@ describe("bot result agent", () => {
     }));
     expect(resultWrite.status).toBe(403);
     expect(resultWrite.body.title).toContain("no longer has permission");
+    const eventWrite = await h.call("PATCH", "/agent/events/HISTORY-2026-09-06-L2", agent({ title: "No longer allowed" }));
+    expect(eventWrite.status).toBe(403);
     issuerGroups = new Set<Group>(["player", "officer"]);
   });
 });
