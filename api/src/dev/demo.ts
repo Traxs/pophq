@@ -208,8 +208,30 @@ export async function addDemoEvents(repo: Repository, now: Date, actor: Actor): 
         { id: "L2", label: "Legion 2", startsAt: at(6, 19), starters: 30, subs: 10 },
       ],
     },
-    { kind: "bear" as const, title: "Bear hunt", startsAt: at(1, 18) },
-    { kind: "svs" as const, title: "SvS preparation call", startsAt: at(5, 20), notes: "Bring your buff wishes." },
+    // Canyon is a plain "are you in?", so it has no parts: the demo covers the RSVP path.
+    { kind: "canyon" as const, title: "Canyon", startsAt: at(1, 18) },
+    {
+      kind: "svs" as const,
+      title: "SvS preparation call",
+      startsAt: at(5, 20),
+      notes: "Bring your buff wishes.",
+      // SvS and FDT ask how much of it you can give, not which slot you take.
+      sessions: [
+        { id: "full", label: "Full time", startsAt: at(5, 20) },
+        { id: "first", label: "First half", startsAt: at(5, 20) },
+        { id: "last", label: "Last half", startsAt: at(5, 22) },
+      ],
+    },
+    {
+      kind: "fdt" as const,
+      title: "FDT",
+      startsAt: at(3, 19),
+      sessions: [
+        { id: "full", label: "Full time", startsAt: at(3, 19) },
+        { id: "first", label: "First half", startsAt: at(3, 19) },
+        { id: "last", label: "Last half", startsAt: at(3, 20) },
+      ],
+    },
   ];
   const created: AllianceEvent[] = [];
   for (const input of planned) {

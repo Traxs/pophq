@@ -15,7 +15,9 @@ describe("event types", () => {
     const first = await h.call("GET", "/event-types", PLAYER);
     expect(first.status).toBe(200);
     const items = first.body.items as { typeId: string; name: string; leadDays: number; sessions: { label: string }[] }[];
-    expect(items.map((t) => t.typeId).toSorted()).toEqual(["bear", "foundry", "other", "svs"]);
+    // The Bear hunt is kept but archived, so it is not something an officer can schedule.
+    expect(items.map((t) => t.typeId).toSorted()).toEqual(["canyon", "fdt", "foundry", "other", "svs", "tundra"]);
+    expect((first.body.archived as { typeId: string }[]).map((t) => t.typeId)).toEqual(["bear"]);
     const foundry = items.find((t) => t.typeId === "foundry")!;
     expect(foundry).toMatchObject({ name: "Foundry", leadDays: 3 });
     expect(foundry.sessions.map((s) => s.label)).toEqual(["Legion 1", "Legion 2"]);
@@ -59,5 +61,25 @@ describe("event types", () => {
     expect((await h.call("POST", "/event-types", { ...PLAYER, body: { name: "Mine" } })).status).toBe(403);
     expect((await h.call("PATCH", "/event-types/bear", { ...PLAYER, body: { leadDays: 5 } })).status).toBe(403);
     expect((await h.call("PATCH", "/event-types/ghost", { ...OFFICER, body: { leadDays: 5 } })).status).toBe(404);
+  });
+});
+
+describe("starter types an alliance is missing", () => {
+  it("are added later, without disturbing the ones officers already changed", async () => {
+    const h = await createHarness();
+    // An alliance that started before FDT, Canyon and Tundra League existed, with a renamed
+    // Foundry it would be rude to overwrite.
+    await h.repo.putEventType(
+      { typeId: "foundry", name: "Foundry night", leadDays: 5, sessions: [], archived: false, createdBy: "officer" },
+      { id: "officer", via: "web" },
+    );
+
+    const res = await h.call("GET", "/event-types", { as: "player" });
+    const items = res.body.items as { typeId: string; name: string; leadDays: number }[];
+    expect(items.map((t) => t.typeId).toSorted()).toEqual(["canyon", "fdt", "foundry", "other", "svs", "tundra"]);
+    // Untouched: the officer's own wording and lead time survive.
+    expect(items.find((t) => t.typeId === "foundry")).toMatchObject({ name: "Foundry night", leadDays: 5 });
+    expect((res.body.archived as { typeId: string }[]).map((t) => t.typeId)).toEqual(["bear"]);
+    await h.cleanup();
   });
 });

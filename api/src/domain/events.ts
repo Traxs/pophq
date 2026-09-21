@@ -4,7 +4,9 @@
 import { z } from "zod";
 import { ValidationError } from "./errors.js";
 
-export const EVENT_KINDS = ["foundry", "bear", "svs", "other"] as const;
+// "bear" stays readable so events recorded before the Bear hunt became a scores-only fixture
+// still validate; officers no longer pick it when scheduling.
+export const EVENT_KINDS = ["foundry", "svs", "fdt", "canyon", "tundra", "bear", "other"] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
 
 export const ANSWERS = ["yes", "no", "maybe"] as const;
@@ -111,6 +113,11 @@ export interface NewEventContext {
 export const DEFAULT_LEAD_DAYS: Record<EventKind, number> = {
   foundry: 3,
   svs: 3,
+  // FDT, Canyon and Tundra League vary in practice, so they start at a day before and the
+  // officer sets the real lead time on the event itself.
+  fdt: 1,
+  canyon: 1,
+  tundra: 1,
   bear: 0,
   other: 0,
 };

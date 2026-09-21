@@ -106,7 +106,7 @@ Locally the invite flow uses a stand-in directory in DynamoDB Local, so invited 
 
 ## Events
 
-Officers schedule events (Foundry, Bear hunt, SvS, other) with a start time. Answers close a set number of days before the start, per type: **Foundry three days**, because officers register the participants in game afterwards; other types an hour before unless changed. The deadline falls at the end of that day in the officer's time zone, and can be overridden per event. Officers can edit an event later; moving the start moves the deadline with it. Event types are defined by officers: each carries how many days before the start answers close, which parts people choose between, and a strategy template. New events inherit from a type and can still be changed.
+Officers schedule events (Foundry, SvS, FDT, Canyon, Tundra League, other) with a start time. Answers close a set number of days before the start, per type: **Foundry three days**, because officers register the participants in game afterwards; other types an hour before unless changed. The deadline falls at the end of that day in the officer's time zone, and can be overridden per event. Officers can edit an event later; moving the start moves the deadline with it. Event types are defined by officers: each carries how many days before the start answers close, which parts people choose between, and a strategy template. New events inherit from a type and can still be changed.
 
 After an event, officers mark who turned up (present, absent, excused, or left unknown when nobody checked). Reliability is the share of kept commitments over the last ten **checked** events: an excused absence or an event nobody checked never lowers it, so a missing screenshot cannot cost a member their spot.
 
@@ -121,6 +121,12 @@ After publishing a lineup, officers publish a separate strategy for each part: a
 After a part starts, officers record its result: victory, defeat or draw; both scores; optional matchmaking-power totals, opponent count and notes; and optional points per player. Aggregate results are visible to every member. Individual points are visible only to that player and officers. Corrections are version-checked and the previous value remains in change history.
 
 **Publishing a lineup** turns that estimate into a decision. An officer opens the part, sets each person to Starting, Substitute or Not playing — the list opens on the published lineup, or on the estimate when there is none — and publishes. Everyone then sees the lineup with their own row highlighted, and their pill changes from "Likely starting" to "You're starting · #4"; the capacity bar counts the lineup rather than the sign-ups. Each publish is a new version, kept in the change history like any other write. Publishing sends the version that was edited, so a second officer working from a stale page is told to reload instead of overwriting the first. Capacity is enforced in the write, and someone picked although they never answered is shown as "didn't answer" rather than hidden.
+
+**SvS and FDT** ask how much of the event someone can give rather than which slot they take: **Full time**, **First half** or **Last half**, plus "can't make it". That is the same mechanism as the Foundry legions — three parts, one pick.
+
+**Canyon and Tundra League** are a plain "are you in?": one button to join, and the same button to drop out again. No maybe, because an officer cannot plan on a maybe.
+
+The **Bear hunt** is not a sign-up event. It runs every other day and needs no organising, so its type is archived; events recorded against it before still read correctly.
 
 A Foundry is **one event with two legions**: members pick Legion 1, Legion 2 or Not signed up, never both, and switching legions replaces the earlier pick. Other events keep the plain Yes / Maybe / No. Members answer per game account, so someone with alts answers once per account, and may change their mind until the deadline. The deadline is checked in the same write as the answer, so a late answer cannot slip through (FM-09). Officers see counts and the lists behind them, including who has not answered, and may answer on someone's behalf.
 
