@@ -19,7 +19,7 @@ The token may call normal `GET /v1/...` routes with exactly the issuer's current
 ## Result workflow
 
 1. Run `list-events --kind foundry` to discover event and session IDs. Match the requested date, time and session label exactly; ask the officer if more than one item could match.
-2. Fetch `result-context` for that exact event and session. Use only returned Player IDs; names are display aids and must never be fuzzy-matched.
+2. Fetch `result-context` for that exact event and session. `lineup` is the officer-confirmed participant list when one was published; `players` is the permitted exact Player ID/name registry for legacy events without a lineup. Use only returned Player IDs, and only attach points when the scoreboard name matches exactly. Names must never be fuzzy-matched.
 3. Preserve missing facts as omitted fields. Never turn an unreadable or absent value into zero.
 4. Write a JSON payload with the current result's `version` as `expectedVersion`, or `0` when no result exists.
 5. Preview first. Present the returned before/after diff to the officer.

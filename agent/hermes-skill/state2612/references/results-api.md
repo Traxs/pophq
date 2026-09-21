@@ -17,7 +17,7 @@ Optional query parameters:
 
 `GET /v1/agent/events/{eventId}/sessions/{sessionId}/result-context`
 
-Returns the event, session, published lineup with numeric Player IDs and names, and the current result or `null`.
+Returns the event, session, published lineup with numeric Player IDs and names, the permitted `players` registry, and the current result or `null`. `lineup` may be empty for a legacy event; this does not prevent aggregate results. Use `players` for exact Player ID/name mapping, but do not treat every registry entry as a participant.
 
 ## Preview or apply a result
 
@@ -48,6 +48,7 @@ Rules:
 - `outcome`: `win`, `loss`, or `draw`.
 - Scores and points are non-negative integers. Player IDs are numeric strings.
 - Matchmaking power, opponent count, notes, and player points are optional facts. Omit unknown values.
+- Omitting `playerPoints` records an aggregate/team-only result; it is normalized to an empty list.
 - Each Player ID appears at most once and must already exist in POP HQ.
 - Results can only be recorded after that session starts.
 - Use the current version returned by context. A stale version is rejected.
