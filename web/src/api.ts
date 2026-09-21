@@ -41,6 +41,11 @@ export interface RosterRow extends GameAccount {
   attendanceTrend: (number | null)[];
   power: number | null;
   previousPower: number | null;
+  foundryStrength: number | null;
+  attendance: Reliability;
+  /** The latest Foundry-strength report; separate from the city-power report date below. */
+  lastFoundryReportAt: string | null;
+  /** The latest city-power report. */
   lastReportAt: string | null;
   furnace: string | null;
   reports: number;
@@ -352,7 +357,8 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
     revokeAgentToken: (tokenId: string) => request<{ revoked: true }>("DELETE", `/agent-tokens/${tokenId}`),
     growth: (weeks = 12, metric: StrengthMetric = "city_power", cohort: "members" | "all" = "members") =>
       request<AllianceGrowth>("GET", `/metrics/alliance?weeks=${weeks}&metric=${metric}&cohort=${cohort}`),
-    events: () => request<{ items: EventListItem[] }>("GET", "/events"),
+    events: (from?: string) =>
+      request<{ items: EventListItem[] }>("GET", `/events${from ? `?from=${encodeURIComponent(from)}` : ""}`),
     event: (eventId: string) => request<EventDetail>("GET", `/events/${eventId}`),
     createEvent: (input: NewEvent) => request<AllianceEvent>("POST", "/events", input),
     updateEvent: (eventId: string, changes: EventChanges) =>

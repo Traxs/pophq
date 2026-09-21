@@ -53,6 +53,31 @@ describe("events", () => {
     );
   });
 
+  it("keeps the default list recent but lets the UI request the full archive", async () => {
+    const oldEventId = "01J00000000000000000PAST";
+    const startsAt = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    await h.repo.createEvent(
+      {
+        eventId: oldEventId,
+        alliance: "POP",
+        kind: "foundry",
+        title: "Historical Foundry",
+        startsAt,
+        deadlineAt: new Date(Date.parse(startsAt) - 3 * 86_400_000).toISOString(),
+        sessions: [],
+        createdBy: "import",
+      },
+      { id: "import", via: "migration" },
+    );
+
+    const recent = await h.call("GET", "/events", PLAYER);
+    expect((recent.body.items as { eventId: string }[]).some((event) => event.eventId === oldEventId)).toBe(false);
+
+    const history = await h.call("GET", `/events?from=${encodeURIComponent("1970-01-01T00:00:00.000Z")}`, PLAYER);
+    expect((history.body.items as { eventId: string }[]).some((event) => event.eventId === oldEventId)).toBe(true);
+    expect((await h.call("GET", "/events?from=not-a-date", PLAYER)).status).toBe(400);
+  });
+
   it("keeps answers per game account, not per login", async () => {
     await h.call("PUT", `/events/${eventId}/answers/100000002`, { ...ALT, body: { answer: "no" } });
     const alt = await h.call("GET", "/events", ALT);

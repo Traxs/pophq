@@ -32,6 +32,7 @@ const LEAD_CHOICES = [
   { days: 0, label: "1 hour before" },
 ];
 const DEFAULT_LEAD: Record<EventKind, number> = { foundry: 3, svs: 3, bear: 0, other: 0 };
+const ALL_EVENT_HISTORY = "1970-01-01T00:00:00.000Z";
 
 /** A Foundry is one event with two legions; other types have no parts to choose from. */
 const defaultSessions = (kind: EventKind): { id?: string; label: string; startsAt: string }[] =>
@@ -50,16 +51,17 @@ export function Events() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<EventListItem | null>(null);
   const [configuring, setConfiguring] = useState<EventListItem | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
 
   useEffect(() => {
     api
-      .events()
+      .events(showHistory ? ALL_EVENT_HISTORY : undefined)
       .then((r) => {
         setItems(r.items);
         setError(null);
       })
       .catch((e: Error) => setError(e.message));
-  }, [api, dataVersion, attempt]);
+  }, [api, dataVersion, attempt, showHistory]);
 
   if (me && me.accounts.length === 0) return <NoAccount />;
 
@@ -108,7 +110,7 @@ export function Events() {
 
       {past.length > 0 && (
         <>
-          <h2 className="section-label">Recent</h2>
+          <h2 className="section-label">{showHistory ? "Event history" : "Recent"}</h2>
           <ul className="stack">
             {past.map((event) => (
               <li key={event.eventId}>
@@ -125,6 +127,17 @@ export function Events() {
           </ul>
         </>
       )}
+
+      <button
+        type="button"
+        className="btn btn-secondary btn-block"
+        onClick={() => {
+          setItems(null);
+          setShowHistory((shown) => !shown);
+        }}
+      >
+        {showHistory ? "Show recent events only" : "Show full event history"}
+      </button>
 
       <Sheet open={creating} title="New event" onClose={() => setCreating(false)}>
         <EventForm

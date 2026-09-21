@@ -16,13 +16,29 @@ describe("roster and dev tools", () => {
   afterAll(() => Promise.all([h.cleanup(), plain.cleanup()]));
 
   it("gives officers a roster with latest and previous power", async () => {
+    expect(
+      (await h.call("POST", "/accounts/100000001/reports", {
+        ...OFFICER,
+        body: { values: [{ metric: "foundry_strength", value: 18_765_432 }] },
+      })).status,
+    ).toBe(201);
     const res = await h.call("GET", "/roster", OFFICER);
     expect(res.status).toBe(200);
-    const items = res.body.items as { playerId: string; power: number | null; previousPower: number | null }[];
+    const items = res.body.items as {
+      playerId: string;
+      power: number | null;
+      previousPower: number | null;
+      foundryStrength: number | null;
+      lastFoundryReportAt: string | null;
+      attendance: { rate?: number; kept: number; missed: number; sample: number };
+    }[];
     expect(items).toHaveLength(38);
     const poppy = items.find((i) => i.playerId === "100000001")!;
     expect(poppy.power).toBeGreaterThan(0);
     expect(poppy.previousPower).toBeGreaterThan(0);
+    expect(poppy.foundryStrength).toBeGreaterThan(0);
+    expect(poppy.lastFoundryReportAt).toEqual(expect.any(String));
+    expect(poppy.attendance).toMatchObject({ kept: expect.any(Number), missed: expect.any(Number), sample: expect.any(Number) });
   });
 
   it("keeps the roster officer-only", async () => {

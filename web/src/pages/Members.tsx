@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { ApiError, STRENGTH_METRICS, type AllianceGrowth, type InviteResult, type RosterRow, type Seats, type StrengthMetric } from "../api";
+import { ApiError, type AllianceGrowth, type InviteResult, type RosterRow, type Seats, type StrengthMetric } from "../api";
 import { ErrorBanner } from "../components/Chrome";
 import { LineChart } from "../components/LineChart";
 import { Sheet } from "../components/Sheet";
@@ -10,18 +10,23 @@ import { isReportOverdue, isValidEmail, isValidGameName, isValidPlayerId } from 
 import { useSession } from "../session";
 import { AgentTokens } from "../components/AgentTokens";
 
-type SortKey = "name" | "rank" | "power" | "change" | "lastReport";
-type Filter = "all" | "overdue" | "none";
+type SortKey = "name" | "rank" | "power" | "change" | "lastReport" | "foundry" | "lastFoundry" | "attendance";
+type View = "foundry" | "city";
+type Filter = "all" | "overdue" | "none" | "noFoundry" | "noAttendance";
 
-const ageDays = (r: RosterRow) => (r.lastReportAt ? daysBetween(new Date(r.lastReportAt), new Date()) : Infinity);
+const ageDays = (at: string | null) => (at ? daysBetween(new Date(at), new Date()) : Infinity);
 const pct = (r: RosterRow) => (r.power !== null ? change(r.power, r.previousPower ?? undefined)?.percent : undefined);
+const attendanceRate = (r: RosterRow) => r.attendance.rate ?? -1;
 
 const COMPARE: Record<SortKey, (a: RosterRow, b: RosterRow) => number> = {
   name: (a, b) => a.name.localeCompare(b.name),
   rank: (a, b) => (b.rank ?? "").localeCompare(a.rank ?? "") || a.name.localeCompare(b.name),
   power: (a, b) => (b.power ?? -1) - (a.power ?? -1),
+  foundry: (a, b) => (b.foundryStrength ?? -1) - (a.foundryStrength ?? -1),
+  attendance: (a, b) => attendanceRate(b) - attendanceRate(a) || b.attendance.sample - a.attendance.sample,
   change: (a, b) => (pct(b) ?? -Infinity) - (pct(a) ?? -Infinity),
-  lastReport: (a, b) => ageDays(b) - ageDays(a),
+  lastReport: (a, b) => ageDays(b.lastReportAt) - ageDays(a.lastReportAt),
+  lastFoundry: (a, b) => ageDays(b.lastFoundryReportAt) - ageDays(a.lastFoundryReportAt),
 };
 
 export function Members() {
@@ -31,8 +36,9 @@ export function Members() {
   const [inviting, setInviting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [view, setView] = useState<View>("foundry");
   const [filter, setFilter] = useState<Filter>("all");
-  const [sort, setSort] = useState<SortKey>("power");
+  const [sort, setSort] = useState<SortKey>("foundry");
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
@@ -52,9 +58,13 @@ export function Members() {
     const q = query.trim().toLowerCase();
     return rows
       .filter((r) => !q || r.name.toLowerCase().includes(q) || r.playerId.includes(q))
-      .filter((r) =>
-        filter === "overdue" ? isReportOverdue(r.lastReportAt) : filter === "none" ? r.lastReportAt === null : true,
-      )
+      .filter((r) => {
+        if (filter === "overdue") return isReportOverdue(r.lastReportAt);
+        if (filter === "none") return r.lastReportAt === null;
+        if (filter === "noFoundry") return r.foundryStrength === null;
+        if (filter === "noAttendance") return r.attendance.sample === 0;
+        return true;
+      })
       .toSorted(COMPARE[sort]);
   }, [rows, query, filter, sort]);
 
@@ -71,6 +81,16 @@ export function Members() {
   // Overdue includes members who never reported; "No report" is the subset without any report.
   const overdue = rows?.filter((r) => isReportOverdue(r.lastReportAt)).length ?? 0;
   const noReport = rows?.filter((r) => r.lastReportAt === null).length ?? 0;
+  const foundryReported = rows?.filter((r) => r.foundryStrength !== null).length ?? 0;
+  const noFoundry = (rows?.length ?? 0) - foundryReported;
+  const attendanceTracked = rows?.filter((r) => r.attendance.sample > 0).length ?? 0;
+  const noAttendance = (rows?.length ?? 0) - attendanceTracked;
+
+  const changeView = (next: View) => {
+    setView(next);
+    setFilter("all");
+    setSort(next === "foundry" ? "foundry" : "power");
+  };
 
   const header = (key: SortKey, label: string, className = "") => (
     <th scope="col" className={className} aria-sort={sort === key ? (key === "name" ? "ascending" : "descending") : "none"}>
@@ -97,17 +117,32 @@ export function Members() {
           <span className="tile-label">Members</span>
           <span className="tile-value">{rows ? rows.length : "–"}</span>
         </div>
-        <div className="card tile">
-          <span className="tile-label">Total power</span>
-          <span className="tile-value">{rows ? compact(total) : "–"}</span>
-        </div>
-        <button type="button" className="card tile tile-warn" onClick={() => setFilter("overdue")}>
-          <span className="tile-label">Overdue</span>
-          <span className="tile-value">{rows ? overdue : "–"}</span>
-        </button>
+        {view === "foundry" ? (
+          <>
+            <button type="button" className="card tile" onClick={() => setFilter(noFoundry ? "noFoundry" : "all")}>
+              <span className="tile-label">Foundry strength</span>
+              <span className="tile-value">{rows ? `${foundryReported}/${rows.length}` : "–"}</span>
+            </button>
+            <button type="button" className="card tile" onClick={() => setFilter(noAttendance ? "noAttendance" : "all")}>
+              <span className="tile-label">Attendance tracked</span>
+              <span className="tile-value">{rows ? `${attendanceTracked}/${rows.length}` : "–"}</span>
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="card tile">
+              <span className="tile-label">Total city power</span>
+              <span className="tile-value">{rows ? compact(total) : "–"}</span>
+            </div>
+            <button type="button" className="card tile tile-warn" onClick={() => setFilter("overdue")}>
+              <span className="tile-label">Power overdue</span>
+              <span className="tile-value">{rows ? overdue : "–"}</span>
+            </button>
+          </>
+        )}
       </div>
 
-      <AllianceChart />
+      <AllianceChart key={view} metric={view === "foundry" ? "foundry_strength" : "city_power"} />
 
       {seats && (
         <p className="muted small">
@@ -133,13 +168,26 @@ export function Members() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
+        <div className="segmented" role="radiogroup" aria-label="Member data">
+          <button type="button" role="radio" aria-checked={view === "foundry"} onClick={() => changeView("foundry")}>
+            Foundry & attendance
+          </button>
+          <button type="button" role="radio" aria-checked={view === "city"} onClick={() => changeView("city")}>
+            City power
+          </button>
+        </div>
         <div className="segmented" role="radiogroup" aria-label="Filter">
-          {(
-            [
-              ["all", "All"],
-              ["overdue", `Overdue${overdue ? ` (${overdue})` : ""}`],
-              ["none", `No report${noReport ? ` (${noReport})` : ""}`],
-            ] as [Filter, string][]
+          {(view === "foundry"
+            ? ([
+                ["all", "All"],
+                ["noFoundry", `Missing strength${noFoundry ? ` (${noFoundry})` : ""}`],
+                ["noAttendance", `No attendance${noAttendance ? ` (${noAttendance})` : ""}`],
+              ] as [Filter, string][])
+            : ([
+                ["all", "All"],
+                ["overdue", `Overdue${overdue ? ` (${overdue})` : ""}`],
+                ["none", `No power${noReport ? ` (${noReport})` : ""}`],
+              ] as [Filter, string][])
           ).map(([key, label]) => (
             <button key={key} type="button" role="radio" aria-checked={filter === key} onClick={() => setFilter(key)}>
               {label}
@@ -158,9 +206,19 @@ export function Members() {
                 <tr>
                   {header("name", "Member")}
                   {header("rank", "Rank")}
-                  {header("power", "Power", "num")}
-                  {header("change", "Change", "num")}
-                  {header("lastReport", "Last report")}
+                  {view === "foundry" ? (
+                    <>
+                      {header("foundry", "Foundry strength", "num")}
+                      {header("lastFoundry", "Strength report")}
+                      {header("attendance", "Attendance")}
+                    </>
+                  ) : (
+                    <>
+                      {header("power", "City power", "num")}
+                      {header("change", "Change", "num")}
+                      {header("lastReport", "Power report")}
+                    </>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -180,17 +238,42 @@ export function Members() {
                         </span>
                       </td>
                       <td>{r.rank ?? "–"}</td>
-                      <td className="num">{r.power !== null ? full(r.power) : "–"}</td>
-                      <td className={`num ${p === undefined ? "" : p > 0 ? "delta-up" : p < 0 ? "delta-down" : ""}`}>
-                        {p === undefined ? "–" : `${p > 0 ? "+" : p < 0 ? "−" : ""}${Math.abs(p).toFixed(1)}%`}
-                      </td>
-                      <td>
-                        {r.lastReportAt ? (
-                          <span className={isReportOverdue(r.lastReportAt) ? "badge badge-warn" : "badge"}>{relativeDay(r.lastReportAt)}</span>
-                        ) : (
-                          <span className="badge badge-none">never</span>
-                        )}
-                      </td>
+                      {view === "foundry" ? (
+                        <>
+                          <td className="num">{r.foundryStrength !== null ? full(r.foundryStrength) : "–"}</td>
+                          <td>
+                            {r.lastFoundryReportAt ? (
+                              <span className="badge">{relativeDay(r.lastFoundryReportAt)}</span>
+                            ) : (
+                              <span className="badge badge-none">never</span>
+                            )}
+                          </td>
+                          <td>
+                            {r.attendance.rate === undefined ? (
+                              <span className="badge badge-none">not tracked</span>
+                            ) : (
+                              <span className="attendance-summary">
+                                <strong>{Math.round(r.attendance.rate * 100)}%</strong>
+                                <span className="muted small">{r.attendance.kept}/{r.attendance.sample} present</span>
+                              </span>
+                            )}
+                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <td className="num">{r.power !== null ? full(r.power) : "–"}</td>
+                          <td className={`num ${p === undefined ? "" : p > 0 ? "delta-up" : p < 0 ? "delta-down" : ""}`}>
+                            {p === undefined ? "–" : `${p > 0 ? "+" : p < 0 ? "−" : ""}${Math.abs(p).toFixed(1)}%`}
+                          </td>
+                          <td>
+                            {r.lastReportAt ? (
+                              <span className={isReportOverdue(r.lastReportAt) ? "badge badge-warn" : "badge"}>{relativeDay(r.lastReportAt)}</span>
+                            ) : (
+                              <span className="badge badge-none">never</span>
+                            )}
+                          </td>
+                        </>
+                      )}
                     </tr>
                   );
                 })}
@@ -336,12 +419,13 @@ function InviteForm({ onDone }: { onDone: () => void }) {
 }
 
 /** Alliance growth over time with the movers behind it (MET-01, officers only). */
-function AllianceChart() {
+function AllianceChart({ metric }: { metric: StrengthMetric }) {
   const { api, dataVersion } = useSession();
   const [growth, setGrowth] = useState<AllianceGrowth | null>(null);
   const [weeks, setWeeks] = useState(12);
-  const [metric, setMetric] = useState<StrengthMetric>("city_power");
-  const [cohort, setCohort] = useState<"members" | "all">("members");
+  // Historical imports are alliance data even before every account has a confirmed membership
+  // status. Foundry totals therefore include them by default; city-power totals stay conservative.
+  const [cohort, setCohort] = useState<"members" | "all">(metric === "foundry_strength" ? "all" : "members");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -374,14 +458,6 @@ function AllianceChart() {
             </button>
           ))}
         </div>
-      </div>
-
-      <div className="segmented" role="radiogroup" aria-label="Kind of strength">
-        {STRENGTH_METRICS.map((m) => (
-          <button key={m.value} type="button" role="radio" aria-checked={metric === m.value} onClick={() => setMetric(m.value)}>
-            {m.label}
-          </button>
-        ))}
       </div>
 
       <LineChart
@@ -418,8 +494,8 @@ function AllianceChart() {
       {growth.unknownMembership > 0 && (
         <button type="button" className="text-btn" onClick={() => setCohort(cohort === "all" ? "members" : "all")}>
           {cohort === "all"
-            ? `Counting ${growth.unknownMembership} accounts with unconfirmed membership — count members only`
-            : `${growth.unknownMembership} imported accounts are not counted — include them`}
+            ? `Including ${growth.unknownMembership} imported alliance accounts — confirmed members only`
+            : `${growth.unknownMembership} imported alliance accounts are not counted — include them`}
         </button>
       )}
     </section>

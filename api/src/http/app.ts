@@ -678,6 +678,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           .toSorted((a, b) => a.at.localeCompare(b.at));
         const cur = currentValues(reports);
         const attendance = await repo.attendanceFor(account.playerId);
+        const foundrySeries = seriesOf(reports, "foundry_strength");
         return {
           ...account,
           // Six trailing months for the small graphs in the table (MET-02).
@@ -685,11 +686,14 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
             series.map((p) => ({ at: p.at, value: p.power })),
             at,
           ),
-          strengthTrend: monthlyValues(seriesOf(reports, "foundry_strength"), at),
+          strengthTrend: monthlyValues(foundrySeries, at),
           // Trailing three-month average, so one bad night does not look like a collapse.
           attendanceTrend: trailingAverage(monthlyAttendance(attendance, at)),
           power: series.at(-1)?.power ?? null,
           previousPower: series.at(-2)?.power ?? null,
+          foundryStrength: foundrySeries.at(-1)?.value ?? null,
+          attendance: reliabilityOf(attendance),
+          lastFoundryReportAt: foundrySeries.at(-1)?.at ?? null,
           lastReportAt: series.at(-1)?.at ?? null,
           furnace: cur.furnace_level?.value ?? null,
           reports: reports.length,
@@ -881,7 +885,11 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const p = c.get("principal");
     const alliance = (c.req.query("alliance") ?? "POP").toUpperCase();
     const at = now();
-    const from = new Date(at.getTime() - PAST_EVENTS_MS).toISOString();
+    const requestedFrom = c.req.query("from");
+    if (requestedFrom && Number.isNaN(Date.parse(requestedFrom))) throw new ValidationError("from must be an ISO date or timestamp.");
+    const from = requestedFrom
+      ? new Date(requestedFrom).toISOString()
+      : new Date(at.getTime() - PAST_EVENTS_MS).toISOString();
     const events = await repo.listEvents(alliance, from);
     const acting = defaultActing(p);
     const mine = acting ? await repo.answersForAccount(acting, from) : [];
