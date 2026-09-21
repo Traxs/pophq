@@ -3,7 +3,9 @@ import { ApiError, type Answer, type EventDetail, type EventListItem, type Event
 import { ErrorBanner } from "../components/Chrome";
 import { Sheet } from "../components/Sheet";
 import { useToast } from "../components/Toast";
-import { dayTime, shortTime, untilText } from "../format";
+import { compact, dayTime, full, relativeDay, shortTime, untilText } from "../format";
+import { latestKnown, sortForBreakdown, totalsOf, valueOf } from "../eventBreakdown";
+import { isReportOverdue } from "../rules";
 import { leadDaysOf, previewDeadline, toLocalInput } from "../eventTiming";
 import { navigate } from "../router";
 import { useSession } from "../session";
@@ -451,16 +453,74 @@ function EventBreakdown({ detail }: { detail: EventDetail }) {
       {shown.length === 0 ? (
         <p className="muted small">Nobody in this group.</p>
       ) : (
-        <ul className="member-chips">
-          {shown.map((m) => (
-            <li key={m.playerId} className="chip-static">
-              {m.name}
-              {m.rank && <span className="muted"> · {m.rank}</span>}
-            </li>
-          ))}
-        </ul>
+        <BreakdownTable members={shown} pending={filter === "pending"} kind={detail.kind} />
       )}
     </div>
+  );
+}
+
+
+/**
+ * One answer group as a table. Strongest first: when a legion is short, the officer wants to know
+ * which of the missing people actually matter, not just how many there are.
+ */
+function BreakdownTable({ members, pending, kind }: { members: EventMember[]; pending: boolean; kind: EventKind }) {
+  // Foundry strength decides a Foundry; for a bear hunt or an SvS call, city power is the number
+  // an officer actually weighs. The table sorts by whichever it shows.
+  const foundry = kind === "foundry";
+  const metric = foundry ? "foundry" : "power";
+  const rows = sortForBreakdown(members, metric);
+  const totals = totalsOf(rows, metric);
+
+  return (
+    <>
+      <div className="table-wrap">
+        <table className="table">
+          <thead>
+            <tr>
+              <th scope="col">Member</th>
+              <th scope="col">Rank</th>
+              <th scope="col" className="num">
+                {foundry ? "Foundry" : "Power"}
+              </th>
+              <th scope="col" className="num">
+                Attendance
+              </th>
+              {/* People who answered are judged on when; people who did not, on whether they are
+                  around at all. */}
+              <th scope="col">{pending ? "Last report" : "Answered"}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((m) => {
+              const attendance = latestKnown(m.attendanceTrend);
+              return (
+                <tr key={m.playerId}>
+                  <td>{m.name}</td>
+                  <td className="muted">{m.rank ?? "–"}</td>
+                  <td className="num">{valueOf(m, metric) === null ? "–" : full(valueOf(m, metric)!)}</td>
+                  <td className="num">{attendance === undefined ? "–" : `${Math.round(attendance * 100)}%`}</td>
+                  <td className={pending && isReportOverdue(m.lastReportAt) ? "delta-down" : undefined}>
+                    {pending
+                      ? m.lastReportAt
+                        ? relativeDay(m.lastReportAt)
+                        : "never"
+                      : m.answeredAt
+                        ? relativeDay(m.answeredAt)
+                        : "–"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="muted small">
+        {totals.people} {totals.people === 1 ? "person" : "people"} · {compact(totals.strength)}{" "}
+        {foundry ? "Foundry strength" : "power"}
+        {totals.missing > 0 && ` · ${totals.missing} never reported it`}
+      </p>
+    </>
   );
 }
 

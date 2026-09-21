@@ -47,6 +47,9 @@ const RANKS = ["R1", "R2", "R3", "R3", "R3", "R3", "R3", "R4"] as const;
 function values(power: number, rand: () => number, furnace: number) {
   return [
     { metric: "city_power", value: power },
+    // Foundry strength is its own metric and roughly a sixth of city power in POP's real data;
+    // without it locally, every Foundry ranking and lineup shows a column of dashes.
+    { metric: "foundry_strength", value: Math.round((power / 6000) * (0.85 + rand() * 0.3)) },
     { metric: "hero_power_total", value: Math.round(power * (0.25 + rand() * 0.1)) },
     { metric: "furnace_level", value: `FC${Math.min(10, furnace)}` },
     { metric: "helios", value: HELIOS[Math.floor(rand() * HELIOS.length)]! },
@@ -291,6 +294,24 @@ export async function addDemoEvents(repo: Repository, now: Date, actor: Actor): 
           { eventId: event.eventId, recordedBy: actor.id, now, currentVersion: 0 },
         );
         await repo.putResult(result, actor);
+
+        // Who turned up. Without this the Attendance columns, the reliability score and the
+        // six-month graphs are all dashes locally, and the Foundry ranking falls back to
+        // strength alone — nothing like what the deployed app shows.
+        const turnout: { playerId: string; status: "present" | "absent" | "excused" }[] = [
+          { playerId: "100000001", status: "present" },
+          { playerId: "100000008", status: "present" },
+          { playerId: "100000010", status: "present" },
+          { playerId: "100000002", status: "absent" },
+          { playerId: "100000005", status: "excused" },
+        ];
+        for (const { playerId, status } of turnout) {
+          await repo.setAttendance(
+            { eventId: event.eventId, playerId, sessionId: session.id, status, source: "officer" },
+            actor,
+            new Date(Date.parse(session.startsAt) + 2 * 60 * 60 * 1000).toISOString(),
+          );
+        }
       }
     }
     created.push(event);
