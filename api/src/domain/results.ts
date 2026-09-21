@@ -44,7 +44,8 @@ const ResultSchema = z.object({
         points: z.number().int().nonnegative().max(1_000_000_000_000),
       }),
     )
-    .max(200),
+    .max(200)
+    .default([]),
   expectedVersion: z.number().int().min(0).optional(),
 });
 

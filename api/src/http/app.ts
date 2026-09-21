@@ -137,17 +137,30 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
   });
 
   app.get("/agent/events/:id/sessions/:sid/result-context", async (c) => {
-    await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "all:read", now(), botIssuerGroups);
+    const { issuerGroups } = await authenticateAgent(
+      repo,
+      c.req.header("authorization"),
+      c.req.header("origin"),
+      "all:read",
+      now(),
+      botIssuerGroups,
+    );
     const event = await repo.getEvent(c.req.param("id"));
     if (!event) throw new NotFoundError("Event not found.");
     const session = event.sessions.find((candidate) => candidate.id === c.req.param("sid"));
     if (!session) throw new NotFoundError("That part of the event doesn't exist.");
-    const accounts = new Map((await repo.listAccounts(event.alliance)).map((account) => [account.playerId, account.name]));
+    const accountList = await repo.listAccounts(event.alliance);
+    const accounts = new Map(accountList.map((account) => [account.playerId, account.name]));
     const lineup = await repo.getLineup(event.eventId, session.id);
     return c.json({
       event: { eventId: event.eventId, title: event.title, kind: event.kind },
       session,
       lineup: lineup?.entries.map((entry) => ({ ...entry, name: accounts.get(entry.playerId) ?? entry.playerId })) ?? [],
+      // Officers can already read this registry through /roster. Returning the same exact ids and
+      // names here lets result bots map a legacy scoreboard without pretending it had a lineup.
+      ...([...issuerGroups].some((group) => group === "officer" || group === "owner")
+        ? { players: accountList.map(({ playerId, name }) => ({ playerId, name })) }
+        : {}),
       result: (await repo.getResult(event.eventId, session.id)) ?? null,
     });
   });

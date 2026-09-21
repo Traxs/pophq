@@ -62,7 +62,13 @@ describe("bot result agent", () => {
     expect((await h.call("GET", "/agent/events?kind=admin", agent())).status).toBe(400);
     const context = await h.call("GET", `/agent/events/${eventId}/sessions/L1/result-context`, agent());
     expect(context.status).toBe(200);
-    expect(context.body).toMatchObject({ event: { eventId }, session: { id: "L1" }, result: null });
+    expect(context.body).toMatchObject({
+      event: { eventId },
+      session: { id: "L1" },
+      lineup: [],
+      players: [{ playerId: "700000001", name: "Northstar" }],
+      result: null,
+    });
     expect((await h.call("GET", "/agent/doctor", agent(undefined, { origin: "https://example.test" }))).status).toBe(403);
   });
 
@@ -110,6 +116,17 @@ describe("bot result agent", () => {
     expect(replay.body).toMatchObject({ replayed: true, result: { version: 1 } });
   });
 
+  it("previews a team-only result when playerPoints is omitted", async () => {
+    const preview = await h.call(
+      "PUT",
+      `/agent/events/${eventId}/sessions/L1/result`,
+      agent({ outcome: "draw", ourScore: 50, opponentScore: 50, expectedVersion: 1 }),
+    );
+    expect(preview.status).toBe(200);
+    expect(preview.body).toMatchObject({ dryRun: true, diff: { after: { playerPoints: [] } } });
+    expect(await h.repo.getResult(eventId, "L1")).toMatchObject({ version: 1, outcome: "win" });
+  });
+
   it("enforces scopes and revocation", async () => {
     const issued = await h.call("POST", "/agent-tokens", {
       ...OFFICER,
@@ -143,6 +160,9 @@ describe("bot result agent", () => {
     issuerGroups = new Set<Group>(["player"]);
     expect((await h.call("GET", "/agent/doctor", agent())).status).toBe(200);
     expect((await h.call("GET", "/events", agent())).status).toBe(200);
+    const playerContext = await h.call("GET", `/agent/events/${eventId}/sessions/L1/result-context`, agent());
+    expect(playerContext.status).toBe(200);
+    expect(playerContext.body.players).toBeUndefined();
     const resultWrite = await h.call("PUT", `/agent/events/${eventId}/sessions/L1/result`, agent({
       outcome: "win", ourScore: 1, opponentScore: 0, playerPoints: [], expectedVersion: 1,
     }));

@@ -5,6 +5,10 @@ const session = { id: "L1", label: "Legion 1", startsAt: "2026-09-20T12:00:00Z" 
 const ctx = { eventId: "E1", recordedBy: "officer", now: new Date("2026-09-20T14:00:00Z"), currentVersion: 0 };
 
 describe("parseEventResult", () => {
+  it("normalises an omitted optional points list to empty", () => {
+    expect(parseEventResult({ outcome: "draw", ourScore: 3, opponentScore: 3 }, session, ctx).playerPoints).toEqual([]);
+  });
+
   it("normalises a complete first result", () => {
     expect(
       parseEventResult(
