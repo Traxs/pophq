@@ -69,7 +69,8 @@ describe("accounts", () => {
 describe("power reports", () => {
   const values = [
     { metric: "city_power", value: 51_000_000 },
-    { metric: "helios", value: "Soon" },
+    { metric: "troop_level_infantry", value: "FC9" },
+    { metric: "helios_infantry", value: "yes" },
   ];
 
   it("accepts a report for the player's own alt and computes current values", async () => {
@@ -79,7 +80,11 @@ describe("power reports", () => {
 
     const list = await h.call("GET", "/accounts/100000002/reports", PLAYER);
     expect(list.status).toBe(200);
-    expect(list.body.current).toMatchObject({ city_power: { value: 51_000_000 }, helios: { value: "Soon" } });
+    expect(list.body.current).toMatchObject({
+      city_power: { value: 51_000_000 },
+      troop_level_infantry: { value: "FC9" },
+      helios_infantry: { value: "yes" },
+    });
   });
 
   it("refuses a report for someone else's account", async () => {

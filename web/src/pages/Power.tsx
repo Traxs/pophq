@@ -8,10 +8,11 @@ import { change, full, formatDigitsInput, parseDigits, relativeDay, shortDate, t
 import { navigate } from "../router";
 import { LEVEL_HINT, isValidLevel } from "../rules";
 import { useSession } from "../session";
+import { troopDraftFrom, troopValues, TROOP_LABELS, TROOP_TYPES } from "../troops";
 import { usePower, type PowerPoint } from "../usePower";
 import { NoAccount } from "./Home";
 
-const HELIOS = ["Unknown", "None", "Soon", "Infantry", "Lancer", "Marksman", "All"] as const;
+
 const DROP_WARNING = 0.2; // PWR-01: confirm a drop of more than 20%
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -106,11 +107,12 @@ function HeroCard({ latest, previous, series }: { latest: PowerPoint; previous?:
 const STAT_LABELS: [string, string][] = [
   ["hero_power_total", "Hero power"],
   ["furnace_level", "Furnace"],
-  ["troop_fc_level", "Troop FC"],
-  ["helios", "Helios"],
-  ["troops_infantry", "Infantry"],
-  ["troops_lancer", "Lancer"],
-  ["troops_marksman", "Marksman"],
+  ["troop_level_infantry", "Infantry troops"],
+  ["helios_infantry", "Infantry Helios"],
+  ["troop_level_lancer", "Lancer troops"],
+  ["helios_lancer", "Lancer Helios"],
+  ["troop_level_marksman", "Marksman troops"],
+  ["helios_marksman", "Marksman Helios"],
 ];
 
 function OtherStats({ current }: { current: Reports["current"] }) {
@@ -179,7 +181,12 @@ function ReportForm({
   const [furnace, setFurnace] = useState(String(current.furnace_level?.value ?? ""));
   const [furnaceTouched, setFurnaceTouched] = useState(false);
   const furnaceInvalid = furnace.trim() !== "" && !isValidLevel(furnace);
-  const [helios, setHelios] = useState(String(current.helios?.value ?? ""));
+  // A troop type has a level and, on top of it, Helios. All three can hold Helios at once.
+  const [troops, setTroops] = useState(() => troopDraftFrom(current));
+  const troopLevelInvalid = TROOP_TYPES.some((type) => {
+    const level = troops[type].level.trim();
+    return level !== "" && !isValidLevel(level);
+  });
   const [confirmDrop, setConfirmDrop] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -191,7 +198,7 @@ function ReportForm({
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!account || powerValue === undefined) return;
-    if (furnaceInvalid) {
+    if (furnaceInvalid || troopLevelInvalid) {
       setFurnaceTouched(true);
       return;
     }
@@ -203,7 +210,7 @@ function ReportForm({
     const heroValue = parseDigits(hero);
     if (heroValue !== undefined) values.push({ metric: "hero_power_total", value: heroValue });
     if (furnace.trim()) values.push({ metric: "furnace_level", value: furnace.trim() });
-    if (helios) values.push({ metric: "helios", value: helios });
+    values.push(...troopValues(troops));
     setBusy(true);
     setError(null);
     try {
@@ -272,15 +279,37 @@ function ReportForm({
       </div>
 
       <fieldset className="field">
-        <legend>Helios</legend>
-        <div className="chips" role="radiogroup">
-          {HELIOS.map((h) => (
-            <label key={h} className="chip">
-              <input type="radio" name="helios" value={h} checked={helios === h} onChange={() => setHelios(h)} />
-              <span>{h}</span>
-            </label>
-          ))}
-        </div>
+        <legend>Troops</legend>
+        <span className="hint">Each type has its own level, up to your furnace. Tick Helios where you have it.</span>
+        {TROOP_TYPES.map((type) => {
+          const invalid = troops[type].level.trim() !== "" && !isValidLevel(troops[type].level);
+          return (
+            <div key={type} className="troop-row">
+              <span className="troop-name">{TROOP_LABELS[type]}</span>
+              <input
+                aria-label={`${TROOP_LABELS[type]} troop level`}
+                aria-invalid={invalid}
+                value={troops[type].level}
+                placeholder="FC9"
+                inputMode="text"
+                onChange={(e) => setTroops((cur) => ({ ...cur, [type]: { ...cur[type], level: e.target.value } }))}
+              />
+              <label className="chip">
+                <input
+                  type="checkbox"
+                  checked={troops[type].helios}
+                  onChange={(e) => setTroops((cur) => ({ ...cur, [type]: { ...cur[type], helios: e.target.checked } }))}
+                />
+                <span>Helios</span>
+              </label>
+            </div>
+          );
+        })}
+        {troopLevelInvalid && furnaceTouched && (
+          <span className="field-error" role="alert">
+            {LEVEL_HINT}
+          </span>
+        )}
       </fieldset>
 
       {confirmDrop && drop > DROP_WARNING && (

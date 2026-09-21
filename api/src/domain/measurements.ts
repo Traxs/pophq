@@ -5,12 +5,14 @@ import { ValidationError } from "./errors.js";
  * Typed metrics. City power and combat score are different metrics and are never mixed.
  * New metrics are added here (later: from settings) without a schema change.
  */
-export const HELIOS_VALUES = ["Unknown", "None", "Soon", "Infantry", "Lancer", "Marksman", "All"] as const;
+/** The three troop types. Each has its own level, and Helios on top of it. */
+export const TROOP_TYPES = ["infantry", "lancer", "marksman"] as const;
+export type TroopType = (typeof TROOP_TYPES)[number];
 
 type MetricDef =
   | { kind: "integer"; unit: string; min: number; max: number }
   | { kind: "decimal"; unit: string; min: number; max: number }
-  | { kind: "enum"; unit: string; values: readonly string[] }
+  | { kind: "flag"; unit: string }
   | { kind: "level"; unit: string };
 
 export const METRICS = {
@@ -24,8 +26,15 @@ export const METRICS = {
   troops_lancer: { kind: "integer", unit: "troops", min: 0, max: 50_000_000 },
   troops_marksman: { kind: "integer", unit: "troops", min: 0, max: 50_000_000 },
   furnace_level: { kind: "level", unit: "level" },
-  troop_fc_level: { kind: "level", unit: "level" },
-  helios: { kind: "enum", unit: "type", values: HELIOS_VALUES },
+  // Troops are levelled per type and cannot pass the furnace level, and Helios is an extension
+  // on top of a type's level — so "FC9 Infantry with Helios" is two facts about one troop type,
+  // not one choice between types. Somebody can have Helios on all three at once.
+  troop_level_infantry: { kind: "level", unit: "level" },
+  troop_level_lancer: { kind: "level", unit: "level" },
+  troop_level_marksman: { kind: "level", unit: "level" },
+  helios_infantry: { kind: "flag", unit: "yes/no" },
+  helios_lancer: { kind: "flag", unit: "yes/no" },
+  helios_marksman: { kind: "flag", unit: "yes/no" },
 } as const satisfies Record<string, MetricDef>;
 
 export type MetricName = keyof typeof METRICS;
@@ -63,7 +72,9 @@ const ReportInputSchema = z.object({
     .array(
       z.object({
         metric: z.string(),
-        value: z.union([z.number(), z.string()]),
+        // A boolean reaches this from a checkbox or an import; only flag metrics accept one,
+        // and every other kind rejects it with its own message.
+        value: z.union([z.number(), z.string(), z.boolean()]),
         precision: z.enum(["exact", "rounded", "date", "unknown"]).default("exact"),
       }),
     )
@@ -133,7 +144,7 @@ export function parseReport(input: unknown, ctx: ReportContext): Report {
   return report;
 }
 
-function parseValue(metric: MetricName, raw: number | string): number | string {
+function parseValue(metric: MetricName, raw: number | string | boolean): number | string {
   const def: MetricDef = METRICS[metric];
   switch (def.kind) {
     case "integer":
@@ -153,11 +164,12 @@ function parseValue(metric: MetricName, raw: number | string): number | string {
       if (!LEVEL.test(s)) throw new ValidationError(`${metric} must be 1–30 or FC1–FC10 (e.g. FC5-2).`);
       return s;
     }
-    case "enum": {
-      const s = String(raw).trim();
-      const match = def.values.find((x) => x.toLowerCase() === s.toLowerCase());
-      if (!match) throw new ValidationError(`${metric} must be one of: ${def.values.join(", ")}.`);
-      return match;
+    case "flag": {
+      // Nobody is asked to tick "no": an unanswered upgrade is simply not held.
+      const s = String(raw).trim().toLowerCase();
+      if (["yes", "true", "1"].includes(s)) return "yes";
+      if (["no", "false", "0", ""].includes(s)) return "no";
+      throw new ValidationError(`${metric} must be yes or no.`);
     }
   }
 }

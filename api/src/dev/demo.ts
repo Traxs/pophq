@@ -33,7 +33,7 @@ const NAMES = [
 ];
 const EXTRA_PARTS = ["Frost", "Snow", "Ice", "Storm", "Polar", "Winter", "Hail", "Glacier", "North", "Rime"];
 const EXTRA_ENDS = ["wolf", "fang", "heart", "blade", "born", "rider", "guard", "wing", "claw", "shard"];
-const HELIOS = ["None", "Infantry", "Lancer", "Marksman", "Unknown", "Soon", "All"];
+const TROOP_TYPES = ["infantry", "lancer", "marksman"] as const;
 
 /** Dev personas: login sub -> linked game accounts. The mock issuer maps client ids to these subs. */
 export const PERSONA_LINKS: Record<string, string[]> = {
@@ -52,7 +52,15 @@ function values(power: number, rand: () => number, furnace: number) {
     { metric: "foundry_strength", value: Math.round((power / 6000) * (0.85 + rand() * 0.3)) },
     { metric: "hero_power_total", value: Math.round(power * (0.25 + rand() * 0.1)) },
     { metric: "furnace_level", value: `FC${Math.min(10, furnace)}` },
-    { metric: "helios", value: HELIOS[Math.floor(rand() * HELIOS.length)]! },
+    // Troops sit at or below the furnace level, and Helios is an extension some have on some
+    // types — not a choice between them.
+    ...TROOP_TYPES.flatMap((type) => {
+      const level = Math.max(1, furnace - Math.floor(rand() * 2));
+      return [
+        { metric: `troop_level_${type}`, value: `FC${Math.min(10, level)}` },
+        ...(rand() < 0.45 ? [{ metric: `helios_${type}`, value: "yes" }] : []),
+      ];
+    }),
   ];
 }
 
