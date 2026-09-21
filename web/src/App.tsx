@@ -6,6 +6,7 @@ import { Events } from "./pages/Events";
 import { Home } from "./pages/Home";
 import { Members } from "./pages/Members";
 import { Power } from "./pages/Power";
+import { Settings } from "./pages/Settings";
 import { SignIn } from "./pages/SignIn";
 import { usePath } from "./router";
 import { SessionProvider, useAuth, useSession } from "./session";
@@ -50,6 +51,8 @@ function Page({ path }: { path: string }) {
       return <Power />;
     case "/members":
       return <Members />;
+    case "/settings":
+      return <Settings />;
     case "/dev":
       return import.meta.env.DEV ? <Dev /> : <Home />;
     default:

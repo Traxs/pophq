@@ -77,6 +77,18 @@ export function TopBar() {
           ))}
         </ul>
         <p className="muted small">Alts are linked by an officer after they check the Player ID.</p>
+        {/* Settings live here rather than in the tab bar: one more tab for a rarely used page
+            would crowd the phone layout. */}
+        <button
+          type="button"
+          className="btn btn-quiet btn-block"
+          onClick={() => {
+            setOpen(false);
+            navigate("/settings");
+          }}
+        >
+          Settings
+        </button>
         <button type="button" className="btn btn-quiet btn-block" onClick={signOut}>
           Sign out
         </button>
