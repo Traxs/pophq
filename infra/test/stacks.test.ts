@@ -75,6 +75,22 @@ describe("AppStack", () => {
   it("retains data stores on stack deletion", () => {
     template.hasResource("AWS::DynamoDB::GlobalTable", { DeletionPolicy: "Retain" });
     template.hasResource("AWS::Cognito::UserPool", { DeletionPolicy: "Retain" });
+    template.hasResource("AWS::S3::Bucket", { DeletionPolicy: "Retain" });
+  });
+
+  it("keeps imported evidence private, retained and versioned", () => {
+    template.hasResourceProperties("AWS::S3::Bucket", {
+      VersioningConfiguration: { Status: "Enabled" },
+      PublicAccessBlockConfiguration: {
+        BlockPublicAcls: true,
+        BlockPublicPolicy: true,
+        IgnorePublicAcls: true,
+        RestrictPublicBuckets: true,
+      },
+    });
+    template.hasResourceProperties("AWS::Lambda::Function", {
+      Environment: { Variables: Match.objectLike({ EVIDENCE_BUCKET_NAME: Match.anyValue() }) },
+    });
   });
 
   it("runs the API on Node 24 arm64 without secrets in its environment", () => {

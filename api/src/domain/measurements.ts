@@ -64,7 +64,7 @@ const ReportInputSchema = z.object({
       z.object({
         metric: z.string(),
         value: z.union([z.number(), z.string()]),
-        precision: z.enum(["exact", "rounded", "unknown"]).default("exact"),
+        precision: z.enum(["exact", "rounded", "date", "unknown"]).default("exact"),
       }),
     )
     .min(1, "At least one value is required.")
@@ -78,6 +78,21 @@ export interface ReportContext {
   reportId: string;
   source: Source;
   now: Date;
+}
+
+const ImportedReportSchema = ReportInputSchema.extend({
+  effectiveAt: z.iso.datetime({ offset: true }),
+  recordedAt: z.iso.datetime({ offset: true }),
+});
+
+/** Historical imports preserve both source timestamps and a caller-selected stable report id. */
+export function parseImportedReport(input: unknown, playerId: string, reportId: string, now: Date): Report {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{2,119}$/.test(reportId)) throw new ValidationError("Invalid historical report id.");
+  const parsed = ImportedReportSchema.safeParse(input);
+  if (!parsed.success) throw new ValidationError("Invalid historical report.", z.flattenError(parsed.error).fieldErrors);
+  const report = parseReport(parsed.data, { playerId, reportId, source: "import", now });
+  report.recordedAt = new Date(parsed.data.recordedAt).toISOString();
+  return report;
 }
 
 /** Validates and normalises a report submission. Pure: ids and time come from the caller. */

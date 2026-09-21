@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import { parseNewAccount } from "../../src/domain/accounts.js";
 import { parseNewEvent } from "../../src/domain/events.js";
 import type { Group } from "../../src/domain/principal.js";
@@ -26,7 +27,7 @@ describe("bot result agent", () => {
     eventId = event.eventId;
     const issued = await h.call("POST", "/agent-tokens", {
       ...OFFICER,
-      body: { name: "Hermes", scopes: ["all:read", "results:write", "events:write"], expiresInDays: 30 },
+      body: { name: "Hermes", scopes: ["all:read", "results:write", "events:write", "history:write"], expiresInDays: 30 },
     });
     token = issued.body.token as string;
   });
@@ -43,7 +44,7 @@ describe("bot result agent", () => {
     const listed = await h.call("GET", "/agent-tokens", OFFICER);
     expect(JSON.stringify(listed.body)).not.toContain(token);
     expect(listed.body.items).toEqual([
-      expect.objectContaining({ name: "Hermes", scopes: ["all:read", "results:write", "events:write"] }),
+      expect.objectContaining({ name: "Hermes", scopes: ["all:read", "results:write", "events:write", "history:write"] }),
     ]);
   });
 
@@ -206,6 +207,91 @@ describe("bot result agent", () => {
     expect(await h.repo.getResult(eventId, "L1")).toMatchObject({ version: 1, outcome: "win" });
   });
 
+  it("previews, applies and reads the complete guarded historical surface", async () => {
+    const apply = async (path: string, body: Record<string, unknown>, key: string) => {
+      const preview = await h.call("PUT", path, agent(body));
+      expect(preview.status).toBe(200);
+      expect(preview.body).toMatchObject({ dryRun: true, expectedHash: expect.any(String) });
+      const applied = await h.call(
+        "PUT",
+        `${path}?apply=true`,
+        agent(
+          { ...body, expectedHash: preview.body.expectedHash, reason: "Approved historical backfill" },
+          { "idempotency-key": key },
+        ),
+      );
+      expect([200, 201]).toContain(applied.status);
+      return applied;
+    };
+
+    const report = await apply(
+      "/agent/history/reports/700000001/IMPORT-strength-1",
+      {
+        effectiveAt: "2026-09-06T00:00:00.000Z",
+        recordedAt: "2026-09-07T08:00:00.000Z",
+        values: [{ metric: "foundry_strength", value: 9876, precision: "date" }],
+        note: "reviewed fixture observation",
+      },
+      "history-report-001",
+    );
+    expect(report.body.report).toMatchObject({ reportId: "IMPORT-strength-1", source: "import", values: [{ precision: "date" }] });
+
+    const signup = await apply(
+      `/agent/history/events/${eventId}/signups/700000001`,
+      { answer: "yes", sessionId: "L1", answeredAt: "2026-09-01T12:00:00.000Z" },
+      "history-signup-001",
+    );
+    expect(signup.body.signup).toMatchObject({ answer: "yes", source: "import", sessionId: "L1" });
+
+    const attendance = await apply(
+      `/agent/history/events/${eventId}/attendance/700000001`,
+      { status: "present", sessionId: "L1", source: "screenshot", recordedAt: "2026-09-06T14:00:00.000Z", evidenceRef: "shot-1" },
+      "history-attend-001",
+    );
+    expect(attendance.body.attendance).toMatchObject({ status: "present", source: "screenshot", evidenceRef: "shot-1" });
+
+    const lineup = await apply(
+      `/agent/history/events/${eventId}/sessions/L1/lineup`,
+      { entries: [{ playerId: "700000001", role: "starter" }], publishedAt: "2026-09-05T18:00:00.000Z", expectedVersion: 0 },
+      "history-lineup-001",
+    );
+    expect(lineup.body.lineup).toMatchObject({ entries: [{ playerId: "700000001", role: "starter", position: 1 }] });
+
+    const strategy = await apply(
+      `/agent/history/events/${eventId}/sessions/L1/strategy`,
+      {
+        body: "Hold the gate",
+        assignments: [{ playerId: "700000001", role: "Holder", duty: "Gate one" }],
+        publishedAt: "2026-09-05T19:00:00.000Z",
+        expectedVersion: 0,
+      },
+      "history-strategy-001",
+    );
+    expect(strategy.body.strategy).toMatchObject({ body: "Hold the gate", assignments: [{ role: "Holder" }] });
+
+    const alias = await apply(
+      "/agent/history/alias-uuid-1",
+      { category: "alias", sourceId: "source-alias-1", playerId: "700000001", occurredAt: "2026-09-01T00:00:00Z", payload: { name: "Old Northstar", verified: true } },
+      "history-alias-001",
+    );
+    expect(alias.body.record).toMatchObject({ category: "alias", sourceId: "source-alias-1" });
+    const listed = await h.call("GET", "/agent/history?category=alias", agent());
+    expect(listed.body.items).toEqual([expect.objectContaining({ recordId: "alias-uuid-1" })]);
+
+    const bytes = Buffer.from("reviewed evidence bytes");
+    const evidence = await apply(
+      "/agent/history/evidence/evidence-shot-1/content",
+      {
+        contentBase64: bytes.toString("base64"),
+        contentType: "text/plain",
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+      },
+      "history-evidence-001",
+    );
+    expect(evidence.body.evidence).toMatchObject({ recordId: "evidence-shot-1", size: bytes.length, contentType: "text/plain" });
+    expect(Buffer.from(h.evidenceObjects.get("evidence-shot-1")!.content).equals(bytes)).toBe(true);
+  });
+
   it("enforces scopes and revocation", async () => {
     const issued = await h.call("POST", "/agent-tokens", {
       ...OFFICER,
@@ -215,6 +301,7 @@ describe("bot result agent", () => {
     const readHeaders = { authorization: `Bearer ${readToken}` };
     expect((await h.call("GET", "/agent/doctor", { headers: readHeaders })).status).toBe(200);
     expect((await h.call("POST", "/agent/events", { headers: readHeaders, body: {} })).status).toBe(403);
+    expect((await h.call("PUT", "/agent/history/alias-nope", { headers: readHeaders, body: {} })).status).toBe(403);
     expect(
       (
         await h.call("PUT", `/agent/events/${eventId}/sessions/L1/result`, {
@@ -240,6 +327,7 @@ describe("bot result agent", () => {
     issuerGroups = new Set<Group>(["player"]);
     expect((await h.call("GET", "/agent/doctor", agent())).status).toBe(200);
     expect((await h.call("GET", "/events", agent())).status).toBe(200);
+    expect((await h.call("GET", "/agent/history?category=alias", agent())).status).toBe(403);
     const playerContext = await h.call("GET", `/agent/events/${eventId}/sessions/L1/result-context`, agent());
     expect(playerContext.status).toBe(200);
     expect(playerContext.body.players).toBeUndefined();
@@ -250,6 +338,8 @@ describe("bot result agent", () => {
     expect(resultWrite.body.title).toContain("no longer has permission");
     const eventWrite = await h.call("PATCH", "/agent/events/HISTORY-2026-09-06-L2", agent({ title: "No longer allowed" }));
     expect(eventWrite.status).toBe(403);
+    const historyWrite = await h.call("PUT", "/agent/history/alias-demoted", agent({ category: "alias" }));
+    expect(historyWrite.status).toBe(403);
     issuerGroups = new Set<Group>(["player", "officer"]);
   });
 });

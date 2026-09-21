@@ -48,7 +48,7 @@ export interface EventAnswer {
   sessionId?: string;
   answeredAt: string;
   /** Who recorded it: the player themselves, or an officer acting for them. */
-  source: "player" | "officer";
+  source: "player" | "officer" | "import";
   note?: string;
 }
 

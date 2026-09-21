@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { currentValues, parseReport, type Report, type ReportContext } from "./measurements.js";
+import { currentValues, parseImportedReport, parseReport, type Report, type ReportContext } from "./measurements.js";
 import { ValidationError } from "./errors.js";
 
 const now = new Date("2026-09-18T12:00:00Z");
@@ -124,5 +124,27 @@ describe("currentValues", () => {
     const t = "2026-09-10T00:00:00.000Z";
     expect(currentValues([rep("B", t, 2), rep("A", t, 1)]).city_power?.value).toBe(2);
     expect(currentValues([rep("A", t, 1), rep("B", t, 2)]).city_power?.value).toBe(2);
+  });
+});
+
+describe("historical reports", () => {
+  it("preserves original recorded time and date precision", () => {
+    const report = parseImportedReport(
+      {
+        effectiveAt: "2026-09-06T00:00:00Z",
+        recordedAt: "2026-09-07T10:00:00+02:00",
+        values: [{ metric: "foundry_strength", value: 1234.5, precision: "date" }],
+      },
+      "700000001",
+      "IMPORT-observation-1",
+      now,
+    );
+    expect(report).toMatchObject({
+      reportId: "IMPORT-observation-1",
+      source: "import",
+      effectiveAt: "2026-09-06T00:00:00.000Z",
+      recordedAt: "2026-09-07T08:00:00.000Z",
+      values: [{ metric: "foundry_strength", precision: "date", unit: "score" }],
+    });
   });
 });

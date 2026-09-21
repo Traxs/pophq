@@ -14,6 +14,7 @@ const ISSUER = "https://issuer.test";
 import { HistoryStore } from "../../src/data/history.js";
 import type { LoginDirectory } from "../../src/ops/invite.js";
 import type { BotIssuerGroups } from "../../src/http/agentAuth.js";
+import type { EvidenceContent, EvidenceObject, EvidenceStore } from "../../src/ops/evidenceStore.js";
 
 export async function createHarness(
   opts: { devTools?: boolean; isPaused?: () => Promise<boolean>; logins?: LoginDirectory; history?: boolean; botIssuerGroups?: BotIssuerGroups } = {},
@@ -27,6 +28,23 @@ export async function createHarness(
   await createTable(base, config.tableName);
   const db = createDocClient(base);
   const repo = new Repository(db, config.tableName);
+  const evidenceObjects = new Map<string, EvidenceContent>();
+  const evidence: EvidenceStore = {
+    head: async (recordId) => {
+      const found = evidenceObjects.get(recordId);
+      if (!found) return undefined;
+      return { recordId: found.recordId, sha256: found.sha256, size: found.size, contentType: found.contentType };
+    },
+    get: async (recordId) => {
+      const found = evidenceObjects.get(recordId);
+      if (!found) throw new Error("Evidence content not found.");
+      return found;
+    },
+    put: async (record: EvidenceObject, content: Uint8Array) => {
+      if (evidenceObjects.has(record.recordId)) throw new Error("Evidence already exists.");
+      evidenceObjects.set(record.recordId, { ...record, content });
+    },
+  };
 
   const { publicKey, privateKey } = await generateKeyPair("RS256");
   const jwk = { ...(await exportJWK(publicKey)), kid: "test", alg: "RS256" };
@@ -40,6 +58,7 @@ export async function createHarness(
     ...(opts.botIssuerGroups ? { botIssuerGroups: opts.botIssuerGroups } : {}),
     // The history table is separate in AWS; locally the same table serves, since the keys differ.
     ...(opts.history ? { history: new HistoryStore(db, config.tableName) } : {}),
+    evidence,
   });
 
   const token = (sub: string, groups: string[] = []) =>
@@ -74,6 +93,7 @@ export async function createHarness(
     tableName: config.tableName,
     call,
     token,
+    evidenceObjects,
     cleanup: () => deleteTable(base, config.tableName),
   };
 }

@@ -86,6 +86,15 @@ def main() -> None:
     edit_event.add_argument("--reason")
     edit_event.add_argument("--idempotency-key")
     edit_event.add_argument("--expected-hash", help="expectedHash returned by the reviewed preview")
+    history = sub.add_parser("put-history", help="Preview or apply one guarded historical record")
+    history.add_argument("path", help="Path below /v1/agent/history, beginning with /agent/history/")
+    history.add_argument("json_file", help="JSON file, or - for stdin")
+    history.add_argument("--apply", action="store_true")
+    history.add_argument("--reason")
+    history.add_argument("--idempotency-key")
+    history.add_argument("--expected-hash", help="expectedHash returned by the reviewed preview")
+    list_history = sub.add_parser("list-history", help="Read preserved historical records by category")
+    list_history.add_argument("category", choices=["alias", "relationship", "membership", "registration", "selection", "assignment", "performance", "evidence"])
     args = parser.parse_args()
 
     if args.command == "doctor":
@@ -119,7 +128,7 @@ def main() -> None:
             payload["reason"] = args.reason
         suffix = "?apply=true" if args.apply else ""
         result = request("POST", f"/agent/events{suffix}", payload, args.idempotency_key)
-    else:
+    elif args.command == "edit-event":
         if args.apply and (not args.reason or not args.idempotency_key or not args.expected_hash):
             raise SystemExit("--apply requires --reason, --idempotency-key and --expected-hash.")
         payload = load_payload(args.json_file)
@@ -129,6 +138,19 @@ def main() -> None:
         event = urllib.parse.quote(args.event_id, safe="")
         suffix = "?apply=true" if args.apply else ""
         result = request("PATCH", f"/agent/events/{event}{suffix}", payload, args.idempotency_key)
+    elif args.command == "put-history":
+        if not args.path.startswith("/agent/history/") or args.path.startswith("//"):
+            raise SystemExit("History path must begin with /agent/history/.")
+        if args.apply and (not args.reason or not args.idempotency_key or not args.expected_hash):
+            raise SystemExit("--apply requires --reason, --idempotency-key and --expected-hash.")
+        payload = load_payload(args.json_file)
+        if args.apply:
+            payload["reason"] = args.reason
+            payload["expectedHash"] = args.expected_hash
+        suffix = "?apply=true" if args.apply else ""
+        result = request("PUT", f"{args.path}{suffix}", payload, args.idempotency_key)
+    else:
+        result = request("GET", f"/agent/history?{urllib.parse.urlencode({'category': args.category})}")
     json.dump(result, sys.stdout, indent=2, sort_keys=True)
     sys.stdout.write("\n")
 

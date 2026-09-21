@@ -48,4 +48,4 @@ python3 scripts/s26.py edit-event EVENT_ID edit.json --apply --expected-hash HAS
 - Retrying the identical approved apply with the same key returns the original success. Never reuse a key for different data.
 - Event creation conflicts with an existing id. Event editing conflicts if the event changed after preview.
 - Losing officer/owner status disables the write scope immediately.
-- This scope does not write accounts, measurements, answers, attendance, lineups, strategies, results, relationships or evidence.
+- This scope does not write accounts, measurements, answers, attendance, lineups, strategies, results, relationships or evidence. Approved historical backfills use the separate `history:write` routes.

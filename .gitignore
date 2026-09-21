@@ -17,6 +17,7 @@ cdk.context.json
 
 # Local tooling
 .localstack/
+.local/
 playwright-report/
 test-results/
 *.log

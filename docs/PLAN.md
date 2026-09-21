@@ -123,7 +123,8 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 - [ ] P9.1b General bot-token platform: HMAC pepper in SSM, agents-off switch, and persistent automatic revocation records on officer demotion (AGT-01, AGT-05)
 - [x] P9.2a Bot route guard: bot credentials may use normal GET routes as their issuer plus result discovery/context, are refused from browsers, and normal POST/PUT/PATCH/DELETE routes reject them
 - [x] P9.2b Guarded event maintenance: officer-issued bots with `events:write` may preview and idempotently apply event creation (including historical dates) and event/session metadata edits; existing session ids are durable, edits use a preview hash, and normal web writes remain forbidden
-- [ ] P9.2b Output guards for untrusted text, row budgets, request/write quotas and scopes for other data families
+- [x] P9.2c Guarded historical backfill: `history:write` imports stable typed measurements, historical signups, attendance, lineups and tactics; other exact source facts remain immutable typed records, and hash-verified evidence bytes live in a private retained/versioned bucket
+- [ ] P9.2d Output guards for untrusted text, row budgets, request/write quotas and scopes for other data families
 - [x] P9.3a Result writes: exact dry-run diff by default; apply requires reason, expected version and an atomically stored idempotency key
 - [ ] P9.3b Inbox proposals for large/sensitive changes and `lineup:write` for Hermes (AGT-03, EVT-05)
 - [ ] P9.4 OpenAPI 3.1 published; `/v1/guide`
@@ -137,7 +138,7 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 - [ ] P10.2 Security review against OWASP LLM/agentic guidance; half-day Hermes red-team session
 - [x] P10.3a Hermes bundle import: dry run by default, stable ids so repeating changes nothing, accounts without a numeric Player ID reported instead of invented, imported membership stays "unknown" (LCH-04)
 - [x] P10.3b Import events, attendance and sign-ups: one event per day with a part per legion; attendance keeps its own date, source and evidence; sign-ups for events that already started are refused and counted, never forced
-- [ ] P10.3c Import name history, alt links, published lineups and event outcomes
+- [x] P10.3c Import name history, alt links, published lineups and event outcomes
 - [ ] P10.4 Launch: officers first, launch post, bulk approval, first-report push (LCH-02)
 - [ ] P10.5 Archive the Cloudflare app's D1 data as CSV, then retire it with the owner's go-ahead (LCH-03)
 
