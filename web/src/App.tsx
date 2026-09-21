@@ -7,6 +7,7 @@ import { Home } from "./pages/Home";
 import { Members } from "./pages/Members";
 import { Power } from "./pages/Power";
 import { Settings } from "./pages/Settings";
+import { Svs } from "./pages/Svs";
 import { SignIn } from "./pages/SignIn";
 import { usePath } from "./router";
 import { SessionProvider, useAuth, useSession } from "./session";
@@ -44,6 +45,8 @@ function Shell() {
 function Page({ path }: { path: string }) {
   const eventId = path.startsWith("/events/") ? path.slice("/events/".length) : undefined;
   if (eventId) return <EventPage eventId={eventId} />;
+  const roundId = path.startsWith("/svs/") ? path.slice("/svs/".length) : undefined;
+  if (roundId) return <Svs roundId={roundId} />;
   switch (path) {
     case "/events":
       return <Events />;

@@ -79,3 +79,24 @@ export const historicalRecordKey = (category: string, recordId: string) => ({
   PK: `HISTORYIMPORT#${category}`,
   SK: `RECORD#${recordId}`,
 });
+
+/** An SvS round and everything that belongs to it (BUF-01..BUF-06). */
+export const svsRoundKey = (roundId: string) => ({ PK: `SVS#${roundId}`, SK: "META" });
+
+/** Rounds of an alliance, earliest buff day first (GSI1). */
+export const svsRoundIndexKey = (alliance: string, firstDate: string, roundId: string) => ({
+  GSI1PK: `SVSROUNDS#${alliance}`,
+  GSI1SK: `${firstDate}#${roundId}`,
+});
+
+/** One set of preferences per game account per round. */
+export const svsPreferencesKey = (roundId: string, playerId: string) => ({
+  PK: `SVS#${roundId}`,
+  SK: `PREF#${playerId}`,
+});
+
+/** Kudos are immutable awards on an account, newest last by ULID. */
+export const kudosKey = (playerId: string, awardId: string) => ({
+  PK: `ACCOUNT#${playerId}`,
+  SK: `KUDOS#${awardId}`,
+});
