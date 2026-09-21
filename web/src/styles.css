@@ -1574,3 +1574,56 @@ th[aria-sort="descending"] .th-btn {
 .troop-row input:not([type]) {
   width: 100%;
 }
+
+/* An officer's to-do list on Home: a tick, then the job and where it comes from. */
+.jobs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.job-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 10px;
+}
+.job-tick {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 1rem;
+  cursor: pointer;
+}
+.job-tick:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.job-text {
+  display: grid;
+  gap: 1px;
+  padding: 6px 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+.job-text .muted {
+  font-size: 0.82rem;
+}
+.job-done {
+  border-color: var(--up);
+  color: var(--up);
+}
+.job-struck {
+  text-decoration: line-through;
+  color: var(--muted);
+  font-weight: 500;
+}

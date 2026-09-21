@@ -6,6 +6,7 @@ import { parseReport } from "../domain/measurements.js";
 import type { Actor } from "../data/meta.js";
 import type { Repository } from "../data/repository.js";
 import { ANSWERS, parseNewEvent, type AllianceEvent } from "../domain/events.js";
+import { STARTER_CHECKLISTS } from "../domain/checklists.js";
 import { parseLineup } from "../domain/lineups.js";
 import { parseStrategy } from "../domain/strategy.js";
 import { parseEventResult } from "../domain/results.js";
@@ -212,6 +213,8 @@ export async function addDemoEvents(repo: Repository, now: Date, actor: Actor): 
       kind: "foundry" as const,
       title: "Foundry Saturday",
       startsAt: at(6, 19),
+      ownerPlayerId: "100000008", // Aurora runs this one
+
       notes: "Two legions, be online 10 minutes early.",
       // The real shape: one event, a part per legion, 30 starters and 10 substitutes each.
       sessions: [
@@ -254,6 +257,20 @@ export async function addDemoEvents(repo: Repository, now: Date, actor: Actor): 
       : now;
     const event = parseNewEvent(input, { eventId: ulid(now.getTime()), createdBy: actor.id, now: creationTime });
     await repo.createEvent(event, actor);
+    // Events created through the API get their type's checklist; the demo has to do the same, or
+    // the officer's to-do list on Home is empty locally and nobody sees it before deploying.
+    const tasks = STARTER_CHECKLISTS[event.kind];
+    if (tasks) {
+      await repo.putChecklist(
+        {
+          eventId: event.eventId,
+          version: 1,
+          entries: tasks.map((t) => ({ ...t })),
+          updatedAt: creationTime.toISOString(),
+        },
+        actor,
+      );
+    }
     if (event.kind === "foundry") {
       const session = event.sessions[0]!;
       const lineup = parseLineup(

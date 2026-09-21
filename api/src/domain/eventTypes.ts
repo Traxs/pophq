@@ -3,6 +3,7 @@
 // waves, lanes) and a strategy template. Creating an event picks a type and inherits all of it,
 // and the officer can still change any of it for that one event.
 import { z } from "zod";
+import { ChecklistTemplateSchema, parseTasks, STARTER_CHECKLISTS, type ChecklistTask } from "./checklists.js";
 import { ValidationError } from "./errors.js";
 
 export interface EventTypeSession {
@@ -19,6 +20,8 @@ export interface EventType {
   leadDays: number;
   sessions: EventTypeSession[];
   strategyTemplate?: string;
+  /** The jobs an officer works through when running one of these (the legacy checklist, timed). */
+  checklist?: ChecklistTask[];
   archived: boolean;
   createdBy: string;
 }
@@ -41,6 +44,7 @@ const EventTypeSchema = z.object({
   leadDays: z.number().int().min(0).max(60).default(0),
   sessions: z.array(SessionSchema).max(6, "At most six parts.").default([]),
   strategyTemplate: z.string().trim().max(10_000).optional(),
+  checklist: ChecklistTemplateSchema.optional(),
   archived: z.boolean().default(false),
 });
 
@@ -59,7 +63,7 @@ export function slugify(name: string): string {
 export function parseEventType(input: unknown, createdBy: string): EventType {
   const parsed = EventTypeSchema.safeParse(input);
   if (!parsed.success) throw new ValidationError("Invalid event type.", z.flattenError(parsed.error).fieldErrors);
-  const { typeId, sessions, strategyTemplate, ...rest } = parsed.data;
+  const { typeId, sessions, strategyTemplate, checklist, ...rest } = parsed.data;
   const withIds = sessions.map((s, i) => ({
     id: s.id ?? `S${i + 1}`,
     label: s.label,
@@ -71,6 +75,7 @@ export function parseEventType(input: unknown, createdBy: string): EventType {
     ...rest,
     sessions: withIds,
     ...(strategyTemplate ? { strategyTemplate } : {}),
+    ...(checklist ? { checklist: parseTasks(checklist) } : {}),
     createdBy,
   };
 }
@@ -89,6 +94,7 @@ export const STARTER_TYPES: readonly Omit<EventType, "createdBy">[] = [
       { id: "L2", label: "Legion 2", defaultMinutes: 19 * 60 },
     ],
     strategyTemplate: "## Plan\n\n- \n\n## Who does what\n\n- ",
+    checklist: STARTER_CHECKLISTS.foundry!,
     archived: false,
   },
   // SvS and FDT ask how much of the event someone can give, not which time slot they take.
@@ -103,6 +109,7 @@ export const STARTER_TYPES: readonly Omit<EventType, "createdBy">[] = [
       { id: "first", label: "First half", defaultMinutes: 12 * 60 },
       { id: "last", label: "Last half", defaultMinutes: 15 * 60 },
     ],
+    checklist: STARTER_CHECKLISTS.svs!,
     archived: false,
   },
   {
@@ -114,6 +121,7 @@ export const STARTER_TYPES: readonly Omit<EventType, "createdBy">[] = [
       { id: "first", label: "First half", defaultMinutes: 12 * 60 },
       { id: "last", label: "Last half", defaultMinutes: 15 * 60 },
     ],
+    checklist: STARTER_CHECKLISTS.fdt!,
     archived: false,
   },
   // Canyon and Tundra League are a simple "are you in?", so they carry no parts.

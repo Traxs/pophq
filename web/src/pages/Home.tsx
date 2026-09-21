@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { ApiError, type EventListItem, type SvsRoundListItem } from "../api";
+import { ApiError, type EventListItem, type OfficerJob, type SvsRoundListItem } from "../api";
+import { useToast } from "../components/Toast";
 import { change, compact, dayTime, daysBetween, relativeDay, untilText } from "../format";
 import { navigate } from "../router";
 import { REPORT_DUE_DAYS } from "../rules";
@@ -130,8 +131,87 @@ export function Home() {
         </button>
       )}
 
+      {isOfficer && <OfficerJobs />}
+
       {!round && isOfficer && <NewRoundCard />}
     </>
+  );
+}
+
+/**
+ * What an officer still has to do (the legacy checklist, with times). Their own events first,
+ * then everyone else's, so nothing quietly belongs to nobody.
+ */
+function OfficerJobs() {
+  const { api, dataVersion, dataChanged } = useSession();
+  const [jobs, setJobs] = useState<OfficerJob[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const toast = useToast();
+
+  useEffect(() => {
+    api
+      .officerJobs()
+      .then((r) => setJobs(r.items))
+      .catch(() => setJobs([]));
+  }, [api, dataVersion]);
+
+  if (!jobs || jobs.length === 0) return null;
+  const mine = jobs.filter((j) => j.mine);
+  const others = jobs.filter((j) => !j.mine);
+
+  const tick = async (job: OfficerJob) => {
+    setBusy(`${job.eventId}:${job.taskId}`);
+    try {
+      await api.tickJob(job.eventId, job.taskId, true);
+      toast("Done");
+      dataChanged();
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Couldn't tick that off");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const row = (job: OfficerJob) => (
+    <li key={`${job.eventId}:${job.taskId}`} className="job-row">
+      <button
+        type="button"
+        className="job-tick"
+        aria-label={`Done: ${job.label}`}
+        disabled={busy !== null}
+        onClick={() => void tick(job)}
+      >
+        {busy === `${job.eventId}:${job.taskId}` ? "…" : "○"}
+      </button>
+      <button type="button" className="job-text" onClick={() => navigate(`/events/${job.eventId}`)}>
+        <strong>{job.label}</strong>
+        <span className="muted">
+          {job.eventTitle} ·{" "}
+          {/* Late enough to be worth flagging, rather than merely a few hours past its moment. */}
+          {daysBetween(new Date(job.dueAt), new Date()) >= 1 ? (
+            <span className="delta-down">late, due {relativeDay(job.dueAt)}</span>
+          ) : (
+            `due ${relativeDay(job.dueAt)}`
+          )}
+          {!job.mine && job.ownerName ? ` · ${job.ownerName}'s` : !job.mine ? " · nobody's" : ""}
+        </span>
+      </button>
+    </li>
+  );
+
+  return (
+    <section className="card stack" aria-labelledby="jobs-title">
+      <h2 id="jobs-title" className="section-label">
+        To do as an officer
+      </h2>
+      {mine.length > 0 && <ul className="jobs">{mine.map(row)}</ul>}
+      {others.length > 0 && (
+        <>
+          {mine.length > 0 && <p className="muted small">Other events</p>}
+          <ul className="jobs">{others.map(row)}</ul>
+        </>
+      )}
+    </section>
   );
 }
 

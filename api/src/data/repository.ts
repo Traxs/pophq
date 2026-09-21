@@ -13,6 +13,7 @@ import type { AttendanceRecord } from "../domain/attendance.js";
 import type { AllianceEvent, Answer, EventAnswer } from "../domain/events.js";
 import type { EventType } from "../domain/eventTypes.js";
 import type { KudosAward } from "../domain/kudos.js";
+import type { Checklist } from "../domain/checklists.js";
 import type { Lineup } from "../domain/lineups.js";
 import type { SlotPreferences, SvsRound } from "../domain/svs.js";
 import type { Strategy } from "../domain/strategy.js";
@@ -26,6 +27,7 @@ import { SEAT_CAP, type Seats } from "../domain/seats.js";
 import {
   accountKey,
   agentTokenKey,
+  checklistKey,
   answerIndexKey,
   answerKey,
   attendanceIndexKey,
@@ -695,6 +697,36 @@ export class Repository {
     }
   }
 
+  // ---- Event checklists ----
+
+  /**
+   * Replaces an event's checklist. The version guards a tick against a colleague's tick landing
+   * at the same moment: the loser is told to reload rather than wiping the other's work.
+   */
+  async putChecklist(checklist: Checklist, actor: Actor): Promise<void> {
+    const meta = newItemMeta(actor, this.clock());
+    try {
+      await this.db.send(
+        new PutCommand({
+          TableName: this.table,
+          Item: { ...checklistKey(checklist.eventId), type: "checklist", ...meta, ...checklist },
+          ConditionExpression: "attribute_not_exists(SK) OR version = :previous",
+          ExpressionAttributeValues: { ":previous": checklist.version - 1 },
+        }),
+      );
+    } catch (err) {
+      if (err instanceof ConditionalCheckFailedException) {
+        throw new ConflictError("Someone else changed this checklist. Reload and try again.");
+      }
+      throw err;
+    }
+  }
+
+  async getChecklist(eventId: string): Promise<Checklist | undefined> {
+    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: checklistKey(eventId) }));
+    return res.Item ? toChecklist(res.Item) : undefined;
+  }
+
   async listAnswers(eventId: string): Promise<EventAnswer[]> {
     const items = await this.queryAll({
       KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
@@ -1289,6 +1321,15 @@ function toHistoricalRecord(item: Record<string, unknown>): HistoricalRecord {
   return record;
 }
 
+function toChecklist(item: Record<string, unknown>): Checklist {
+  return {
+    eventId: String(item.eventId),
+    version: Number(item.version ?? 1),
+    entries: Array.isArray(item.entries) ? (item.entries as Checklist["entries"]) : [],
+    updatedAt: String(item.updatedAt),
+  };
+}
+
 function toEvent(item: Record<string, unknown>): AllianceEvent {
   const event: AllianceEvent = {
     eventId: String(item.eventId),
@@ -1302,6 +1343,9 @@ function toEvent(item: Record<string, unknown>): AllianceEvent {
     createdBy: String(item.createdBy),
   };
   if (item.notes) event.notes = String(item.notes);
+  if (item.ownerPlayerId) event.ownerPlayerId = String(item.ownerPlayerId);
+  // The item's own audit stamp doubles as "when members could first answer".
+  if (item.createdAt) event.createdAt = String(item.createdAt);
   return event;
 }
 
@@ -1328,6 +1372,7 @@ function toEventType(item: Record<string, unknown>): EventType {
     createdBy: String(item.createdBy),
   };
   if (item.strategyTemplate) type.strategyTemplate = String(item.strategyTemplate);
+  if (Array.isArray(item.checklist)) type.checklist = item.checklist as NonNullable<EventType["checklist"]>;
   return type;
 }
 

@@ -40,6 +40,10 @@ export interface AllianceEvent {
   /** Empty for a plain event; two legions for Foundry. */
   sessions: EventSession[];
   createdBy: string;
+  /** The officer's game account that runs this one; checklists on Home hang off it. */
+  ownerPlayerId?: string;
+  /** When the event was created, which is when members could first answer. */
+  createdAt?: string;
 }
 
 export interface EventAnswer {
@@ -89,6 +93,7 @@ const NewEventSchema = z.object({
   startsAt: ISO,
   deadlineAt: ISO.optional(),
   notes: z.string().trim().max(2000).optional(),
+  ownerPlayerId: z.string().trim().regex(/^[1-9][0-9]{4,14}$/, "That is not a Player ID.").optional(),
   alliance: z
     .string()
     .trim()
@@ -146,8 +151,16 @@ export function parseNewEvent(input: unknown, ctx: NewEventContext): AllianceEve
   if (!parsed.success) {
     throw new ValidationError("Invalid event.", z.flattenError(parsed.error).fieldErrors);
   }
-  const { startsAt, deadlineAt, notes, answersCloseDaysBefore, timeZoneOffsetMinutes, sessions: rawSessions, ...rest } =
-    parsed.data;
+  const {
+    startsAt,
+    deadlineAt,
+    notes,
+    ownerPlayerId,
+    answersCloseDaysBefore,
+    timeZoneOffsetMinutes,
+    sessions: rawSessions,
+    ...rest
+  } = parsed.data;
   const sessions = (rawSessions ?? []).map((session, index) => ({
     id: session.id ?? `S${index + 1}`,
     label: session.label,
@@ -176,6 +189,7 @@ export function parseNewEvent(input: unknown, ctx: NewEventContext): AllianceEve
     startsAt: startsAtEffective,
     deadlineAt: deadline,
     ...(notes ? { notes } : {}),
+    ...(ownerPlayerId ? { ownerPlayerId } : {}),
     sessions,
     createdBy: ctx.createdBy,
   };
@@ -220,6 +234,8 @@ const EventChangesSchema = z.object({
   startsAt: ISO.optional(),
   deadlineAt: ISO.optional(),
   notes: z.string().trim().max(2000).optional(),
+  /** Empty string hands the event back to nobody. */
+  ownerPlayerId: z.union([z.string().trim().regex(/^[1-9][0-9]{4,14}$/, "That is not a Player ID."), z.literal("")]).optional(),
   answersCloseDaysBefore: z.number().int().min(0).max(60).optional(),
   timeZoneOffsetMinutes: z.number().int().min(-840).max(840).optional(),
 });
@@ -291,8 +307,14 @@ export function parseAgentEventChanges(event: AllianceEvent, input: unknown, now
   if (Date.parse(deadlineAt) > Date.parse(startsAt)) throw new ValidationError("Answers must close before the event starts.");
   if (Date.parse(startsAt) > now.getTime() + MAX_AHEAD_MS) throw new ValidationError("The event is more than a year away.");
 
+  const owner = changes.ownerPlayerId === undefined ? event.ownerPlayerId : changes.ownerPlayerId || undefined;
+  // The event without its owner: handing one back to nobody has to remove the field, and a plain
+  // spread of the event would quietly put the old owner back.
+  const withoutOwner: AllianceEvent = { ...event };
+  delete withoutOwner.ownerPlayerId;
   const updated: AllianceEvent = {
-    ...event,
+    ...withoutOwner,
+    ...(owner ? { ownerPlayerId: owner } : {}),
     kind,
     title: changes.title ?? event.title,
     startsAt,
@@ -325,8 +347,14 @@ export function parseEventChanges(event: AllianceEvent, input: unknown, now: Dat
       ? deadlineFor(startsAt, changes.answersCloseDaysBefore ?? DEFAULT_LEAD_DAYS[kind], changes.timeZoneOffsetMinutes ?? 0)
       : event.deadlineAt);
 
+  const owner = changes.ownerPlayerId === undefined ? event.ownerPlayerId : changes.ownerPlayerId || undefined;
+  // The event without its owner: handing one back to nobody has to remove the field, and a plain
+  // spread of the event would quietly put the old owner back.
+  const withoutOwner: AllianceEvent = { ...event };
+  delete withoutOwner.ownerPlayerId;
   const updated: AllianceEvent = {
-    ...event,
+    ...withoutOwner,
+    ...(owner ? { ownerPlayerId: owner } : {}),
     kind,
     title: changes.title ?? event.title,
     startsAt,
