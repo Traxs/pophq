@@ -6,7 +6,7 @@ import { LineChart } from "../components/LineChart";
 import { useToast } from "../components/Toast";
 import { change, full, formatDigitsInput, parseDigits, relativeDay, shortDate, type Change } from "../format";
 import { navigate } from "../router";
-import { LEVEL_HINT, isValidLevel } from "../rules";
+import { LEVEL_HINT, isValidLevel, troopLevelExceedsFurnace } from "../rules";
 import { useSession } from "../session";
 import { troopDraftFrom, troopValues, TROOP_LABELS, TROOP_TYPES } from "../troops";
 import { usePower, type PowerPoint } from "../usePower";
@@ -187,6 +187,10 @@ function ReportForm({
     const level = troops[type].level.trim();
     return level !== "" && !isValidLevel(level);
   });
+  // Troops cannot pass the furnace. Compared against the furnace being reported now, falling back
+  // to the last one on file when the field is empty.
+  const furnaceForCheck = furnace.trim() || String(current.furnace_level?.value ?? "");
+  const aboveFurnace = TROOP_TYPES.filter((type) => troopLevelExceedsFurnace(troops[type].level, furnaceForCheck));
   const [confirmDrop, setConfirmDrop] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -309,6 +313,13 @@ function ReportForm({
           <span className="field-error" role="alert">
             {LEVEL_HINT}
           </span>
+        )}
+        {aboveFurnace.length > 0 && (
+          <p className="banner banner-warn" role="status">
+            {aboveFurnace.map((t) => TROOP_LABELS[t]).join(" and ")}{" "}
+            {aboveFurnace.length === 1 ? "is" : "are"} above your furnace ({furnaceForCheck}), which the game does not
+            allow. Save anyway if your furnace is out of date here.
+          </p>
         )}
       </fieldset>
 
