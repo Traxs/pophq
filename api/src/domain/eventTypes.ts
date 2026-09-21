@@ -93,14 +93,15 @@ export const STARTER_TYPES: readonly Omit<EventType, "createdBy">[] = [
   },
   // SvS and FDT ask how much of the event someone can give, not which time slot they take.
   // The three answers are ordinary parts: a member picks exactly one, or says they can't come.
+  // Both normally run six hours from 12:00 UTC, so the last half starts at 15:00.
   {
     typeId: "svs",
     name: "SvS",
     leadDays: 3,
     sessions: [
-      { id: "full", label: "Full time" },
-      { id: "first", label: "First half" },
-      { id: "last", label: "Last half" },
+      { id: "full", label: "Full time", defaultMinutes: 12 * 60 },
+      { id: "first", label: "First half", defaultMinutes: 12 * 60 },
+      { id: "last", label: "Last half", defaultMinutes: 15 * 60 },
     ],
     archived: false,
   },
@@ -109,9 +110,9 @@ export const STARTER_TYPES: readonly Omit<EventType, "createdBy">[] = [
     name: "FDT",
     leadDays: 1,
     sessions: [
-      { id: "full", label: "Full time" },
-      { id: "first", label: "First half" },
-      { id: "last", label: "Last half" },
+      { id: "full", label: "Full time", defaultMinutes: 12 * 60 },
+      { id: "first", label: "First half", defaultMinutes: 12 * 60 },
+      { id: "last", label: "Last half", defaultMinutes: 15 * 60 },
     ],
     archived: false,
   },

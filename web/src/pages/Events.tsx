@@ -6,7 +6,15 @@ import { useToast } from "../components/Toast";
 import { compact, dayTime, full, relativeDay, shortTime, untilText } from "../format";
 import { latestKnown, sortForBreakdown, totalsOf, valueOf } from "../eventBreakdown";
 import { isReportOverdue } from "../rules";
-import { leadDaysOf, previewDeadline, toLocalInput } from "../eventTiming";
+import {
+  DEFAULT_EVENT_HOURS,
+  halfSpan,
+  halvesFor,
+  leadDaysOf,
+  nextUtcNoon,
+  previewDeadline,
+  toLocalInput,
+} from "../eventTiming";
 import { navigate } from "../router";
 import { useSession } from "../session";
 import { NoAccount } from "./Home";
@@ -280,9 +288,14 @@ function EventCard({
         </button>
       </h3>
       <p className="muted">
-        {event.sessions.length > 0
-          ? `${dayTime(event.sessions[0]!.startsAt)}${event.sessions.length > 1 ? ` and ${shortTime(event.sessions.at(-1)!.startsAt)}` : ""}`
-          : dayTime(event.startsAt)}
+        {(() => {
+          // Halves are one sitting with a midpoint, so they read as a span; legions are separate
+          // times and read as "and".
+          const span = halfSpan(event.sessions);
+          if (span) return `${dayTime(span.startsAt)} – ${shortTime(span.endsAt)}`;
+          if (event.sessions.length === 0) return dayTime(event.startsAt);
+          return `${dayTime(event.sessions[0]!.startsAt)}${event.sessions.length > 1 ? ` and ${shortTime(event.sessions.at(-1)!.startsAt)}` : ""}`;
+        })()}
         {!past && ` · ${untilText(event.startsAt)}`}
       </p>
       {event.notes && <p className="event-notes">{event.notes}</p>}
@@ -539,12 +552,17 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
       : defaultSessions("foundry"),
   );
   const [leadDays, setLeadDays] = useState<number>(event ? leadDaysOf(event) : DEFAULT_LEAD.foundry);
+  // SvS and FDT run about six hours; the halves follow from that rather than being typed out.
+  const [hours, setHours] = useState<number>(DEFAULT_EVENT_HOURS);
   const [notes, setNotes] = useState(event?.notes ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const usesSessions = sessions.length > 0;
-  const sessionTimes = sessions.map((s) => (s.startsAt ? new Date(s.startsAt) : null));
+  // SvS and FDT: one start and a length, from which Full time / First half / Last half follow.
+  const usesHalves = kind === "svs" || kind === "fdt";
+  const effectiveSessions = usesHalves ? halvesFor(startsAt, hours) : sessions;
+  const usesSessions = effectiveSessions.length > 0;
+  const sessionTimes = effectiveSessions.map((s) => (s.startsAt ? new Date(s.startsAt) : null));
   const sessionsValid = usesSessions && sessionTimes.every((d) => d !== null && !Number.isNaN(d.getTime()));
   // With legions the event starts when the first one does; otherwise the single start applies.
   const start = usesSessions
@@ -563,6 +581,8 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
     if (editing) return;
     setLeadDays(DEFAULT_LEAD[value]); // a new event follows its type
     setSessions(defaultSessions(value));
+    // SvS and FDT normally start at 12:00 UTC, so the officer only has to pick the day.
+    if ((value === "svs" || value === "fdt") && !startsAt) setStartsAt(nextUtcNoon());
   };
 
   const setSession = (index: number, patch: Partial<{ label: string; startsAt: string }>) =>
@@ -579,7 +599,7 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
       startsAt: start.toISOString(),
       ...(usesSessions
         ? {
-            sessions: sessions.map((s) => ({
+            sessions: effectiveSessions.map((s) => ({
               ...(s.id ? { id: s.id } : {}),
               label: s.label.trim(),
               startsAt: new Date(s.startsAt).toISOString(),
@@ -623,11 +643,11 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
           autoComplete="off"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="Foundry — Legion 1"
+          placeholder={kindLabel(kind)}
         />
       </div>
 
-      {usesSessions ? (
+      {usesSessions && !usesHalves ? (
         <fieldset className="field">
           <legend>Legions</legend>
           <span className="hint">One event, two battles. Everyone signs up for one of them.</span>
@@ -653,6 +673,24 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
           <label htmlFor="e-start">Starts</label>
           <input id="e-start" type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
           <span className="hint">Your local time.</span>
+        </div>
+      )}
+
+      {usesHalves && (
+        <div className="field">
+          <label htmlFor="e-hours">Runs for</label>
+          <select id="e-hours" value={hours} onChange={(e) => setHours(Number(e.target.value))}>
+            {[2, 3, 4, 6, 8, 12].map((h) => (
+              <option key={h} value={h}>
+                {h} hours
+              </option>
+            ))}
+          </select>
+          <span className="hint">
+            {startValid
+              ? `Full time and first half from ${shortTime(effectiveSessions[0]!.startsAt)}, last half from ${shortTime(effectiveSessions[2]!.startsAt)}.`
+              : "Full time and first half start with the event; the last half starts halfway through."}
+          </span>
         </div>
       )}
 
