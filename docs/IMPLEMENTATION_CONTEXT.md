@@ -72,15 +72,16 @@ At commit `8f99dd9`, the repository has 39 completed and 59 open plan checkboxes
 - separately versioned strategy plans per session, with safe paragraphs, bullets and bold rendering plus Holder, Looter, Substitute Looter and Farmer assignments restricted to selected lineup accounts;
 - versioned results per session with aggregate scores and matchup facts visible to members, while per-player points remain visible only to that player and officers;
 - an officer-only legacy-event repair that adds the missing L1/L2 session and atomically assigns every existing Yes signup to it, making older separate Foundry events usable by result tooling without production scripts;
-- officer-issued bot tokens that may read every normal GET route through the issuer's live groups and linked accounts, while writes remain limited to guarded result/score updates; the checked-in `state2612` skill and standard-library client support general reads, discovery, context and result updates, which default to an exact dry run and use idempotent applied retries;
+- officer-issued bot tokens that may read every normal GET route through the issuer's live groups and linked accounts, while writes remain limited to explicitly scoped guarded routes; the checked-in `state2612` skill and standard-library client support general reads, discovery, context and preview-first/idempotent writes;
 - result context gives officer-issued bots an exact Player ID/name registry even when a legacy event has no published lineup, while an omitted optional points list is normalized to an empty list for aggregate-only results;
 - officer-issued bots may separately receive `events:write` for preview-first, idempotent historical/current event creation and event/session metadata edits; existing session ids cannot be removed or renamed, and live issuer demotion disables the scope immediately;
+- officer-issued bots may separately receive `history:write` for preview-first strength history, historic signups, attendance, lineups and tactics; aliases, relationships, membership, registrations, selections, assignments, rounded performance and evidence metadata are retained as immutable typed source records, and exact evidence bytes are SHA-256-verified in a private retained/versioned S3 bucket;
 - append-only change-history writer and account timeline;
 - idempotent Foundry bundle import for accounts, measurements, events, sign-ups, and attendance, using stable `IMPORT-<id>` IDs; bundle notes are deliberately dropped because they contain internal Hermes paths that must not reach member-visible views;
 - one production Foundry import: 86 game accounts and 127 strength observations, with all 47 growth rows matching Hermes' derived numbers exactly;
 - AWS app/pipeline stack, production auth configuration, canary deployment, CSP/security headers, smoke tests, and cost guard.
 
-Not implemented yet: SvS buff scheduling, screenshot-derived results/attendance, reminders/outbox, access-request inbox, transfer/archive/erasure lifecycle, evidence uploads, complete exports/Athena metrics, the general-purpose agent/proposal platform, and full launch workflow.
+Not implemented yet: SvS buff scheduling, screenshot extraction, reminders/outbox, access-request inbox, transfer/archive/erasure lifecycle, the general member-facing evidence registry/finalization workflow, complete exports/Athena metrics, the general-purpose agent/proposal platform, and full launch workflow.
 
 ## Domain model and invariants
 

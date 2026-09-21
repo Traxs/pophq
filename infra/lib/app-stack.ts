@@ -106,6 +106,14 @@ export class AppStack extends Stack {
       removalPolicy: RemovalPolicy.RETAIN,
     });
 
+    const evidence = new s3.Bucket(this, "Evidence", {
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      versioned: true,
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+
     const guard = new CostGuard(this, "CostGuard", {
       monthlyBudgetUsd: 10,
       tripAtUsd: 15,
@@ -118,9 +126,11 @@ export class AppStack extends Stack {
       guard.killSwitch.parameterName,
       users.userPoolId,
       history.tableName,
+      evidence.bucketName,
     );
     table.grantReadWriteData(api.handler);
     history.grantReadData(api.handler);
+    evidence.grantReadWrite(api.handler);
     guard.killSwitch.grantRead(api.handler);
     // Officer invites create and, on failure, remove logins in this pool (P4.1). No other
     // Cognito rights: the API never reads passwords, tokens or other pools.
@@ -307,7 +317,7 @@ export class AppStack extends Stack {
     new CfnOutput(this, "UserPoolId", { value: users.userPoolId });
     new CfnOutput(this, "TableName", { value: table.tableName });
 
-    this.suppressions(table, bucket);
+    this.suppressions(table, bucket, evidence);
   }
 
   /** Stream handler: writes one history entry per change; failures park in a dead-letter queue. */
@@ -351,6 +361,7 @@ export class AppStack extends Stack {
     killSwitch: string,
     userPoolId: string,
     historyTableName: string,
+    evidenceBucketName: string,
   ): { handler: NodejsFunction; rest: apigw.RestApi; alias: lambda.Alias } {
     const handler = new NodejsFunction(this, "Api", {
       entry: API_ENTRY,
@@ -371,6 +382,7 @@ export class AppStack extends Stack {
         KILL_SWITCH_PARAMETER: killSwitch,
         USER_POOL_ID: userPoolId,
         HISTORY_TABLE_NAME: historyTableName,
+        EVIDENCE_BUCKET_NAME: evidenceBucketName,
         NODE_OPTIONS: "--enable-source-maps",
       },
       bundling: NODE_BUNDLING,
@@ -420,7 +432,7 @@ export class AppStack extends Stack {
     return { handler, rest, alias };
   }
 
-  private suppressions(table: dynamodb.TableV2, bucket: s3.Bucket): void {
+  private suppressions(table: dynamodb.TableV2, bucket: s3.Bucket, evidence: s3.Bucket): void {
     const arn = (c: Construct) => `<${this.getLogicalId(c.node.defaultChild as CfnElement)}.Arn>`;
     acknowledgeEach(
       this,
@@ -445,13 +457,14 @@ export class AppStack extends Stack {
         ...S3_GRANT_ACTIONS,
         "Resource::*",
         `Resource::${arn(bucket)}/*`,
+        `Resource::${arn(evidence)}/*`,
         `Resource::arn:aws:s3:::cdk-hnb659fds-assets-${this.account}-${this.region}/*`,
       ],
-      "CDK BucketDeployment helper: copies the web build from the CDK asset bucket into the web bucket.",
+      "The web deployment and private evidence API need object-level access only in their own buckets.",
     );
     acknowledge(this, {
       "AwsSolutions-L1": "The CDK BucketDeployment helper pins its own runtime; the API uses Node 24.",
-      "AwsSolutions-S1": "Web bucket holds public build output only; CloudFront logging arrives with Milestone 2.",
+      "AwsSolutions-S1": "Web output and private evidence are low-volume; access logging arrives with Milestone 2.",
       "AwsSolutions-S10": "Only CloudFront reads the bucket (OAC); bucket policy enforces TLS.",
       "AwsSolutions-CFR1": "The alliance is international; no geo restriction.",
       "AwsSolutions-CFR2": "WAF comes with the CloudFront flat-rate plan in Milestone 2 (P2.2).",

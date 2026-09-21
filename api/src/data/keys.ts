@@ -73,3 +73,9 @@ export const resultKey = (eventId: string, sessionId: string) => ({
 
 export const agentTokenKey = (tokenId: string) => ({ PK: `TOKEN#${tokenId}`, SK: "META" });
 export const idempotencyKey = (tokenId: string, key: string) => ({ PK: `TOKEN#${tokenId}`, SK: `IDEMPOTENCY#${key}` });
+
+/** Immutable imported facts whose product-specific model does not exist yet. */
+export const historicalRecordKey = (category: string, recordId: string) => ({
+  PK: `HISTORYIMPORT#${category}`,
+  SK: `RECORD#${recordId}`,
+});

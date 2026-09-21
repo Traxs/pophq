@@ -10,6 +10,7 @@ import { registerDevRoutes } from "./dev/routes.js";
 import { createRemoteVerifier } from "./http/auth.js";
 import { HistoryStore } from "./data/history.js";
 import { createApp } from "./http/app.js";
+import { fileEvidenceStore } from "./ops/evidenceStore.js";
 
 const env = {
   DYNAMODB_ENDPOINT: "http://localhost:8000",
@@ -36,6 +37,13 @@ const app = createApp({
   logins: devLogins(db, config.tableName),
   // Locally the history shares the table; the keys are prefixed, so nothing collides.
   history: new HistoryStore(db, config.tableName),
+  evidence: fileEvidenceStore(process.env.EVIDENCE_DIR ?? ".local/evidence"),
+  botIssuerGroups: async (issuedBy) => {
+    if (issuedBy === "officer") return new Set(["player" as const, "officer" as const]);
+    if (issuedBy === "owner") return new Set(["player" as const, "owner" as const]);
+    if (issuedBy === "player" || issuedBy === "newcomer") return new Set(["player" as const]);
+    return undefined;
+  },
   extend: (a) => registerDevRoutes(a, { repo, reset }),
 });
 

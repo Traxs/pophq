@@ -37,6 +37,7 @@ describe("Lambda bundles", () => {
       ...process.env,
       TABLE_NAME: "test-table",
       HISTORY_TABLE_NAME: "test-history",
+      EVIDENCE_BUCKET_NAME: "test-evidence",
       OIDC_ISSUER: "https://cognito-idp.eu-central-1.amazonaws.com/eu-central-1_test",
       KILL_SWITCH_PARAMETER: "/pophq/kill-switch",
       USER_POOL_ID: "eu-central-1_test",

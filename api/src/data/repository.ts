@@ -16,6 +16,7 @@ import type { Lineup } from "../domain/lineups.js";
 import type { Strategy } from "../domain/strategy.js";
 import type { EventResult } from "../domain/results.js";
 import type { AgentTokenRecord } from "../domain/agentTokens.js";
+import type { HistoricalCategory, HistoricalRecord } from "../domain/historicalRecords.js";
 import { ConflictError, NotFoundError } from "../domain/errors.js";
 import { searchKey } from "../domain/identity.js";
 import type { Report } from "../domain/measurements.js";
@@ -34,6 +35,7 @@ import {
   eventTypeKey,
   lineupKey,
   idempotencyKey,
+  historicalRecordKey,
   loginLinkKey,
   reportKey,
   resultKey,
@@ -176,6 +178,11 @@ export class Repository {
       ExpressionAttributeValues: { ":pk": `EVENT#${eventId}`, ":sk": "ATTEND#" },
     });
     return items.map(toAttendance);
+  }
+
+  async getAttendance(eventId: string, playerId: string): Promise<AttendanceRecord | undefined> {
+    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: attendanceKey(eventId, playerId) }));
+    return res.Item ? toAttendance(res.Item) : undefined;
   }
 
   /** One account's attendance across events, newest first. */
@@ -571,6 +578,68 @@ export class Repository {
     return { bodyHash: String(res.Item.bodyHash), event: res.Item.event as AllianceEvent };
   }
 
+  /** Retry marker for guarded historical writes whose domain write has its own safety condition. */
+  async putIdempotentChange(tokenId: string, key: string, bodyHash: string, response: unknown): Promise<void> {
+    const createdAt = this.clock().toISOString();
+    try {
+      await this.db.send(new PutCommand({
+        TableName: this.table,
+        Item: {
+          ...idempotencyKey(tokenId, key),
+          type: "agent-idempotency",
+          bodyHash,
+          response,
+          createdAt,
+          expiresAtEpoch: Math.floor(this.clock().getTime() / 1000) + 24 * 60 * 60,
+        },
+        ConditionExpression: "attribute_not_exists(PK)",
+      }));
+    } catch (err) {
+      if (err instanceof ConditionalCheckFailedException) {
+        throw new ConflictError("This idempotency key was already used. Reload before retrying.");
+      }
+      throw err;
+    }
+  }
+
+  async getIdempotentChange(tokenId: string, key: string): Promise<{ bodyHash: string; response: unknown } | undefined> {
+    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: idempotencyKey(tokenId, key) }));
+    if (!res.Item) return undefined;
+    return { bodyHash: String(res.Item.bodyHash), response: res.Item.response };
+  }
+
+  async createHistoricalRecord(record: HistoricalRecord, actor: Actor): Promise<void> {
+    try {
+      await this.db.send(new PutCommand({
+        TableName: this.table,
+        Item: {
+          ...historicalRecordKey(record.category, record.recordId),
+          type: "historical-import",
+          ...record,
+          ...newItemMeta(actor, this.clock()),
+        },
+        ConditionExpression: "attribute_not_exists(PK)",
+      }));
+    } catch (err) {
+      if (err instanceof ConditionalCheckFailedException) throw new ConflictError(`Historical record ${record.recordId} already exists.`);
+      throw err;
+    }
+  }
+
+  async getHistoricalRecord(category: HistoricalCategory, recordId: string): Promise<HistoricalRecord | undefined> {
+    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: historicalRecordKey(category, recordId) }));
+    return res.Item ? toHistoricalRecord(res.Item) : undefined;
+  }
+
+  async listHistoricalRecords(category: HistoricalCategory, limit = 500): Promise<HistoricalRecord[]> {
+    const items = await this.queryAll({
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+      ExpressionAttributeValues: { ":pk": `HISTORYIMPORT#${category}`, ":sk": "RECORD#" },
+      Limit: limit,
+    });
+    return items.map(toHistoricalRecord);
+  }
+
   // ---- Agent tokens (P9.1, narrow result scopes first) ----
 
   async createAgentToken(record: AgentTokenRecord): Promise<void> {
@@ -628,6 +697,11 @@ export class Repository {
     return items.map(toAnswer);
   }
 
+  async getAnswer(eventId: string, playerId: string): Promise<EventAnswer | undefined> {
+    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: answerKey(eventId, playerId) }));
+    return res.Item ? toAnswer(res.Item) : undefined;
+  }
+
   /** Answers a game account has given for events starting at or after `from`. */
   async answersForAccount(playerId: string, from: string): Promise<EventAnswer[]> {
     const items = await this.queryAll({
@@ -650,7 +724,7 @@ export class Repository {
     source: EventAnswer["source"],
     actor: Actor,
     note?: string,
-    options: { afterDeadline?: boolean; historic?: boolean } = {},
+    options: { afterDeadline?: boolean; historic?: boolean; answeredAt?: string } = {},
   ): Promise<EventAnswer> {
     const now = this.clock();
     const meta = newItemMeta(actor, now);
@@ -659,7 +733,7 @@ export class Repository {
       playerId,
       answer: choice.answer,
       ...(choice.sessionId ? { sessionId: choice.sessionId } : {}),
-      answeredAt: now.toISOString(),
+      answeredAt: options.answeredAt ?? now.toISOString(),
       source,
       ...(note ? { note } : {}),
     };
@@ -863,6 +937,11 @@ export class Repository {
     return items.map(toReport);
   }
 
+  async getReport(playerId: string, reportId: string): Promise<Report | undefined> {
+    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: reportKey(playerId, reportId) }));
+    return res.Item ? toReport(res.Item) : undefined;
+  }
+
   /**
    * Every login that has at least one game account. Used once to give seats to logins that
    * existed before seats were counted; the table is alliance-sized, so a scan is fine.
@@ -1002,6 +1081,23 @@ function toAgentToken(item: Record<string, unknown>): AgentTokenRecord {
   if (item.lastUsedAt) token.lastUsedAt = String(item.lastUsedAt);
   if (item.revokedAt) token.revokedAt = String(item.revokedAt);
   return token;
+}
+
+function toHistoricalRecord(item: Record<string, unknown>): HistoricalRecord {
+  const record: HistoricalRecord = {
+    recordId: String(item.recordId),
+    category: item.category as HistoricalRecord["category"],
+    sourceId: String(item.sourceId),
+    payload: item.payload,
+  };
+  if (item.occurredAt) record.occurredAt = String(item.occurredAt);
+  if (item.playerId) record.playerId = String(item.playerId);
+  if (item.eventId) record.eventId = String(item.eventId);
+  if (item.sessionId) record.sessionId = String(item.sessionId);
+  if (item.evidenceId) record.evidenceId = String(item.evidenceId);
+  if (item.reviewStatus) record.reviewStatus = String(item.reviewStatus);
+  if (item.confidence !== undefined) record.confidence = Number(item.confidence);
+  return record;
 }
 
 function toEvent(item: Record<string, unknown>): AllianceEvent {

@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { createHash } from "node:crypto";
 import { ulid } from "ulid";
 import { parseNewAccount } from "../domain/accounts.js";
@@ -23,12 +23,13 @@ import { parseLineup, placeIn } from "../domain/lineups.js";
 import { parseStrategy } from "../domain/strategy.js";
 import { parseEventResult } from "../domain/results.js";
 import { canonicalJson, issueAgentToken } from "../domain/agentTokens.js";
+import { HISTORICAL_CATEGORIES, parseHistoricalRecord, type HistoricalCategory } from "../domain/historicalRecords.js";
 import { authenticateAgent, effectiveBotScopes, publicAgentToken, type BotIssuerGroups } from "./agentAuth.js";
 import { listEventTypes } from "../ops/eventTypes.js";
 import { parsePlayerId } from "../domain/identity.js";
 import { allianceGrowth, buckets, currentOf, seriesOf } from "../domain/metrics.js";
 import { monthlyAttendance, monthlyValues, trailingAverage } from "../domain/trends.js";
-import { currentValues, parseReport } from "../domain/measurements.js";
+import { currentValues, parseImportedReport, parseReport } from "../domain/measurements.js";
 import {
   defaultActing,
   isOfficer,
@@ -40,8 +41,10 @@ import {
 } from "../domain/principal.js";
 import type { HistoryStore } from "../data/history.js";
 import type { Repository } from "../data/repository.js";
+import type { Actor } from "../data/meta.js";
 import { invite, type LoginDirectory } from "../ops/invite.js";
 import type { TokenVerifier } from "./auth.js";
+import type { EvidenceStore } from "../ops/evidenceStore.js";
 
 export type Env = { Variables: { principal: Principal; requestId: string } };
 
@@ -62,9 +65,11 @@ export interface AppDeps {
   history?: HistoryStore;
   /** Live issuer-rights check. Bot tokens fail closed when no directory is configured. */
   botIssuerGroups?: BotIssuerGroups;
+  /** Private immutable evidence objects (S3 in AWS). */
+  evidence?: EvidenceStore;
 }
 
-export function createApp({ repo, verifier, now = () => new Date(), extend, isPaused, logins, history, botIssuerGroups = async () => undefined }: AppDeps) {
+export function createApp({ repo, verifier, now = () => new Date(), extend, isPaused, logins, history, botIssuerGroups = async () => undefined, evidence }: AppDeps) {
   const app = new Hono<Env>().basePath("/v1");
 
   app.use("*", async (c, next) => {
@@ -112,6 +117,259 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
   app.get("/agent/doctor", async (c) => {
     const { token } = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "all:read", now(), botIssuerGroups);
     return c.json({ status: "ok", tokenId: token.tokenId, scopes: effectiveBotScopes(token), expiresAt: token.expiresAt });
+  });
+
+  /** Reads preserved import records that do not yet have a richer product-specific view. */
+  app.get("/agent/history", async (c) => {
+    const { issuerGroups } = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "all:read", now(), botIssuerGroups);
+    requireAgentOfficer(issuerGroups);
+    const category = c.req.query("category");
+    if (!category || !HISTORICAL_CATEGORIES.includes(category as HistoricalCategory)) {
+      throw new ValidationError(`category must be one of: ${HISTORICAL_CATEGORIES.join(", ")}.`);
+    }
+    return c.json({ items: await repo.listHistoricalRecords(category as HistoricalCategory) });
+  });
+
+  app.get("/agent/history/evidence/:recordId/content", async (c) => {
+    const { issuerGroups } = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "all:read", now(), botIssuerGroups);
+    requireAgentOfficer(issuerGroups);
+    if (!evidence) throw new NotFoundError("Evidence storage is unavailable.");
+    const recordId = historicalRecordId(c.req.param("recordId"));
+    const object = await evidence.get(recordId);
+    c.header("content-type", object.contentType);
+    c.header("x-content-sha256", object.sha256);
+    c.header("content-disposition", `inline; filename="${recordId}"`);
+    return c.body(Buffer.from(object.content));
+  });
+
+  /** Uploads one hash-verified private evidence object; existing bytes are never overwritten. */
+  app.put("/agent/history/evidence/:recordId/content", async (c) => {
+    const { token } = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "history:write", now(), botIssuerGroups);
+    if (!evidence) throw new NotFoundError("Evidence storage is unavailable.");
+    const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+    const write = agentWriteRequest(body, c.req.query("apply") === "true", c.req.header("idempotency-key"));
+    if (write.apply) {
+      const replay = await repo.getIdempotentChange(token.tokenId, write.key);
+      if (replay) return replayAgentChange(c, replay, write.bodyHash, "evidence");
+    }
+    const recordId = historicalRecordId(c.req.param("recordId"));
+    if (typeof body.contentBase64 !== "string" || body.contentBase64.length === 0) throw new ValidationError("contentBase64 is required.");
+    const content = Buffer.from(body.contentBase64, "base64");
+    if (content.byteLength === 0 || content.byteLength > 5 * 1024 * 1024) throw new ValidationError("Evidence content must be between 1 byte and 5 MB.");
+    const canonicalBase64 = content.toString("base64").replace(/=+$/, "");
+    if (canonicalBase64 !== body.contentBase64.replace(/\s+/g, "").replace(/=+$/, "")) throw new ValidationError("contentBase64 is not valid base64.");
+    const sha256 = createHash("sha256").update(content).digest("hex");
+    if (typeof body.sha256 !== "string" || body.sha256.toLowerCase() !== sha256) throw new ValidationError("Evidence SHA-256 does not match its content.");
+    const contentType = typeof body.contentType === "string" ? body.contentType.trim().toLowerCase() : "";
+    if (!/^(?:image\/(?:jpeg|png|webp)|application\/(?:pdf|json)|text\/plain)$/.test(contentType)) throw new ValidationError("Unsupported evidence content type.");
+    const desired = { recordId, sha256, size: content.byteLength, contentType };
+    const current = await evidence.head(recordId);
+    if (current && canonicalJson(current) !== canonicalJson(desired)) throw new ConflictError(`Evidence content ${recordId} already exists with different bytes or metadata.`);
+    const currentHash = stateHash(current);
+    assertPreviewState(write, currentHash, current, desired);
+    if (!write.apply) return c.json({ dryRun: true, expectedHash: currentHash, diff: { before: current ?? null, after: desired } });
+    if (!current) await evidence.put(desired, content);
+    await repo.putIdempotentChange(token.tokenId, write.key, write.bodyHash, desired);
+    c.header("x-change-id", write.key);
+    return c.json({ dryRun: false, replayed: false, unchanged: Boolean(current), evidence: desired }, current ? 200 : 201);
+  });
+
+  /** Imports one immutable typed strength/power report with its original timestamps. */
+  app.put("/agent/history/reports/:pid/:reportId", async (c) => {
+    const { token } = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "history:write", now(), botIssuerGroups);
+    const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+    const apply = c.req.query("apply") === "true";
+    const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+    const expectedHash = typeof body.expectedHash === "string" ? body.expectedHash : "";
+    const key = c.req.header("idempotency-key") ?? "";
+    const bodyHash = createHash("sha256").update(canonicalJson(body)).digest("hex");
+    if (apply) {
+      if (!reason || !expectedHash) throw new ValidationError("Applying historical data requires a reason and the expectedHash from preview.");
+      if (!/^[A-Za-z0-9._:-]{8,100}$/.test(key)) throw new ValidationError("Applying requires an Idempotency-Key of 8–100 safe characters.");
+      const replay = await repo.getIdempotentChange(token.tokenId, key);
+      if (replay) {
+        if (replay.bodyHash !== bodyHash) throw new ConflictError("That Idempotency-Key was already used for different data.");
+        return c.json({ dryRun: false, replayed: true, report: replay.response });
+      }
+    }
+    const playerId = parsePlayerId(c.req.param("pid"));
+    const account = await repo.getAccount(playerId);
+    if (!account || !["active", "guest", "unknown"].includes(account.status)) throw new NotFoundError(`Game account ${playerId} can't receive historical data.`);
+    const report = parseImportedReport(body, playerId, c.req.param("reportId"), now());
+    const current = await repo.getReport(playerId, report.reportId);
+    const currentHash = createHash("sha256").update(canonicalJson(current ?? null)).digest("hex");
+    if (current && canonicalJson(current) !== canonicalJson(report)) throw new ConflictError(`Report ${report.reportId} already exists with different data.`);
+    if (apply && expectedHash !== currentHash && canonicalJson(current) !== canonicalJson(report)) throw new ConflictError("Report history changed after preview. Preview again before applying.");
+    if (!apply) return c.json({ dryRun: true, expectedHash: currentHash, diff: { before: current ?? null, after: report } });
+    if (!current) await repo.addReport(report, { id: token.tokenId, via: `agent:${token.tokenId}`, reason });
+    await repo.putIdempotentChange(token.tokenId, key, bodyHash, report);
+    c.header("x-change-id", key);
+    return c.json({ dryRun: false, replayed: false, unchanged: Boolean(current), report }, current ? 200 : 201);
+  });
+
+  /** Imports one historical signup/withdrawal without reopening the event. */
+  app.put("/agent/history/events/:id/signups/:pid", async (c) => {
+    const { token } = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "history:write", now(), botIssuerGroups);
+    const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+    const write = agentWriteRequest(body, c.req.query("apply") === "true", c.req.header("idempotency-key"));
+    if (write.apply) {
+      const replay = await repo.getIdempotentChange(token.tokenId, write.key);
+      if (replay) return replayAgentChange(c, replay, write.bodyHash, "signup");
+    }
+    const event = await repo.getEvent(c.req.param("id"));
+    if (!event) throw new NotFoundError("Event not found.");
+    const playerId = parsePlayerId(c.req.param("pid"));
+    const account = await repo.getAccount(playerId);
+    if (!account || !["active", "guest", "unknown"].includes(account.status)) throw new NotFoundError(`Game account ${playerId} can't receive historical data.`);
+    const choice = parseAnswerChoice(event, body);
+    const answeredAt = historicalTimestamp(body.answeredAt, "answeredAt");
+    const note = typeof body.note === "string" ? body.note.trim().slice(0, 200) : undefined;
+    const desired = { eventId: event.eventId, playerId, ...choice, answeredAt, source: "import" as const, ...(note ? { note } : {}) };
+    const current = await repo.getAnswer(event.eventId, playerId);
+    const currentHash = stateHash(current);
+    assertPreviewState(write, currentHash, current, desired);
+    if (!write.apply) return c.json({ dryRun: true, expectedHash: currentHash, diff: { before: current ?? null, after: desired } });
+    const saved = canonicalJson(current) === canonicalJson(desired)
+      ? desired
+      : await repo.setAnswer(event, playerId, choice, "import", agentActor(token.tokenId, write.reason), note, { historic: true, answeredAt });
+    await repo.putIdempotentChange(token.tokenId, write.key, write.bodyHash, saved);
+    c.header("x-change-id", write.key);
+    return c.json({ dryRun: false, replayed: false, unchanged: canonicalJson(current) === canonicalJson(desired), signup: saved });
+  });
+
+  /** Imports one actual attendance observation, preserving its source time and evidence reference. */
+  app.put("/agent/history/events/:id/attendance/:pid", async (c) => {
+    const { token } = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "history:write", now(), botIssuerGroups);
+    const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+    const write = agentWriteRequest(body, c.req.query("apply") === "true", c.req.header("idempotency-key"));
+    if (write.apply) {
+      const replay = await repo.getIdempotentChange(token.tokenId, write.key);
+      if (replay) return replayAgentChange(c, replay, write.bodyHash, "attendance");
+    }
+    const event = await repo.getEvent(c.req.param("id"));
+    if (!event) throw new NotFoundError("Event not found.");
+    const playerId = parsePlayerId(c.req.param("pid"));
+    const account = await repo.getAccount(playerId);
+    if (!account || !["active", "guest", "unknown"].includes(account.status)) throw new NotFoundError(`Game account ${playerId} can't receive historical data.`);
+    const parsed = parseAttendance(body);
+    if (parsed.sessionId && !event.sessions.some((session) => session.id === parsed.sessionId)) throw new ValidationError("That part of the event doesn't exist.");
+    const recordedAt = historicalTimestamp(body.recordedAt, "recordedAt");
+    const source = ["officer", "screenshot", "agent", "import"].includes(String(body.source))
+      ? body.source as "officer" | "screenshot" | "agent" | "import"
+      : "import";
+    const desired = { eventId: event.eventId, playerId, ...parsed, source, recordedAt };
+    const current = await repo.getAttendance(event.eventId, playerId);
+    const currentHash = stateHash(current);
+    assertPreviewState(write, currentHash, current, desired);
+    if (!write.apply) return c.json({ dryRun: true, expectedHash: currentHash, diff: { before: current ?? null, after: desired } });
+    const saved = canonicalJson(current) === canonicalJson(desired)
+      ? desired
+      : await repo.setAttendance({ eventId: event.eventId, playerId, ...parsed, source }, agentActor(token.tokenId, write.reason), recordedAt);
+    await repo.putIdempotentChange(token.tokenId, write.key, write.bodyHash, saved);
+    c.header("x-change-id", write.key);
+    return c.json({ dryRun: false, replayed: false, unchanged: canonicalJson(current) === canonicalJson(desired), attendance: saved });
+  });
+
+  /** Imports the reviewed starter/substitute decision for one historical event part. */
+  app.put("/agent/history/events/:id/sessions/:sid/lineup", async (c) => {
+    const { token } = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "history:write", now(), botIssuerGroups);
+    const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+    const write = agentWriteRequest(body, c.req.query("apply") === "true", c.req.header("idempotency-key"));
+    if (write.apply) {
+      const replay = await repo.getIdempotentChange(token.tokenId, write.key);
+      if (replay) return replayAgentChange(c, replay, write.bodyHash, "lineup");
+    }
+    const event = await repo.getEvent(c.req.param("id"));
+    if (!event) throw new NotFoundError("Event not found.");
+    const session = event.sessions.find((candidate) => candidate.id === c.req.param("sid"));
+    if (!session) throw new NotFoundError("That part of the event doesn't exist.");
+    const current = await repo.getLineup(event.eventId, session.id);
+    const publishedAt = historicalTimestamp(body.publishedAt, "publishedAt");
+    if (!Number.isInteger(body.expectedVersion) || Number(body.expectedVersion) < 0) throw new ValidationError("Historical lineups require expectedVersion.");
+    const lineup = parseLineup(body, session, { eventId: event.eventId, sessionId: session.id, publishedBy: `agent:${token.tokenId}`, now: new Date(publishedAt), currentVersion: Number(body.expectedVersion) });
+    const known = new Set((await repo.listAccounts(event.alliance)).map((account) => account.playerId));
+    const strangers = lineup.entries.filter((entry) => !known.has(entry.playerId)).map((entry) => entry.playerId);
+    if (strangers.length > 0) throw new ValidationError(`Unknown Player IDs: ${strangers.join(", ")}.`);
+    const currentHash = stateHash(current);
+    assertPreviewState(write, currentHash, current, lineup);
+    if (!write.apply) return c.json({ dryRun: true, expectedHash: currentHash, diff: { before: current ?? null, after: lineup } });
+    if (canonicalJson(current) !== canonicalJson(lineup)) await repo.putLineup(lineup, agentActor(token.tokenId, write.reason));
+    await repo.putIdempotentChange(token.tokenId, write.key, write.bodyHash, lineup);
+    c.header("x-change-id", write.key);
+    return c.json({ dryRun: false, replayed: false, lineup }, 201);
+  });
+
+  /** Imports one reviewed tactical plan; assignments must still belong to the published lineup. */
+  app.put("/agent/history/events/:id/sessions/:sid/strategy", async (c) => {
+    const { token } = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "history:write", now(), botIssuerGroups);
+    const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+    const write = agentWriteRequest(body, c.req.query("apply") === "true", c.req.header("idempotency-key"));
+    if (write.apply) {
+      const replay = await repo.getIdempotentChange(token.tokenId, write.key);
+      if (replay) return replayAgentChange(c, replay, write.bodyHash, "strategy");
+    }
+    const event = await repo.getEvent(c.req.param("id"));
+    if (!event) throw new NotFoundError("Event not found.");
+    const session = event.sessions.find((candidate) => candidate.id === c.req.param("sid"));
+    if (!session) throw new NotFoundError("That part of the event doesn't exist.");
+    const current = await repo.getStrategy(event.eventId, session.id);
+    const publishedAt = historicalTimestamp(body.publishedAt, "publishedAt");
+    if (!Number.isInteger(body.expectedVersion) || Number(body.expectedVersion) < 0) throw new ValidationError("Historical tactics require expectedVersion.");
+    const strategy = parseStrategy(body, session, { eventId: event.eventId, sessionId: session.id, publishedBy: `agent:${token.tokenId}`, now: new Date(publishedAt), currentVersion: Number(body.expectedVersion) });
+    if (strategy.assignments.length > 0) {
+      const lineup = await repo.getLineup(event.eventId, session.id);
+      if (!lineup) throw new ValidationError("Import the lineup before tactical assignments.");
+      const selected = new Set(lineup.entries.map((entry) => entry.playerId));
+      const outside = strategy.assignments.filter((assignment) => !selected.has(assignment.playerId)).map((assignment) => assignment.playerId);
+      if (outside.length > 0) throw new ValidationError(`Not in the published ${session.label} lineup: ${outside.join(", ")}.`);
+    }
+    const currentHash = stateHash(current);
+    assertPreviewState(write, currentHash, current, strategy);
+    if (!write.apply) return c.json({ dryRun: true, expectedHash: currentHash, diff: { before: current ?? null, after: strategy } });
+    if (canonicalJson(current) !== canonicalJson(strategy)) await repo.putStrategy(strategy, agentActor(token.tokenId, write.reason));
+    await repo.putIdempotentChange(token.tokenId, write.key, write.bodyHash, strategy);
+    c.header("x-change-id", write.key);
+    return c.json({ dryRun: false, replayed: false, strategy }, 201);
+  });
+
+  /** Preserves one exact, immutable source fact. Preview is the default; ids make retries stable. */
+  app.put("/agent/history/:recordId", async (c) => {
+    const { token } = await authenticateAgent(
+      repo,
+      c.req.header("authorization"),
+      c.req.header("origin"),
+      "history:write",
+      now(),
+      botIssuerGroups,
+    );
+    const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+    const apply = c.req.query("apply") === "true";
+    const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+    const expectedHash = typeof body.expectedHash === "string" ? body.expectedHash : "";
+    const key = c.req.header("idempotency-key") ?? "";
+    const bodyHash = createHash("sha256").update(canonicalJson(body)).digest("hex");
+    if (apply) {
+      if (!reason) throw new ValidationError("Applying a historical import requires a reason.");
+      if (!expectedHash) throw new ValidationError("Applying a historical import requires the expectedHash from its preview.");
+      if (!/^[A-Za-z0-9._:-]{8,100}$/.test(key)) throw new ValidationError("Applying requires an Idempotency-Key of 8–100 safe characters.");
+      const replay = await repo.getIdempotentChange(token.tokenId, key);
+      if (replay) {
+        if (replay.bodyHash !== bodyHash) throw new ConflictError("That Idempotency-Key was already used for different data.");
+        return c.json({ dryRun: false, replayed: true, record: replay.response });
+      }
+    }
+    const record = parseHistoricalRecord(c.req.param("recordId"), body);
+    const current = await repo.getHistoricalRecord(record.category, record.recordId);
+    const currentHash = createHash("sha256").update(canonicalJson(current ?? null)).digest("hex");
+    if (current && canonicalJson(current) !== canonicalJson(record)) {
+      throw new ConflictError(`Historical record ${record.recordId} already exists with different data.`);
+    }
+    if (apply && expectedHash !== currentHash && canonicalJson(current) !== canonicalJson(record)) throw new ConflictError("Historical data changed after preview. Preview again before applying.");
+    if (!apply) return c.json({ dryRun: true, expectedHash: currentHash, diff: { before: current ?? null, after: record } });
+    if (!current) await repo.createHistoricalRecord(record, { id: token.tokenId, via: `agent:${token.tokenId}`, reason });
+    await repo.putIdempotentChange(token.tokenId, key, bodyHash, record);
+    c.header("x-change-id", key);
+    return c.json({ dryRun: false, replayed: false, unchanged: Boolean(current), record }, current ? 200 : 201);
   });
 
   /** Minimal event discovery for result bots; no sign-ups, notes, accounts or officer data. */
@@ -957,4 +1215,66 @@ async function readJson(req: Request): Promise<unknown> {
   } catch {
     throw new ValidationError("Request body must be JSON.");
   }
+}
+
+interface AgentWriteRequest {
+  apply: boolean;
+  reason: string;
+  expectedHash: string;
+  key: string;
+  bodyHash: string;
+}
+
+function agentWriteRequest(body: Record<string, unknown>, apply: boolean, key = ""): AgentWriteRequest {
+  const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+  const expectedHash = typeof body.expectedHash === "string" ? body.expectedHash : "";
+  if (apply) {
+    if (!reason || !expectedHash) throw new ValidationError("Applying historical data requires a reason and the expectedHash from preview.");
+    if (!/^[A-Za-z0-9._:-]{8,100}$/.test(key)) throw new ValidationError("Applying requires an Idempotency-Key of 8–100 safe characters.");
+  }
+  return {
+    apply,
+    reason,
+    expectedHash,
+    key,
+    bodyHash: createHash("sha256").update(canonicalJson(body)).digest("hex"),
+  };
+}
+
+function stateHash(value: unknown): string {
+  return createHash("sha256").update(canonicalJson(value ?? null)).digest("hex");
+}
+
+function assertPreviewState(write: AgentWriteRequest, currentHash: string, current?: unknown, desired?: unknown): void {
+  if (write.apply && write.expectedHash !== currentHash && canonicalJson(current) !== canonicalJson(desired)) {
+    throw new ConflictError("Historical data changed after preview. Preview again before applying.");
+  }
+}
+
+function historicalTimestamp(value: unknown, field: string): string {
+  if (typeof value !== "string" || Number.isNaN(Date.parse(value))) throw new ValidationError(`${field} must be an ISO timestamp.`);
+  return new Date(value).toISOString();
+}
+
+function historicalRecordId(value: string): string {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{2,199}$/.test(value)) throw new ValidationError("Invalid historical record id.");
+  return value;
+}
+
+function agentActor(tokenId: string, reason: string): Actor {
+  return { id: tokenId, via: `agent:${tokenId}`, reason };
+}
+
+function requireAgentOfficer(groups: ReadonlySet<string>): void {
+  if (!groups.has("officer") && !groups.has("owner")) throw new ForbiddenError("The token issuer is no longer allowed to read officer history.");
+}
+
+function replayAgentChange(
+  c: Context<Env>,
+  replay: { bodyHash: string; response: unknown },
+  bodyHash: string,
+  field: string,
+): Response {
+  if (replay.bodyHash !== bodyHash) throw new ConflictError("That Idempotency-Key was already used for different data.");
+  return c.json({ dryRun: false, replayed: true, [field]: replay.response });
 }

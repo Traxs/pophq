@@ -1,6 +1,6 @@
 ---
 name: state2612
-description: Read POP HQ information available to the bot token's issuing user, and safely preview or apply event maintenance, results, and per-player scores. Use for POP HQ questions, historical event setup, result imports, corrections, and scoreboard data; other writes remain forbidden.
+description: Read POP HQ information available to the bot token's issuing user, and safely preview or apply event maintenance, results, historical backfills, and evidence. Use for POP HQ questions, historical event setup, roster-history imports, corrections, and scoreboard data; undocumented writes remain forbidden.
 ---
 
 # POP HQ bot access
@@ -10,7 +10,7 @@ Use `scripts/s26.py` for POP HQ API calls. It uses only Python's standard librar
 - `POPHQ_URL`: the POP HQ base URL, such as `https://example.cloudfront.net`.
 - `POPHQ_BOT_TOKEN`: the one-time `s26_...` credential issued by an officer.
 
-Never print, persist, or place the token in a command argument. Run `doctor` before work. Read [references/read-api.md](references/read-api.md) when retrieving general POP HQ data, [references/events-api.md](references/events-api.md) before creating or editing events, and [references/results-api.md](references/results-api.md) before preparing a result.
+Never print, persist, or place the token in a command argument. Run `doctor` before work. Read [references/read-api.md](references/read-api.md) when retrieving general POP HQ data, [references/events-api.md](references/events-api.md) before creating or editing events, [references/results-api.md](references/results-api.md) before preparing a result, and [references/history-api.md](references/history-api.md) before importing historical records or evidence.
 
 ## Reading POP HQ
 
@@ -43,3 +43,7 @@ The API defaults guarded writes to dry-run even if the CLI is used incorrectly. 
 ## Event workflow
 
 With `events:write`, an officer-issued bot may create events (including historical ones) and edit event/session metadata. Preview every exact change first, then apply only after an officer approves that diff. Creation requires a stable caller-selected event id. Editing cannot remove or rename existing session ids because dependent records use them as foreign keys. Follow [references/events-api.md](references/events-api.md) for payloads, preview hashes and commands.
+
+## Historical backfill workflow
+
+With `history:write`, import exact records one at a time so a package can resume at a precise source row. Live models cover typed measurements, signups, attendance, lineups and tactics. Immutable preserved records cover aliases, account relationships, membership, registrations, selections, assignments, rounded performance and evidence metadata; evidence bytes are hash-verified and privately stored. Preview and review every record before apply. Follow [references/history-api.md](references/history-api.md), retain a local applied/quarantined manifest, and never guess missing website IDs.

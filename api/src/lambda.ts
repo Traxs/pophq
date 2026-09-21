@@ -2,6 +2,7 @@
 // they hold names and URLs only, never secret values (SEC-03).
 import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
 import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
+import { S3Client } from "@aws-sdk/client-s3";
 import { handle } from "hono/aws-lambda";
 import { createBaseClient, createDocClient, dataConfigFromEnv } from "./data/client.js";
 import { Repository } from "./data/repository.js";
@@ -11,6 +12,7 @@ import { createApp } from "./http/app.js";
 import { cognitoLogins } from "./ops/cognitoLogins.js";
 import { createPauseCheck } from "./ops/pause.js";
 import { cognitoBotIssuerGroups } from "./ops/cognitoBotAuthorization.js";
+import { s3EvidenceStore } from "./ops/evidenceStore.js";
 
 const issuer = process.env.OIDC_ISSUER;
 if (!issuer) throw new Error("OIDC_ISSUER is not set");
@@ -32,6 +34,8 @@ const cognito = new CognitoIdentityProviderClient({});
 const historyTable = process.env.HISTORY_TABLE_NAME;
 if (!historyTable) throw new Error("HISTORY_TABLE_NAME is not set");
 const historyDb = createDocClient(createBaseClient({ ...config, tableName: historyTable }));
+const evidenceBucket = process.env.EVIDENCE_BUCKET_NAME;
+if (!evidenceBucket) throw new Error("EVIDENCE_BUCKET_NAME is not set");
 
 const app = createApp({
   repo,
@@ -40,6 +44,7 @@ const app = createApp({
   isPaused,
   logins: cognitoLogins(cognito, userPoolId),
   botIssuerGroups: cognitoBotIssuerGroups(cognito, userPoolId),
+  evidence: s3EvidenceStore(new S3Client({}), evidenceBucket),
 });
 
 export const handler = handle(app);
