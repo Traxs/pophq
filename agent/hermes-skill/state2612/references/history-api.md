@@ -29,6 +29,12 @@ python3 scripts/s26.py put-history /agent/history/reports/PLAYER_ID/IMPORT-SOURC
 
 Import lineups before tactics with assignments. Preserve actual attendance separately from signup, registration, selection, expected no-show and performance.
 
+When a reviewed scoreboard visibly identifies a player with a positive score, preview a
+`present` attendance record for the same event (and session when known). Do this even when the
+displayed score is rounded and therefore belongs only in preserved `performance` data rather
+than exact result points. Never infer `absent` from zero, an omitted row, an incomplete ranking,
+or an unreadable name.
+
 ## Preserved source facts
 
 Facts without a richer current product view are stored immutably rather than squeezed into notes. Put one record at `/agent/history/{stableRecordId}` with:

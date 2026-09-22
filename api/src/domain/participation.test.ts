@@ -175,6 +175,35 @@ describe("participationOf", () => {
     expect(result.events).toHaveLength(1);
   });
 
+  it("accepts a positive confirmed player score as attendance evidence", () => {
+    const result = participationOf({
+      events: [event(1, 1)],
+      answers: [],
+      attendance: [],
+      scoreEvidence: ["E1"],
+      now,
+    });
+
+    expect(result.rate).toBe(1);
+    expect(result).toMatchObject({ attended: 1, unregistered: 0, sample: 1 });
+  });
+
+  it("uses score evidence in either legacy Foundry legion only once", () => {
+    const l1 = { ...event(11, 2), eventId: "F-L1", startsAt: "2026-09-20T12:00:00.000Z" };
+    const l2 = { ...event(12, 2), eventId: "F-L2", startsAt: "2026-09-20T19:00:00.000Z" };
+    const result = participationOf({
+      events: [l1, l2],
+      answers: [],
+      attendance: [],
+      scoreEvidence: ["F-L2"],
+      now,
+    });
+
+    expect(result.rate).toBe(1);
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]).toMatchObject({ eventId: "F-L2", outcome: "attended" });
+  });
+
   it("counts a completely unanswered legacy Foundry only once", () => {
     const l1 = { ...event(11, 2), eventId: "F-L1", startsAt: "2026-09-20T12:00:00.000Z" };
     const l2 = { ...event(12, 2), eventId: "F-L2", startsAt: "2026-09-20T19:00:00.000Z" };

@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { parseNewAccount } from "../../src/domain/accounts.js";
+import { parseNewEvent } from "../../src/domain/events.js";
 import { addDemoEvents, seedDemo } from "../../src/dev/demo.js";
 import { createHarness, type Harness } from "./harness.js";
 
@@ -101,5 +103,75 @@ describe("GET /v1/metrics/alliance", () => {
 
   it("keeps event-type participation officer-only", async () => {
     expect((await h.call("GET", "/metrics/event-participation?kind=foundry", PLAYER)).status).toBe(403);
+  });
+});
+
+describe("attendance evidence", () => {
+  let h: Harness;
+  beforeAll(async () => {
+    h = await createHarness();
+    const actor = { id: "fixture", via: "seed" as const };
+    await h.repo.createAccount(parseNewAccount({ playerId: "710000001", name: "Scored" }), actor);
+    await h.repo.createAccount(parseNewAccount({ playerId: "710000002", name: "Absent" }), actor);
+
+    const day = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const l1At = new Date(day.setUTCHours(12, 0, 0, 0)).toISOString();
+    const l2At = new Date(day.setUTCHours(19, 0, 0, 0)).toISOString();
+    const l1 = parseNewEvent(
+      { kind: "foundry", title: "Legacy L1", startsAt: l1At, sessions: [{ id: "L1", label: "Legion 1", startsAt: l1At }] },
+      { eventId: "EVIDENCE-L1", createdBy: "fixture", now: new Date(day.getTime() - 24 * 60 * 60 * 1000) },
+    );
+    const l2 = parseNewEvent(
+      { kind: "foundry", title: "Legacy L2", startsAt: l2At, sessions: [{ id: "L2", label: "Legion 2", startsAt: l2At }] },
+      { eventId: "EVIDENCE-L2", createdBy: "fixture", now: new Date(day.getTime() - 24 * 60 * 60 * 1000) },
+    );
+    await h.repo.createEvent(l1, actor);
+    await h.repo.createEvent(l2, actor);
+    await h.repo.setAttendance({ eventId: l1.eventId, playerId: "710000001", status: "absent", source: "officer" }, actor);
+    await h.repo.setAttendance({ eventId: l1.eventId, playerId: "710000002", status: "absent", source: "officer" }, actor);
+    await h.repo.putResult({
+      eventId: l2.eventId,
+      sessionId: "L2",
+      version: 1,
+      outcome: "loss",
+      ourScore: 1,
+      opponentScore: 2,
+      playerPoints: [{ playerId: "710000001", points: 50 }],
+      recordedAt: l2At,
+      recordedBy: "fixture",
+    }, actor);
+
+    // A partial scoreboard by itself is useful evidence for the named player, but it does not
+    // make every unlisted roster member absent or add an incomplete event to alliance metrics.
+    const partialAt = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+    const partial = parseNewEvent(
+      { kind: "foundry", title: "Partial result", startsAt: partialAt, sessions: [{ id: "L1", label: "Legion 1", startsAt: partialAt }] },
+      { eventId: "EVIDENCE-PARTIAL", createdBy: "fixture", now: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000) },
+    );
+    await h.repo.createEvent(partial, actor);
+    await h.repo.putResult({
+      eventId: partial.eventId,
+      sessionId: "L1",
+      version: 1,
+      outcome: "win",
+      ourScore: 2,
+      opponentScore: 1,
+      playerPoints: [{ playerId: "710000001", points: 75 }],
+      recordedAt: partialAt,
+      recordedBy: "fixture",
+    }, actor);
+  });
+  afterAll(() => h.cleanup());
+
+  it("groups legacy legions, credits positive scores and ignores incomplete denominators", async () => {
+    const res = await h.call("GET", "/metrics/event-participation?kind=foundry&weeks=12", OFFICER);
+    expect(res.status).toBe(200);
+    const body = res.body as {
+      eventCount: number;
+      members: { playerId: string; rate?: number; attended: number; events: number }[];
+    };
+    expect(body.eventCount).toBe(1);
+    expect(body.members.find((member) => member.playerId === "710000001")).toMatchObject({ rate: 1, attended: 1, events: 1 });
+    expect(body.members.find((member) => member.playerId === "710000002")).toMatchObject({ rate: 0, attended: 0, events: 1 });
   });
 });
