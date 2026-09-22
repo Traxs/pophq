@@ -20,6 +20,13 @@ function fakeLogins(): LoginDirectory & { subs: Map<string, string>; created: st
       created.push(sub);
       return sub;
     },
+    createPasswordLogin: async () => {
+      const username = `member-${created.length + 1}@members.pophq.invalid`;
+      const sub = `sub-${username}`;
+      subs.set(username, sub);
+      created.push(sub);
+      return { sub, username, password: "Temporary-password-123" };
+    },
     deleteLogin: async (sub) => {
       for (const [email, s] of subs) if (s === sub) subs.delete(email);
     },
@@ -62,6 +69,30 @@ describe("invite", () => {
     expect(res).toMatchObject({ accountCreated: true, loginCreated: false, linked: false });
     expect(res.sub).toBeUndefined();
     expect(res.seats.used).toBe(before.used);
+  });
+
+  it("creates an email-free password login and returns its temporary credentials once", async () => {
+    const logins = fakeLogins();
+    const res = await invite(
+      { repo: h.repo, logins, actor },
+      { loginMethod: "password", playerId: "200000009", name: "Private" },
+    );
+    expect(res).toMatchObject({
+      loginCreated: true,
+      linked: true,
+      credentials: {
+        username: "member-1@members.pophq.invalid",
+        password: "Temporary-password-123",
+      },
+    });
+    expect(await h.repo.linkedLogin("200000009")).toBe(res.sub);
+
+    const again = await invite(
+      { repo: h.repo, logins, actor },
+      { loginMethod: "password", playerId: "200000009", name: "Private" },
+    );
+    expect(again).toMatchObject({ loginCreated: false, linked: false });
+    expect(again.credentials).toBeUndefined();
   });
 
   it("gives a login a second game account (alt) without using another seat", async () => {
@@ -189,6 +220,7 @@ describe("POST /v1/invites", () => {
 
     for (const body of [
       { email: "not-an-email", playerId: "400000003", name: "Bad" },
+      { loginMethod: "carrier-pigeon", playerId: "400000003", name: "Bad" },
       { email: "ok@example.com", playerId: "12", name: "Bad" },
       { email: "ok@example.com", playerId: "400000004", name: "" },
     ]) {
@@ -200,6 +232,23 @@ describe("POST /v1/invites", () => {
   it("reports the roster's seat usage to officers", async () => {
     const res = await h.call("GET", "/roster", { as: "officer-1", groups: ["officer"] });
     expect(res.body.seats).toMatchObject({ cap: 100 });
+    expect(res.body.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ playerId: "400000001", hasLogin: true }),
+    ]));
+  });
+
+  it("creates password credentials through the route", async () => {
+    const res = await h.call("POST", "/invites", {
+      as: "officer-1",
+      groups: ["officer"],
+      body: { loginMethod: "password", playerId: "400000012", name: "No Email", rank: "R2" },
+    });
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({
+      loginCreated: true,
+      linked: true,
+      credentials: { username: expect.stringContaining("@members.pophq.invalid"), password: expect.any(String) },
+    });
   });
 });
 

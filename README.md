@@ -100,9 +100,11 @@ npm run admin -w api -- backfill-seats
 
 ## Inviting members
 
-Officers invite from the Members page: email (optional), Player ID, game name and rank. One step creates the Cognito login (sign-in by emailed code, no password), the game account and the link between them; repeating the same invite changes nothing. A linked current POP R4/R5 can immediately open the officer-only Members and planning pages, even when their existing token predates the invite or promotion. Without an email only the game account is created, for members who report through an officer. Logins are capped at 100 seats (FM-08); alts of the same person don't use extra seats.
+Officers invite from the Members page and choose either **Email code** or **Create password**. Email-code access uses the member's email and sends a one-time code whenever they sign in. Password access creates a pseudonymous login name plus a temporary password, shows both to the officer exactly once, and requires the member to sign in within Cognito's seven-day window and choose a private password; no personal email is required, so an officer must verify the member if access later needs to be recovered. The form can find existing unregistered roster members by name or Player ID and fills their known details. An unregistered member's detail page offers the same form already filled in.
 
-Locally the invite flow uses a stand-in directory in DynamoDB Local, so invited emails can't actually sign in there; the test personas cover signed-in flows.
+One step creates the Cognito login, creates the game account when necessary, and links the two; repeating the same invite does not expose credentials or create another login. A linked current POP R4/R5 can immediately open officer-only pages, even when their existing token predates the invite or promotion. Logins are capped at 100 seats (FM-08); alts of the same person do not use extra seats.
+
+Locally the invite flow uses a stand-in directory in DynamoDB Local. It demonstrates and tests issuance, autocomplete and linkage, but newly invited email/password logins cannot authenticate against the mock OIDC picker; the test personas cover signed-in flows.
 
 **Troops** are reported per type. Infantry, Lancer and Marksman each have their own FC level — capped by the furnace, since troops cannot pass it — and **Helios** is an upgrade on top of a type's level, so a member can hold it on all three at once. A report states both the level and whether Helios is there, so turning it off is as recordable as turning it on.
 

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import type { Reports, RosterRow } from "../api";
 import { ErrorBanner } from "../components/Chrome";
+import { InviteMemberForm } from "../components/InviteMember";
+import { Sheet } from "../components/Sheet";
 import { full, initials, relativeDay, shortDate } from "../format";
 import { navigate } from "../router";
 import { useSession } from "../session";
@@ -27,16 +29,19 @@ const OUTCOME_LABELS: Record<string, string> = {
 };
 
 export function MemberPage({ playerId }: { playerId: string }) {
-  const { api, isOfficer, dataVersion } = useSession();
+  const { api, isOfficer, dataVersion, dataChanged } = useSession();
   const [row, setRow] = useState<RosterRow | null | undefined>(undefined);
+  const [roster, setRoster] = useState<RosterRow[]>([]);
   const [reports, setReports] = useState<Reports | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [inviting, setInviting] = useState(false);
 
   useEffect(() => {
     if (!isOfficer) return;
     Promise.all([api.roster(), api.reports(playerId)])
       .then(([roster, reportHistory]) => {
+        setRoster(roster.items);
         setRow(roster.items.find((item) => item.playerId === playerId) ?? null);
         setReports(reportHistory);
         setError(null);
@@ -75,7 +80,21 @@ export function MemberPage({ playerId }: { playerId: string }) {
           <h1 className="page-title">{row.name}</h1>
           <p className="muted">{row.playerId} · {row.rank ?? "No rank"} · {STATUS_LABELS[row.status] ?? row.status}</p>
         </div>
+        {!row.hasLogin && (
+          <button type="button" className="btn btn-primary btn-small member-invite-btn" onClick={() => setInviting(true)}>
+            Invite
+          </button>
+        )}
       </header>
+
+      <Sheet open={inviting} title={`Invite ${row.name}`} onClose={() => setInviting(false)}>
+        <InviteMemberForm
+          candidates={roster}
+          initialAccount={row}
+          onChanged={dataChanged}
+          onClose={() => setInviting(false)}
+        />
+      </Sheet>
 
       <div className="member-metric-grid">
         <section className="card member-metric">

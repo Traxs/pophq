@@ -90,6 +90,8 @@ Not implemented yet: SvS buff scheduling, screenshot extraction, reminders/outbo
 
 - A Cognito/login subject represents a person. A game account represents one in-game Player ID. Never merge these concepts.
 - One login may link to multiple game accounts (alts); one game account may link to at most one login.
+- Officers can issue either emailed-code access or an email-free temporary-password login. The production pool has an immutable email-style username schema, so email-free users receive a generated `@members.pophq.invalid` login name; it is not a real mailbox. Temporary credentials are returned once, never persisted by POP HQ, and must be replaced at first sign-in.
+- Roster responses expose only `hasLogin`, never the Cognito subject or generated login name. This drives invite affordances and excludes already registered accounts from autocomplete.
 - A linked current POP R4/R5 derives `officer` access on every request. This keeps invitations, promotions, demotions, and transfers in sync without waiting for Cognito token refresh; explicit Cognito `officer`/`owner` groups still work.
 - All gameplay records belong to the game account, so alts retain distinct reports, answers, attendance, and history.
 - Numeric Player ID is the external identity when known. Never use fuzzy name matching to invent an ID or merge accounts.

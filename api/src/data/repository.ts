@@ -944,6 +944,12 @@ export class Repository {
     return items.map((i) => String(i.playerId));
   }
 
+  /** The login already claiming this game account, without exposing it through the HTTP API. */
+  async linkedLogin(playerId: string): Promise<string | undefined> {
+    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: accountLinkLockKey(playerId) }));
+    return typeof res.Item?.sub === "string" ? res.Item.sub : undefined;
+  }
+
   /**
    * Adds an immutable report. One transaction:
    *  - the account must exist and accept data (active or guest; FM-12),

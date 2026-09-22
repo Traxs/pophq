@@ -37,6 +37,8 @@ export interface Reports {
 }
 
 export interface RosterRow extends GameAccount {
+  /** Whether this game account is already claimed by a POP HQ sign-in. */
+  hasLogin: boolean;
   /** Six trailing months, oldest first; null for a month with nothing to say. */
   powerTrend: (number | null)[];
   strengthTrend: (number | null)[];
@@ -73,6 +75,7 @@ export interface Roster {
 }
 
 export interface InviteInput {
+  loginMethod: "email" | "password";
   email?: string;
   playerId: string;
   name: string;
@@ -85,6 +88,8 @@ export interface InviteResult {
   sub?: string;
   loginCreated: boolean;
   linked: boolean;
+  /** One-time bootstrap credentials for a password invitation. */
+  credentials?: { username: string; password: string };
   seats: Seats;
 }
 

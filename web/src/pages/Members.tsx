@@ -1,20 +1,18 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ApiError,
   type AllianceAttendanceGrowth,
   type AllianceGrowth,
-  type InviteResult,
   type RosterRow,
   type Seats,
   type StrengthMetric,
 } from "../api";
 import { ErrorBanner } from "../components/Chrome";
+import { InviteMemberForm } from "../components/InviteMember";
 import { LineChart } from "../components/LineChart";
 import { Sheet } from "../components/Sheet";
 import { useToast } from "../components/Toast";
 import { compact, full, initials } from "../format";
-import { summarise } from "../invites";
-import { isValidEmail, isValidGameName, isValidPlayerId } from "../rules";
 import { navigate } from "../router";
 import { useSession } from "../session";
 
@@ -104,11 +102,10 @@ export function Members() {
       <AllianceCharts />
 
       <Sheet open={inviting} title="Invite a member" onClose={() => setInviting(false)}>
-        <InviteForm
-          onDone={() => {
-            setInviting(false);
-            dataChanged();
-          }}
+        <InviteMemberForm
+          candidates={rows ?? []}
+          onChanged={dataChanged}
+          onClose={() => setInviting(false)}
         />
       </Sheet>
 
@@ -279,136 +276,6 @@ function RankPicker({ row }: { row: RosterRow }) {
         </option>
       ))}
     </select>
-  );
-}
-
-/** Officers invite people: creates the login, the game account and the link (P4.1). */
-function InviteForm({ onDone }: { onDone: () => void }) {
-  const { api } = useSession();
-  const toast = useToast();
-  const [email, setEmail] = useState("");
-  const [playerId, setPlayerId] = useState("");
-  const [name, setName] = useState("");
-  const [rank, setRank] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [touched, setTouched] = useState<Record<string, boolean>>({});
-
-  const emailBad = email.trim() !== "" && !isValidEmail(email);
-  const playerIdBad = playerId.trim() !== "" && !isValidPlayerId(playerId);
-  const nameBad = name.trim() !== "" && !isValidGameName(name);
-  const ready = isValidPlayerId(playerId) && isValidGameName(name) && !emailBad;
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!ready) {
-      setTouched({ email: true, playerId: true, name: true });
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      const res: InviteResult = await api.invite({
-        ...(email.trim() ? { email: email.trim() } : {}),
-        playerId: playerId.trim(),
-        name: name.trim(),
-        ...(rank ? { rank } : {}),
-      });
-      toast(summarise(res));
-      onDone();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't invite. Check your connection and try again.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <form className="form" onSubmit={submit} noValidate>
-      <div className="field">
-        <label htmlFor="i-email">Email (optional)</label>
-        <input
-          id="i-email"
-          type="email"
-          inputMode="email"
-          autoComplete="off"
-          autoCapitalize="none"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          onBlur={() => setTouched((t) => ({ ...t, email: true }))}
-          placeholder="name@example.com"
-          aria-invalid={emailBad && touched.email}
-        />
-        <span className="hint">
-          They sign in with a code sent to this address. Leave empty to add a game account without a login.
-        </span>
-        {emailBad && touched.email && (
-          <span className="field-error" role="alert">
-            Enter a valid email address.
-          </span>
-        )}
-      </div>
-
-      <div className="field">
-        <label htmlFor="i-player">Player ID</label>
-        <input
-          id="i-player"
-          inputMode="numeric"
-          autoComplete="off"
-          value={playerId}
-          onChange={(e) => setPlayerId(e.target.value.replace(/[^0-9]/g, ""))}
-          onBlur={() => setTouched((t) => ({ ...t, playerId: true }))}
-          placeholder="410691488"
-          aria-invalid={playerIdBad && touched.playerId}
-        />
-        <span className="hint">From their in-game profile.</span>
-        {playerIdBad && touched.playerId && (
-          <span className="field-error" role="alert">
-            Player IDs are 5 to 15 digits.
-          </span>
-        )}
-      </div>
-
-      <div className="field">
-        <label htmlFor="i-name">Game name</label>
-        <input
-          id="i-name"
-          autoComplete="off"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onBlur={() => setTouched((t) => ({ ...t, name: true }))}
-          placeholder="Frostbite"
-          aria-invalid={nameBad && touched.name}
-        />
-        {nameBad && touched.name && (
-          <span className="field-error" role="alert">
-            Use 2 to 30 characters.
-          </span>
-        )}
-      </div>
-
-      <div className="field">
-        <label htmlFor="i-rank">Rank</label>
-        <select id="i-rank" value={rank} onChange={(e) => setRank(e.target.value)}>
-          <option value="">Not set</option>
-          {["R1", "R2", "R3", "R4", "R5"].map((r) => (
-            <option key={r} value={r}>
-              {r}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {error && (
-        <p className="banner banner-error" role="alert">
-          {error}
-        </p>
-      )}
-
-      <button type="submit" className="btn btn-primary btn-block" disabled={busy || !ready}>
-        {busy ? "Inviting…" : "Invite"}
-      </button>
-    </form>
   );
 }
 

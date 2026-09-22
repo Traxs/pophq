@@ -17,4 +17,13 @@ describe("summarise", () => {
     expect(summarise({ ...base, accountCreated: true })).toBe("Frostbite added without a login");
     expect(summarise(base)).toBe("Frostbite was already set up");
   });
+
+  it("calls out newly created temporary credentials", () => {
+    expect(summarise({
+      ...base,
+      loginCreated: true,
+      linked: true,
+      credentials: { username: "member-1@members.pophq.invalid", password: "Temporary-123!" },
+    })).toBe("Frostbite's temporary login is ready");
+  });
 });
