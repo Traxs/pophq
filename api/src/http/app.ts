@@ -144,6 +144,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const records = attendance.filter((record) => ids.has(record.playerId));
     if (records.some((record) => record.status === "present")) return "present" as const;
     if (records.some((record) => record.status === "absent")) return "absent" as const;
+    if (records.some((record) => record.status === "excused")) return "excused" as const;
     return undefined;
   };
 
@@ -1222,7 +1223,9 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           eventId: event.eventId,
           at: event.startsAt,
           present: statuses.filter((status) => status === "present").length,
-          absent: statuses.filter((status) => status === "absent").length,
+          // A reviewed event with no record for this person means they did not participate.
+          // Explicitly excused people remain outside the denominator.
+          absent: statuses.filter((status) => status !== "present" && status !== "excused").length,
         };
       }),
     );
@@ -1256,14 +1259,12 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const members = people.map((group) => {
       const account = group[0]!;
       const ids = new Set(group.map((item) => item.playerId));
-      const knownSince = group.map((item) => item.createdAt).filter((value): value is string => value !== undefined).toSorted()[0];
       let attended = 0;
       let considered = 0;
       let lastAttendedAt: string | undefined;
       for (const { event, attendance } of tracked) {
         const status = attendanceForPerson(attendance, ids);
-        const eligible = !knownSince || event.startsAt >= knownSince || status !== undefined;
-        if (!eligible || status === undefined) continue;
+        if (status === "excused") continue;
         considered += 1;
         if (status === "present") {
           attended += 1;
@@ -1290,7 +1291,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         eventId: event.eventId,
         at: event.startsAt,
         present: statuses.filter((status) => status === "present").length,
-        absent: statuses.filter((status) => status === "absent").length,
+        absent: statuses.filter((status) => status !== "present" && status !== "excused").length,
       };
     });
     return c.json({
