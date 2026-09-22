@@ -140,7 +140,7 @@ Mistaken power or strength reports can be **ignored** instead of erased. A playe
 
 The **Bear hunt** is not a sign-up event. It runs every other day and needs no organising, so its type is archived; events recorded against it before still read correctly.
 
-A Foundry is **one event with two legions**: members pick Legion 1, Legion 2 or Not signed up, never both, and switching legions replaces the earlier pick. Other events keep the plain Yes / Maybe / No. Members answer per game account, so someone with alts answers once per account, and may change their mind until the deadline. The deadline is checked in the same write as the answer, so a late answer cannot slip through (FM-09). Officers see counts and the lists behind them, including who has not answered, and may answer on someone's behalf.
+A Foundry is **one event with two legions**: members pick Legion 1, Legion 2 or Not signed up, never both, and switching legions replaces the earlier pick. Historical imports that represented same-day L1 and L2 as separate events are collapsed into one participation opportunity, so choosing L2 never creates an unanswered-L1 penalty. Other events keep the plain Yes / Maybe / No. Members answer per game account, so someone with alts answers once per account, and may change their mind until the deadline. The deadline is checked in the same write as the answer, so a late answer cannot slip through (FM-09). Officers see counts and the lists behind them, including who has not answered, and may answer on someone's behalf.
 
 ## SvS buff slots
 

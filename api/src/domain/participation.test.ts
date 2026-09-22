@@ -128,6 +128,63 @@ describe("participationOf", () => {
     expect(result.sample).toBe(0);
   });
 
+  it("treats legacy Foundry L1 and L2 events on the same day as one choice", () => {
+    const l1 = {
+      ...event(11, 2),
+      eventId: "F-L1",
+      title: "Foundry — Legion 1",
+      startsAt: "2026-09-20T12:00:00.000Z",
+    };
+    const l2 = {
+      ...event(12, 2),
+      eventId: "F-L2",
+      title: "Foundry — Legion 2",
+      startsAt: "2026-09-20T19:00:00.000Z",
+    };
+    const result = participationOf({ events: [l1, l2], answers: [yes("F-L2")], attendance: [], now });
+
+    expect(result.events).toEqual([
+      expect.objectContaining({ eventId: "F-L2", title: "Foundry — Legion 2", outcome: "not_counted" }),
+    ]);
+    expect(result.rate).toBeUndefined();
+    expect(result).toMatchObject({ attended: 0, unregistered: 0, sample: 0 });
+  });
+
+  it("credits attendance in the chosen legacy Foundry legion without counting its sibling", () => {
+    const l1 = {
+      ...event(11, 2),
+      eventId: "F-L1",
+      title: "Foundry — Legion 1",
+      startsAt: "2026-09-20T12:00:00.000Z",
+    };
+    const l2 = {
+      ...event(12, 2),
+      eventId: "F-L2",
+      title: "Foundry — Legion 2",
+      startsAt: "2026-09-20T19:00:00.000Z",
+    };
+    const result = participationOf({
+      events: [l1, l2],
+      answers: [yes("F-L2")],
+      attendance: [attended("F-L2", "present")],
+      now,
+    });
+
+    expect(result.rate).toBe(1);
+    expect(result).toMatchObject({ attended: 1, unregistered: 0, sample: 1 });
+    expect(result.events).toHaveLength(1);
+  });
+
+  it("counts a completely unanswered legacy Foundry only once", () => {
+    const l1 = { ...event(11, 2), eventId: "F-L1", startsAt: "2026-09-20T12:00:00.000Z" };
+    const l2 = { ...event(12, 2), eventId: "F-L2", startsAt: "2026-09-20T19:00:00.000Z" };
+    const result = participationOf({ events: [l1, l2], answers: [], attendance: [], now });
+
+    expect(result.rate).toBe(0);
+    expect(result).toMatchObject({ unregistered: 1, sample: 1 });
+    expect(result.events).toHaveLength(1);
+  });
+
   it("ignores events that have not happened yet", () => {
     const upcoming = { ...event(9, -5), eventId: "E9" };
     const result = participationOf({ events: [...events, upcoming], answers: [], attendance: [], now });
