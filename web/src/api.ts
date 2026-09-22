@@ -88,7 +88,7 @@ export interface InviteResult {
   seats: Seats;
 }
 
-export type AgentScope = "all:read" | "results:read" | "results:write" | "events:write" | "history:write";
+export type AgentScope = "all:read" | "results:read" | "results:write" | "events:write" | "history:write" | "rewards:write";
 export interface AgentTokenInfo {
   tokenId: string;
   name: string;
@@ -100,6 +100,146 @@ export interface AgentTokenInfo {
   revokedAt?: string;
 }
 export interface IssuedAgentToken extends AgentTokenInfo { token: string }
+
+export interface KudosAwardView {
+  awardId: string;
+  playerId: string;
+  points: number;
+  reason: string;
+  awardedAt: string;
+  currentPoints: number;
+  remainingShare: number;
+  ageDays: number;
+  daysRemaining: number;
+  expiresAt: string;
+  active: boolean;
+}
+
+export interface KudosSummary {
+  items: KudosAwardView[];
+  /** Sum of every award's current, decayed contribution. */
+  score: number;
+  decayDays: number;
+}
+
+export interface RewardEligibility {
+  playerId: string;
+  position: number;
+  totalMembers: number;
+  eligible: boolean;
+  eligibleThrough: number;
+  score: number;
+  participationRate: number;
+  strength: number;
+  strongestStrength: number;
+  strengthShare: number;
+  kudosScore: number;
+  bestKudosScore: number;
+  kudosShare: number;
+  weights: { participation: number; strength: number; kudos: number };
+  allocation: {
+    source: string;
+    targetValueMin: number;
+    targetValueMax: number;
+    assignedValueMin: number;
+    assignedValueMax: number;
+    assignedUnvaluedUnits: number;
+  } | null;
+}
+
+export type FortressBuff =
+  | "allocatable"
+  | "speedup"
+  | "health"
+  | "hero_shard"
+  | "teleport"
+  | "damage"
+  | "deployment"
+  | "stronghold_material"
+  | "stronghold_component"
+  | "stronghold_hero_shard"
+  | "fire_crystal";
+
+export interface FortressBuffAssignmentView {
+  poolId: string;
+  playerId: string;
+  name: string;
+  amount: number;
+  eligibility?: RewardEligibilitySnapshot;
+  assignedAt: string;
+  assignedBy: string;
+  status: "recommended" | "confirmed";
+  confirmedAt?: string;
+  confirmedBy?: string;
+}
+
+export interface RewardEligibilitySnapshot {
+  position: number;
+  eligibleThrough: number;
+  score: number;
+  participationRate: number;
+  strength: number;
+  strongestStrength: number;
+  strengthShare: number;
+  kudosShare: number;
+  weights: { participation: number; strength: number; kudos: number };
+}
+
+export interface MemberRewardAssignment extends FortressBuffAssignmentView {
+  pool: Omit<FortressBuffPool, "assignments">;
+}
+
+export interface CurrentRewardCycle {
+  source: string;
+  acquiredAt: string;
+  items: MemberRewardAssignment[];
+}
+
+export interface FortressBuffPool {
+  poolId: string;
+  batchId?: string;
+  alliance: string;
+  buff: FortressBuff;
+  quantity: number;
+  remaining: number;
+  source: string;
+  acquiredAt: string;
+  registeredAt?: string;
+  createdBy: string;
+  gemValuation?: {
+    min: number;
+    max: number;
+    confidence: "high" | "medium" | "low";
+    basis: string;
+  };
+  assignments: FortressBuffAssignmentView[];
+}
+
+export interface FortressBuffCandidate {
+  playerId: string;
+  name: string;
+  position: number;
+  eligible: boolean;
+  /** Officers only: the weighted result and its three inputs. */
+  score?: number;
+  participationRate?: number;
+  strength?: number;
+  strongestStrength?: number;
+  strengthShare?: number;
+  kudosShare?: number;
+  /** Known Gem-equivalent value already assigned to this member in the same takeover cycle. */
+  cycleRewardValueMin: number;
+  cycleRewardValueMax: number;
+  cycleUnvaluedUnits: number;
+  cycleTargetValueMin: number;
+  cycleTargetValueMax: number;
+  /** Quantity suggested by the score-weighted, high-value-first cycle plan. */
+  recommendedAmount: number;
+}
+
+export interface FortressBuffDetail extends FortressBuffPool {
+  candidates: FortressBuffCandidate[];
+}
 
 export type EventKind = "foundry" | "svs" | "fdt" | "canyon" | "tundra" | "bear" | "other";
 export type Answer = "yes" | "no" | "maybe";
@@ -487,6 +627,23 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
     issueAgentToken: (input: { name: string; scopes: AgentScope[]; expiresInDays: number }) =>
       request<IssuedAgentToken>("POST", "/agent-tokens", input),
     revokeAgentToken: (tokenId: string) => request<{ revoked: true }>("DELETE", `/agent-tokens/${tokenId}`),
+    fortressBuffs: () => request<{ items: FortressBuffPool[] }>("GET", "/fortress-buffs"),
+    fortressBuff: (poolId: string) => request<FortressBuffDetail>("GET", `/fortress-buffs/${poolId}`),
+    myRewardAssignments: () => request<{ items: MemberRewardAssignment[]; currentCycle: CurrentRewardCycle | null }>("GET", "/reward-assignments/mine"),
+    kudos: (playerId: string) => request<KudosSummary>("GET", `/accounts/${playerId}/kudos`),
+    myRewardEligibility: () => request<RewardEligibility>("GET", "/reward-eligibility/mine"),
+    registerFortressBuff: (input: { buff: FortressBuff; quantity: number; source: string; acquiredAt?: string }) =>
+      request<FortressBuffPool>("POST", "/fortress-buffs", input),
+    registerFortressBuffHaul: (input: {
+      quantities: Record<FortressBuff, number>;
+      source: string;
+      acquiredAt?: string;
+    }) => request<{ items: FortressBuffPool[] }>("POST", "/fortress-buffs/bulk", input),
+    buildFortressRewardPlan: () => request<{ recommendations: number; units: number; skippedUnvaluedPools: number }>("POST", "/fortress-buffs/plan-current"),
+    assignFortressBuff: (poolId: string, playerId: string, amount: number) =>
+      request<FortressBuffAssignmentView>("POST", `/fortress-buffs/${poolId}/assignments`, { playerId, amount }),
+    confirmFortressBuffAssignment: (poolId: string, playerId: string) =>
+      request<FortressBuffAssignmentView>("POST", `/fortress-buffs/${poolId}/assignments/${playerId}/confirm`),
     growth: (weeks = 12, metric: StrengthMetric = "city_power", cohort: "members" | "all" = "members") =>
       request<AllianceGrowth>("GET", `/metrics/alliance?weeks=${weeks}&metric=${metric}&cohort=${cohort}`),
     attendanceGrowth: (weeks = 12) =>

@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { ApiError, type EventListItem, type OfficerJob, type SvsRoundListItem } from "../api";
+import { ApiError, type CurrentRewardCycle, type EventListItem, type KudosSummary, type OfficerJob, type RewardEligibility, type SvsRoundListItem } from "../api";
+import { MemberKudosCard } from "../components/MemberKudos";
+import { MemberRewardCards } from "../components/MemberRewards";
 import { useToast } from "../components/Toast";
 import { change, compact, dayTime, daysBetween, relativeDay, untilText } from "../format";
 import { navigate } from "../router";
@@ -85,6 +87,10 @@ export function Home() {
         )}
       </section>
 
+      <MemberRewards />
+
+      <MemberKudos />
+
       {nextEvent && (
         <button type="button" className="card todo" onClick={() => navigate("/events")}>
           <span className="todo-icon" aria-hidden="true">
@@ -136,6 +142,36 @@ export function Home() {
       {!round && isOfficer && <NewRoundCard />}
     </>
   );
+}
+
+function MemberKudos() {
+  const { account, api, dataVersion } = useSession();
+  const [data, setData] = useState<{ summary: KudosSummary; eligibility: RewardEligibility } | null>(null);
+
+  useEffect(() => {
+    if (!account) {
+      setData(null);
+      return;
+    }
+    Promise.all([api.kudos(account.playerId), api.myRewardEligibility()])
+      .then(([summary, eligibility]) => setData({ summary, eligibility }))
+      .catch(() => setData(null));
+  }, [account, api, dataVersion]);
+
+  if (!data) return null;
+  return <MemberKudosCard summary={data.summary} eligibility={data.eligibility} />;
+}
+
+function MemberRewards() {
+  const { api, dataVersion } = useSession();
+  const [cycle, setCycle] = useState<CurrentRewardCycle | null | undefined>(undefined);
+
+  useEffect(() => {
+    api.myRewardAssignments().then((result) => setCycle(result.currentCycle)).catch(() => setCycle(null));
+  }, [api, dataVersion]);
+
+  if (!cycle || cycle.items.length === 0) return null;
+  return <MemberRewardCards cycle={cycle} onAllRewards={() => navigate("/buffs")} />;
 }
 
 /**

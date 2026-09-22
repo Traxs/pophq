@@ -11,6 +11,7 @@ import { MemberPage } from "./pages/MemberPage";
 import { Power } from "./pages/Power";
 import { Settings } from "./pages/Settings";
 import { Svs } from "./pages/Svs";
+import { BuffDetail, Buffs } from "./pages/Buffs";
 import { SignIn } from "./pages/SignIn";
 import { usePath } from "./router";
 import { SessionProvider, useAuth, useSession } from "./session";
@@ -46,6 +47,8 @@ function Shell() {
 }
 
 function Page({ path }: { path: string }) {
+  const buffId = path.startsWith("/buffs/") ? decodeURIComponent(path.slice("/buffs/".length)) : undefined;
+  if (buffId) return <BuffDetail poolId={buffId} />;
   if (path === "/members/attendance") return <AttendanceAnalytics />;
   if (path === "/members/growth/city_power") return <GrowthAnalytics metric="city_power" />;
   if (path === "/members/growth/foundry_strength") return <GrowthAnalytics metric="foundry_strength" />;
@@ -62,6 +65,8 @@ function Page({ path }: { path: string }) {
       return <Power />;
     case "/members":
       return <Members />;
+    case "/buffs":
+      return <Buffs />;
     case "/settings":
       return <Settings />;
     case "/dev":

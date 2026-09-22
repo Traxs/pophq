@@ -16,8 +16,10 @@ describe("bot result agent", () => {
   beforeAll(async () => {
     h = await createHarness({ botIssuerGroups: async (issuedBy) => issuedBy === "officer" ? issuerGroups : undefined });
     const actor = { id: "fixture", via: "seed" as const };
-    await h.repo.createAccount(parseNewAccount({ playerId: "700000001", name: "Northstar" }), actor);
+    await h.repo.createAccount(parseNewAccount({ playerId: "700000001", name: "Northstar", rank: "R4" }), actor);
     await h.repo.linkAccount("officer", "700000001", actor);
+    await h.repo.createAccount(parseNewAccount({ playerId: "700000002", name: "Lieutenant", rank: "R3" }), actor);
+    await h.repo.linkAccount("r3-issuer", "700000002", actor);
     const startsAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     const event = parseNewEvent(
       { kind: "foundry", title: "Hermes result", startsAt, sessions: [{ id: "L1", label: "Legion 1", startsAt }] },
@@ -27,7 +29,7 @@ describe("bot result agent", () => {
     eventId = event.eventId;
     const issued = await h.call("POST", "/agent-tokens", {
       ...OFFICER,
-      body: { name: "Hermes", scopes: ["all:read", "results:write", "events:write", "history:write"], expiresInDays: 30 },
+      body: { name: "Bot", scopes: ["all:read", "results:write", "events:write", "history:write", "rewards:write"], expiresInDays: 30 },
     });
     token = issued.body.token as string;
   });
@@ -44,7 +46,7 @@ describe("bot result agent", () => {
     const listed = await h.call("GET", "/agent-tokens", OFFICER);
     expect(JSON.stringify(listed.body)).not.toContain(token);
     expect(listed.body.items).toEqual([
-      expect.objectContaining({ name: "Hermes", scopes: ["all:read", "results:write", "events:write", "history:write"] }),
+      expect.objectContaining({ name: "Bot", scopes: ["all:read", "results:write", "events:write", "history:write", "rewards:write"] }),
     ]);
   });
 
@@ -69,7 +71,7 @@ describe("bot result agent", () => {
       event: { eventId },
       session: { id: "L1" },
       lineup: [],
-      players: [{ playerId: "700000001", name: "Northstar" }],
+      players: expect.arrayContaining([{ playerId: "700000001", name: "Northstar" }]),
       result: null,
     });
     expect((await h.call("GET", "/agent/doctor", agent(undefined, { origin: "https://example.test" }))).status).toBe(403);
@@ -196,6 +198,79 @@ describe("bot result agent", () => {
     expect(replay.body).toMatchObject({ replayed: true, result: { version: 1 } });
   });
 
+  it("previews and idempotently registers a complete reward haul", async () => {
+    const body = {
+      batchId: "fortress-2026-09-22-phase-3",
+      source: "Fortress battle phase 3",
+      acquiredAt: "2026-09-22T18:00:00.000Z",
+      quantities: {
+        allocatable: 40,
+        speedup: 400,
+        health: 60,
+        hero_shard: 200,
+        teleport: 90,
+        damage: 60,
+        deployment: 60,
+        stronghold_material: 150,
+        stronghold_component: 100,
+        stronghold_hero_shard: 420,
+        fire_crystal: 600,
+      },
+    };
+    const preview = await h.call("POST", "/agent/rewards", agent(body));
+    expect(preview.status).toBe(200);
+    expect(preview.body).toMatchObject({
+      dryRun: true,
+      expectedHash: expect.any(String),
+      unchanged: false,
+      diff: { before: [], after: expect.arrayContaining([expect.objectContaining({ buff: "speedup", quantity: 400 })]) },
+    });
+    expect(await h.repo.getFortressBuffPool("reward-fortress-2026-09-22-phase-3-speedup")).toBeUndefined();
+
+    const appliedBody = {
+      ...body,
+      expectedHash: preview.body.expectedHash,
+      reason: "Officer approved screenshot extraction",
+    };
+    const applied = await h.call(
+      "POST",
+      "/agent/rewards?apply=true",
+      agent(appliedBody, { "idempotency-key": "test-reward-write" }),
+    );
+    expect(applied.status).toBe(201);
+    expect(applied.body).toMatchObject({ dryRun: false, replayed: false, unchanged: false });
+    expect(applied.body.rewards).toHaveLength(11);
+    expect(applied.body.rewards).toEqual(expect.arrayContaining([expect.objectContaining({ batchId: body.batchId })]));
+    expect(await h.repo.getFortressBuffPool("reward-fortress-2026-09-22-phase-3-speedup"))
+      .toMatchObject({ buff: "speedup", quantity: 400, remaining: 400, createdBy: expect.stringMatching(/^agent:/) });
+
+    const replay = await h.call(
+      "POST",
+      "/agent/rewards?apply=true",
+      agent(appliedBody, { "idempotency-key": "test-reward-write" }),
+    );
+    expect(replay.status).toBe(200);
+    expect(replay.body).toMatchObject({ dryRun: false, replayed: true });
+    expect(replay.body.rewards).toHaveLength(11);
+  });
+
+  it("only issues and honors reward-write tokens for a current POP R4/R5", async () => {
+    const denied = await h.call("POST", "/agent-tokens", {
+      as: "r3-issuer",
+      groups: ["officer"],
+      body: { name: "Rewards bot", scopes: ["all:read", "rewards:write"], expiresInDays: 7 },
+    });
+    expect(denied.status).toBe(403);
+
+    const account = await h.repo.getAccount("700000001");
+    expect(account).toBeDefined();
+    await h.repo.updateAccount({ ...account!, rank: "R3" }, { id: "fixture", via: "seed" });
+    const blocked = await h.call("POST", "/agent/rewards", agent({}));
+    expect(blocked.status).toBe(403);
+    expect(blocked.body.title).toContain("no longer an R4 or R5");
+    await h.repo.updateAccount({ ...account!, rank: "R4" }, { id: "fixture", via: "seed" });
+  });
+
   it("previews a team-only result when playerPoints is omitted", async () => {
     const preview = await h.call(
       "PUT",
@@ -301,6 +376,7 @@ describe("bot result agent", () => {
     const readHeaders = { authorization: `Bearer ${readToken}` };
     expect((await h.call("GET", "/agent/doctor", { headers: readHeaders })).status).toBe(200);
     expect((await h.call("POST", "/agent/events", { headers: readHeaders, body: {} })).status).toBe(403);
+    expect((await h.call("POST", "/agent/rewards", { headers: readHeaders, body: {} })).status).toBe(403);
     expect((await h.call("PUT", "/agent/history/alias-nope", { headers: readHeaders, body: {} })).status).toBe(403);
     expect(
       (

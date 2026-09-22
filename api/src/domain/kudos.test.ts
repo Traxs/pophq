@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ValidationError } from "./errors.js";
-import { KUDOS_HALF_LIFE_DAYS, kudosScore, kudosShare, parseKudos } from "./kudos.js";
+import { KUDOS_DECAY_DAYS, kudosContribution, kudosScore, kudosShare, parseKudos } from "./kudos.js";
 
 const now = new Date("2026-09-21T12:00:00Z");
 const ctx = { awardId: "K1", playerId: "100000001", awardedBy: "officer-1", now };
@@ -31,20 +31,21 @@ describe("kudosScore", () => {
     expect(kudosScore([{ points: 10, awardedAt: now.toISOString() }], now)).toBeCloseTo(10);
   });
 
-  it("halves after the half-life, and again after two", () => {
-    expect(kudosScore([{ points: 10, awardedAt: daysAgo(KUDOS_HALF_LIFE_DAYS) }], now)).toBeCloseTo(5);
-    expect(kudosScore([{ points: 10, awardedAt: daysAgo(KUDOS_HALF_LIFE_DAYS * 2) }], now)).toBeCloseTo(2.5);
+  it("decays linearly and is completely gone after 90 days", () => {
+    expect(kudosScore([{ points: 10, awardedAt: daysAgo(KUDOS_DECAY_DAYS / 2) }], now)).toBeCloseTo(5);
+    expect(kudosScore([{ points: 10, awardedAt: daysAgo(KUDOS_DECAY_DAYS) }], now)).toBe(0);
+    expect(kudosScore([{ points: 10, awardedAt: daysAgo(KUDOS_DECAY_DAYS * 2) }], now)).toBe(0);
   });
 
   it("decays a withdrawal too, so an old correction cannot wipe out recent work", () => {
     const score = kudosScore(
       [
         { points: 10, awardedAt: now.toISOString() },
-        { points: -10, awardedAt: daysAgo(KUDOS_HALF_LIFE_DAYS * 2) },
+        { points: -10, awardedAt: daysAgo(KUDOS_DECAY_DAYS / 2) },
       ],
       now,
     );
-    expect(score).toBeCloseTo(7.5);
+    expect(score).toBeCloseTo(5);
   });
 
   it("never lets a future date count for more than face value", () => {
@@ -54,6 +55,28 @@ describe("kudosScore", () => {
 
   it("is zero without awards", () => {
     expect(kudosScore([], now)).toBe(0);
+  });
+});
+
+describe("kudosContribution", () => {
+  it("explains the exact current value and time left", () => {
+    expect(kudosContribution({ points: 10, awardedAt: daysAgo(45) }, now)).toMatchObject({
+      currentPoints: 5,
+      remainingShare: 0.5,
+      ageDays: 45,
+      daysRemaining: 45,
+      active: true,
+    });
+  });
+
+  it("keeps expired awards as auditable history with no contribution", () => {
+    expect(kudosContribution({ points: -10, awardedAt: daysAgo(90) }, now)).toMatchObject({
+      currentPoints: 0,
+      remainingShare: 0,
+      daysRemaining: 0,
+      active: false,
+      expiresAt: now.toISOString(),
+    });
   });
 });
 
