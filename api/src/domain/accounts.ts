@@ -17,6 +17,8 @@ export interface GameAccount {
   status: AccountStatus;
   /** An officer's note: why someone is a guest, that they are on holiday, and so on. */
   note?: string;
+  /** When POP HQ first knew about this account; events before it are not theirs to answer for. */
+  createdAt?: string;
 }
 
 const AllianceCode = z

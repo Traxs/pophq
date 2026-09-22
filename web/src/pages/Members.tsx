@@ -259,7 +259,11 @@ export function Members() {
                             ) : (
                               <span className="attendance-summary">
                                 <strong>{Math.round(r.attendance.rate * 100)}%</strong>
-                                <span className="muted small">{r.attendance.kept}/{r.attendance.sample} present</span>
+                                <span className="muted small">
+                                  {r.attendance.attended} came
+                                  {r.attendance.noShows > 0 && ` · ${r.attendance.noShows} no-show`}
+                                  {r.attendance.unregistered > 0 && ` · ${r.attendance.unregistered} silent`}
+                                </span>
                               </span>
                             )}
                           </td>
