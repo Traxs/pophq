@@ -44,7 +44,7 @@ export interface RosterRow extends GameAccount {
   power: number | null;
   previousPower: number | null;
   foundryStrength: number | null;
-  attendance: Reliability;
+  attendance: Participation;
   /** The latest Foundry-strength report; separate from the city-power report date below. */
   lastFoundryReportAt: string | null;
   /** The latest city-power report. */
@@ -237,12 +237,28 @@ export interface AnswerCounts {
 
 export type AttendanceStatus = "present" | "absent" | "excused" | "unknown";
 
-export interface Reliability {
+export type Outcome = "attended" | "no_show" | "unregistered" | "excused" | "not_counted";
+
+export interface ParticipationEvent {
+  eventId: string;
+  title: string;
+  startsAt: string;
+  outcome: Outcome;
+}
+
+/**
+ * How much the alliance can count on somebody: attending earns credit, signing up and not
+ * turning up costs double, and never answering costs half. Absent rate means nothing counted,
+ * which is not the same as zero.
+ */
+export interface Participation {
   rate?: number;
-  kept: number;
-  missed: number;
+  attended: number;
+  noShows: number;
+  unregistered: number;
   excused: number;
   sample: number;
+  events: ParticipationEvent[];
 }
 
 export interface EventMember {
@@ -461,7 +477,7 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
         status,
         ...(sessionId ? { sessionId } : {}),
       }),
-    reliability: (playerId: string) => request<Reliability>("GET", `/accounts/${playerId}/reliability`),
+    reliability: (playerId: string) => request<Participation>("GET", `/accounts/${playerId}/reliability`),
     officerJobs: () => request<{ items: OfficerJob[] }>("GET", "/officer-jobs"),
     tickJob: (eventId: string, taskId: string, done: boolean) =>
       request<{ version: number; tasks: ChecklistTask[] }>("PUT", `/events/${eventId}/checklist/${taskId}`, { done }),

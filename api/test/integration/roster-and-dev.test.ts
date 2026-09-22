@@ -30,7 +30,7 @@ describe("roster and dev tools", () => {
       previousPower: number | null;
       foundryStrength: number | null;
       lastFoundryReportAt: string | null;
-      attendance: { rate?: number; kept: number; missed: number; sample: number };
+      attendance: { rate?: number; attended: number; noShows: number; unregistered: number; sample: number };
     }[];
     expect(items).toHaveLength(38);
     const poppy = items.find((i) => i.playerId === "100000001")!;
@@ -38,7 +38,12 @@ describe("roster and dev tools", () => {
     expect(poppy.previousPower).toBeGreaterThan(0);
     expect(poppy.foundryStrength).toBeGreaterThan(0);
     expect(poppy.lastFoundryReportAt).toEqual(expect.any(String));
-    expect(poppy.attendance).toMatchObject({ kept: expect.any(Number), missed: expect.any(Number), sample: expect.any(Number) });
+    expect(poppy.attendance).toMatchObject({
+      attended: expect.any(Number),
+      noShows: expect.any(Number),
+      unregistered: expect.any(Number),
+      sample: expect.any(Number),
+    });
   });
 
   it("keeps the roster officer-only", async () => {

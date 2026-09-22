@@ -130,7 +130,7 @@ describe("importing events, attendance and sign-ups", () => {
     // Reliability now reflects real history.
     await h.repo.createAccount({ playerId: "720000001", name: "Frostbite", alliance: "POP", status: "unknown" }, { id: "t", via: "migration" });
     const reliability = await h.call("GET", "/accounts/720000001/reliability", { as: "officer", groups: ["officer"] });
-    expect(reliability.body).toMatchObject({ kept: 1, missed: 0, rate: 1, sample: 1 });
+    expect(reliability.body).toMatchObject({ attended: 1, noShows: 0, rate: 1, sample: 1 });
 
     // Importing the same bundle again changes nothing.
     const again = await applyEventImport(h.repo, planEventImport(players, events, attendance, []), { id: "import", via: "migration" });

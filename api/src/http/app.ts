@@ -3,7 +3,8 @@ import { createHash } from "node:crypto";
 import { ulid } from "ulid";
 import { parseAccountChanges, parseNewAccount } from "../domain/accounts.js";
 import { ConflictError, DomainError, ForbiddenError, NotFoundError, UnauthorizedError, ValidationError } from "../domain/errors.js";
-import { parseAttendance, reliabilityOf } from "../domain/attendance.js";
+import { parseAttendance } from "../domain/attendance.js";
+import { participationOf } from "../domain/participation.js";
 import {
   EVENT_KINDS,
   configureLegacySession,
@@ -78,6 +79,9 @@ export interface AppDeps {
   /** Private immutable evidence objects (S3 in AWS). */
   evidence?: EvidenceStore;
 }
+
+/** Events far enough back to judge participation over; the domain keeps the most recent ten. */
+const PARTICIPATION_DAYS = 180;
 
 export function createApp({ repo, verifier, now = () => new Date(), extend, isPaused, logins, history, botIssuerGroups = async () => undefined, evidence }: AppDeps) {
   const app = new Hono<Env>().basePath("/v1");
@@ -687,6 +691,8 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const at = now();
     const accounts = await repo.listAccounts(alliance);
     // One query per account is fine at alliance size (~100); a summary item replaces this later.
+    const participationFrom = new Date(at.getTime() - PARTICIPATION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    const pastEvents = await repo.listEvents(alliance, participationFrom, 100);
     const items = await Promise.all(
       accounts.map(async (account) => {
         const reports = await repo.listReports(account.playerId);
@@ -700,6 +706,13 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           .toSorted((a, b) => a.at.localeCompare(b.at));
         const cur = currentValues(reports);
         const attendance = await repo.attendanceFor(account.playerId);
+        const participation = participationOf({
+          events: pastEvents,
+          answers: await repo.answersForAccount(account.playerId, participationFrom),
+          attendance,
+          now: at,
+          ...(account.createdAt ? { knownSince: account.createdAt } : {}),
+        });
         const foundrySeries = seriesOf(reports, "foundry_strength");
         return {
           ...account,
@@ -714,7 +727,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           power: series.at(-1)?.power ?? null,
           previousPower: series.at(-2)?.power ?? null,
           foundryStrength: foundrySeries.at(-1)?.value ?? null,
-          attendance: reliabilityOf(attendance),
+          attendance: participation,
           lastFoundryReportAt: foundrySeries.at(-1)?.at ?? null,
           lastReportAt: series.at(-1)?.at ?? null,
           furnace: cur.furnace_level?.value ?? null,
@@ -936,7 +949,18 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const p = c.get("principal");
     const pid = parsePlayerId(c.req.param("pid"));
     if (!p.linkedAccounts.has(pid)) requireOfficer(p);
-    return c.json(reliabilityOf(await repo.attendanceFor(pid)));
+    const at = now();
+    const from = new Date(at.getTime() - PARTICIPATION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    const account = await repo.getAccount(pid);
+    return c.json(
+      participationOf({
+        events: await repo.listEvents(account?.alliance ?? "POP", from, 100),
+        answers: await repo.answersForAccount(pid, from),
+        attendance: await repo.attendanceFor(pid),
+        now: at,
+        ...(account?.createdAt ? { knownSince: account.createdAt } : {}),
+      }),
+    );
   });
 
   // ---- SvS buff slots (BUF-01..BUF-06) ----
@@ -1122,9 +1146,24 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         needStrength.map(async (pid) => [pid, currentOf(await repo.listReports(pid), "foundry_strength")] as const),
       ),
     );
-    const reliabilityOfPlayer = new Map(
+    const participationFrom = new Date(now().getTime() - PARTICIPATION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    const pastEvents = await repo.listEvents(event.alliance, participationFrom, 100);
+    const knownSince = new Map(accounts.map((a) => [a.playerId, a.createdAt]));
+    const participationOfPlayer = new Map(
       await Promise.all(
-        yesAnswers.map(async (a) => [a.playerId, reliabilityOf(await repo.attendanceFor(a.playerId))] as const),
+        yesAnswers.map(
+          async (a) =>
+            [
+              a.playerId,
+              participationOf({
+                events: pastEvents,
+                answers: await repo.answersForAccount(a.playerId, participationFrom),
+                attendance: await repo.attendanceFor(a.playerId),
+                now: now(),
+                ...(knownSince.get(a.playerId) ? { knownSince: knownSince.get(a.playerId)! } : {}),
+              }),
+            ] as const,
+        ),
       ),
     );
     const byName = new Map(accounts.map((a) => [a.playerId, a.name]));
@@ -1134,7 +1173,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         .map((a) => ({
           playerId: a.playerId,
           strength: strengthOf.get(a.playerId),
-          attendanceRate: reliabilityOfPlayer.get(a.playerId)?.rate,
+          attendanceRate: participationOfPlayer.get(a.playerId)?.rate,
           answeredAt: a.answeredAt,
         }));
       const standing = acting ? standingFor(session.id, entries, acting, session.starters) : undefined;

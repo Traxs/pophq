@@ -1223,6 +1223,8 @@ function toAccount(item: Record<string, unknown>): GameAccount {
   };
   if (item.rank) account.rank = item.rank as NonNullable<GameAccount["rank"]>;
   if (item.note) account.note = String(item.note);
+  // The audit stamp doubles as "since when this account was ours to account for".
+  if (item.createdAt) account.createdAt = String(item.createdAt);
   return account;
 }
 

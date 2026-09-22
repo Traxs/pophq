@@ -14,10 +14,17 @@ if (!config.endpoint) {
   process.exit(1);
 }
 
-const repo = new Repository(createDocClient(createBaseClient(config)), config.tableName);
+const db = createDocClient(createBaseClient(config));
+const repo = new Repository(db, config.tableName);
 if (await repo.getAccount("100000001")) {
   console.info("Demo data already present; run `npm run dev:reset` to start over.");
   process.exit(0);
 }
-const result = await seedDemo(repo, new Date());
+// Seed as though the alliance has been here a while. Participation does not blame an account for
+// events that predate it, so accounts stamped "created just now" would show no history at all —
+// nothing like the deployed app, where members have been on the roster for months.
+const ESTABLISHED_DAYS = 120;
+const established = new Date(Date.now() - ESTABLISHED_DAYS * 24 * 60 * 60 * 1000);
+const seedRepo = new Repository(db, config.tableName, () => established);
+const result = await seedDemo(seedRepo, new Date());
 console.info(`Seeded ${result.accounts} accounts (${result.members} POP members) into ${config.tableName}.`);
