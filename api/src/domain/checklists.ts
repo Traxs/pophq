@@ -169,6 +169,11 @@ export const STARTER_CHECKLISTS: Partial<Record<string, ChecklistTask[]>> = {
     { id: "buffs", label: "Check the buff slots are published", anchor: "start", offsetHours: -24 },
     { id: "attend", label: "Record who turned up", anchor: "start", offsetHours: 7 },
   ],
+  koi: [
+    { id: "call", label: "Post the sign-up call in Discord", anchor: "answers_open", offsetHours: 0 },
+    { id: "chase", label: "Chase anyone who hasn't answered", anchor: "answers_close", offsetHours: -24 },
+    { id: "attend", label: "Record who turned up", anchor: "start", offsetHours: 7 },
+  ],
   fdt: [
     { id: "call", label: "Post the sign-up call in Discord", anchor: "answers_open", offsetHours: 0 },
     { id: "chase", label: "Chase anyone who hasn't answered", anchor: "answers_close", offsetHours: -12 },

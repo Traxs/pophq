@@ -36,6 +36,15 @@ describe("events", () => {
     expect((await h.call("POST", "/events", { ...OFFICER, body: { title: "Hi", startsAt: inDays(2) } })).status).toBe(400);
   });
 
+  it("keeps SVS and KOI signups open until three hours before start", async () => {
+    for (const [kind, title] of [["svs", "State versus state"], ["koi", "King of Icefield"]] as const) {
+      const startsAt = inDays(10, 12);
+      const result = await h.call("POST", "/events", { ...OFFICER, body: { kind, title, startsAt } });
+      expect(result.status).toBe(201);
+      expect(Date.parse(result.body.startsAt as string) - Date.parse(result.body.deadlineAt as string)).toBe(3 * 3_600_000);
+    }
+  });
+
   it("shows upcoming events to everyone with their own answer", async () => {
     const list = await h.call("GET", "/events", PLAYER);
     expect(list.status).toBe(200);

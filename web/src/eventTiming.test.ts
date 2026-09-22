@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { halfSpan, halvesFor, leadDaysOf, nextUtcNoon, toLocalInput } from "./eventTiming";
+import { halfSpan, halvesFor, leadDaysOf, nextUtcNoon, previewDeadlineHours, toLocalInput } from "./eventTiming";
 
 describe("leadDaysOf", () => {
   it("recognises a Foundry closing three days before", () => {
@@ -10,6 +10,12 @@ describe("leadDaysOf", () => {
   });
   it("rounds a partial day to the nearest whole day", () => {
     expect(leadDaysOf({ startsAt: "2026-09-20T12:00:00Z", deadlineAt: "2026-09-19T23:59:59.999Z" })).toBe(1);
+  });
+});
+
+describe("previewDeadlineHours", () => {
+  it("keeps SVS and KOI answers open until three hours before start", () => {
+    expect(previewDeadlineHours(new Date("2026-09-20T12:00:00Z"), 3).toISOString()).toBe("2026-09-20T09:00:00.000Z");
   });
 });
 

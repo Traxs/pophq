@@ -10,7 +10,7 @@ Returns only event IDs, kinds, titles, start times, and session IDs/labels/start
 
 Optional query parameters:
 
-- `kind`: `foundry`, `bear`, `svs`, or `other`.
+- `kind`: `foundry`, `svs`, `koi`, `fdt`, `canyon`, `tundra`, `bear`, or `other`. `koi` is the monthly state-internal King of Icefield event; it remains distinct from cross-state SvS.
 - `from`: an ISO date or timestamp for older or narrower discovery.
 
 ## Read context

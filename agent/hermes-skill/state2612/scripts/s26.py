@@ -62,7 +62,10 @@ def main() -> None:
     get.add_argument("path", help="Path below /v1, for example /events or /roster")
     get.add_argument("--account-id", help="Act as one of the issuer's linked Player IDs")
     events = sub.add_parser("list-events")
-    events.add_argument("--kind", choices=["foundry", "bear", "svs", "other"])
+    events.add_argument(
+        "--kind",
+        choices=["foundry", "svs", "koi", "fdt", "canyon", "tundra", "bear", "other"],
+    )
     events.add_argument("--from", dest="from_value", help="ISO date or timestamp; defaults to seven days ago")
     context = sub.add_parser("result-context")
     context.add_argument("event_id")

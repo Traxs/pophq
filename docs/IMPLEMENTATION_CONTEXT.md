@@ -65,7 +65,7 @@ At commit `8f99dd9`, the repository has 39 completed and 59 open plan checkboxes
 - login-to-game-account links, account switching, officer invites, and a conditional 100-seat cap;
 - typed measurement reports, superseding corrections, and audited soft deletion/restoration by the submitting player or an R4/R5;
 - member power history, officer roster, alliance growth, and six-month mini line graphs; attendance uses a three-month trailing average rather than independent monthly bars;
-- event types, event creation/editing, and deadlines computed as the end of the day N days before the start (`foundry: 3`, `svs: 3`, `bear: 0`, `other: 0`);
+- event types and event creation/editing; day-based deadlines use the end of the officer's local day, while SvS and KOI close exactly three hours before start by default; a new non-Foundry event explicitly chooses simple RSVP or Full/First/Last-half availability; KOI is the monthly state-internal King of Icefield event and remains a distinct analytics category;
 - one Foundry event with one session per legion; a member may answer yes for at most one session, and changing legion replaces the earlier choice;
 - capacity display, estimated starter/sub role, officer attendance, and reliability; every member sees sign-up position, name, Foundry strength, and likely role, while the reliability/attendance column is officer-only;
 - officer-published, version-checked lineups per session, with starter/substitute capacity enforced and each member's own selection highlighted;
