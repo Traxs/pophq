@@ -113,6 +113,7 @@ Not implemented yet: SvS buff scheduling, screenshot extraction, reminders/outbo
 ### Events and attendance
 
 - An occurrence may have sessions such as Foundry L1/L2. An account chooses at most one session; changing it replaces the prior choice.
+- Historical imports may contain same-day Foundry L1 and L2 as separate legacy events. Participation collapses those records into one occurrence: choosing either legion suppresses the unanswered sibling, and only the chosen/present legion supplies the outcome. New Foundries must remain one event with L1/L2 sessions.
 - Member answers lock atomically at the deadline. Officers may edit until the event starts. Import code alone may call `setAnswer(..., { historic: true })` to record historical sign-ups without either time condition; the live API does not expose this escape hatch.
 - Answer/commitment, in-game registration, starter/sub selection, planned assignment, actual attendance, performance, and result are distinct facts.
 - Attendance is `present`, `absent`, `excused`, or `unknown`. Future expected no-shows and missing screenshots are not observed absences.

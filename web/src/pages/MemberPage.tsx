@@ -125,7 +125,7 @@ export function MemberPage({ playerId }: { playerId: string }) {
           <span className="section-label">Participation</span>
           <strong>{participation.rate === undefined ? "–" : `${Math.round(participation.rate * 100)}%`}</strong>
           <span className="muted small">
-            {participation.sample === 0 ? "No tracked events" : `${participation.attended} of ${participation.sample} commitments kept`}
+            {participation.sample === 0 ? "No tracked attendance" : `${participation.attended} of ${participation.sample} counted events attended`}
           </span>
         </section>
       </div>

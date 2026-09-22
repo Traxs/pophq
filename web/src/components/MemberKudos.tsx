@@ -71,9 +71,11 @@ export function MemberKudosCard({ summary, eligibility }: { summary: KudosSummar
     <div className="eligibility-calculation" aria-label={`Overall eligibility score ${totalPoints} out of 100 points`}>
       <div className="eligibility-total"><strong>Overall score</strong><b>{totalPoints} <small>/ 100 pts</small></b></div>
       <details className="eligibility-part">
-        <summary className="eligibility-part-summary"><span><b>Participation</b><small>Input {percent(eligibility.participationRate)} · worth up to {eligibility.weights.participation * 100} pts</small></span><strong>{participationPoints} pts</strong><i aria-hidden="true">›</i></summary>
+        <summary className="eligibility-part-summary"><span><b>Participation</b><small>{eligibility.participationSample === 0 ? "Neutral · no recorded attendance" : `Input ${percent(eligibility.participationRate)}`} · worth up to {eligibility.weights.participation * 100} pts</small></span><strong>{participationPoints} pts</strong><i aria-hidden="true">›</i></summary>
         <div className="eligibility-part-details">
-          <p><b>{percent(eligibility.participationRate)}</b> participation × <b>{eligibility.weights.participation * 100}</b> available points = <strong>{participationPoints} points</strong>.</p>
+          {eligibility.participationSample === 0
+            ? <p>No attendance outcome has been recorded yet. Missing data uses a neutral <b>{percent(eligibility.participationRate)}</b> input, worth <strong>{participationPoints} points</strong>, so it cannot unfairly lower your place.</p>
+            : <p><b>{percent(eligibility.participationRate)}</b> participation × <b>{eligibility.weights.participation * 100}</b> available points = <strong>{participationPoints} points</strong>.</p>}
           <p className="muted small">This uses recent alliance events. Attendance earns full credit, a signed-up no-show counts twice against the rate, and not registering counts half. Excused or unchecked events do not count.</p>
         </div>
       </details>

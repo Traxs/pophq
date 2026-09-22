@@ -62,4 +62,16 @@ describe("MemberKudosCard", () => {
     expect(html).toContain("Expired history (1)");
     expect(html).toContain("Old contribution");
   });
+
+  it("explains when missing attendance receives a neutral input", () => {
+    const html = renderToStaticMarkup(<MemberKudosCard eligibility={{
+      playerId: "P1", position: 7, totalMembers: 86, eligible: true, eligibleThrough: 40,
+      score: .7, participationRate: 1, participationSample: 0, strength: 100, strongestStrength: 200,
+      strengthShare: .5, kudosScore: 0, bestKudosScore: 0, kudosShare: 0,
+      weights: { participation: .6, strength: .2, kudos: .2 }, allocation: null,
+    }} summary={{ score: 0, decayDays: 90, items: [] }} />);
+
+    expect(html).toContain("Neutral · no recorded attendance");
+    expect(html).toContain("so it cannot unfairly lower your place");
+  });
 });

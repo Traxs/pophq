@@ -150,7 +150,13 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         const kudos = kudosScore(await repo.listKudos(account.playerId), at);
         // Match the established scoring rule: unknown attendance is neutral (fully reliable),
         // never a silent penalty for a member whose history has not been recorded yet.
-        return { account, strength, participationRate: participation.rate ?? 1, kudos };
+        return {
+          account,
+          strength,
+          participationRate: participation.rate ?? 1,
+          participationSample: participation.sample,
+          kudos,
+        };
       }),
     );
     const strongest = Math.max(0, ...details.map((detail) => detail.strength));
@@ -1328,7 +1334,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     return c.json(saved);
   });
 
-  /** A member's reliability: how often they kept a commitment. Own account, or any for officers. */
+  /** A member's event participation, including attendance, no-shows and silence. */
   app.get("/accounts/:pid/reliability", async (c) => {
     const p = c.get("principal");
     const pid = parsePlayerId(c.req.param("pid"));
@@ -1554,6 +1560,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       eligibleThrough,
       score: candidate.score,
       participationRate: candidate.participationRate,
+      participationSample: candidate.participationSample,
       strength: candidate.strength,
       strongestStrength: strongest,
       strengthShare: strongest > 0 ? candidate.strength / strongest : 0,

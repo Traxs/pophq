@@ -158,6 +158,8 @@ export interface RewardEligibility {
   eligibleThrough: number;
   score: number;
   participationRate: number;
+  /** Zero means missing attendance was scored neutrally rather than treated as failure. */
+  participationSample?: number;
   strength: number;
   strongestStrength: number;
   strengthShare: number;
