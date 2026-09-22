@@ -129,6 +129,7 @@ export function SessionProvider({
       me: guard(inner.me),
       reports: guard(inner.reports),
       addReport: guard(inner.addReport),
+      setReportIgnored: guard(inner.setReportIgnored),
       roster: guard(inner.roster),
       invite: guard(inner.invite),
       accessAudit: guard(inner.accessAudit),

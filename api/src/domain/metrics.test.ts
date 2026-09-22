@@ -87,4 +87,9 @@ describe("seriesOf", () => {
   it("ignores reports without that metric", () => {
     expect(seriesOf([report("a", day(1), 10)], "foundry_strength")).toEqual([]);
   });
+
+  it("drops ignored reports", () => {
+    const ignored = { ...report("b", day(2), 20), ignoredAt: day(3) };
+    expect(seriesOf([report("a", day(1), 10), ignored], "city_power")).toEqual([{ at: day(1), value: 10 }]);
+  });
 });

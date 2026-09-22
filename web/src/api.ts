@@ -29,6 +29,10 @@ export interface Report {
   source: string;
   values: MeasurementValue[];
   supersedesReportId?: string;
+  ignoredAt?: string;
+  ignoredBy?: string;
+  ignoredByName?: string;
+  ignoreReason?: string;
 }
 
 export interface Reports {
@@ -643,6 +647,8 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
     reports: (playerId: string) => request<Reports>("GET", `/accounts/${playerId}/reports`),
     addReport: (playerId: string, values: { metric: string; value: string | number }[]) =>
       request<Report>("POST", `/accounts/${playerId}/reports`, { values }),
+    setReportIgnored: (playerId: string, reportId: string, ignored: boolean, reason: string) =>
+      request<Report>("PUT", `/accounts/${playerId}/reports/${encodeURIComponent(reportId)}/ignored`, { ignored, reason }),
     roster: () => request<Roster>("GET", "/roster"),
     invite: (input: InviteInput) => request<InviteResult>("POST", "/invites", input),
     accessAudit: (playerId: string) => request<{ items: AccessAuditRecord[] }>("GET", `/accounts/${playerId}/access-audit`),
