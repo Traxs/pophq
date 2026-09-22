@@ -50,6 +50,8 @@ Rules:
 - Matchmaking power, opponent count, notes, and player points are optional facts. Omit unknown values.
 - Omitting `playerPoints` records an aggregate/team-only result; it is normalized to an empty list.
 - Each Player ID appears at most once and must already exist in POP HQ.
+- A positive player-points row is treated as participation evidence throughout POP HQ. Zero
+  points and omitted players remain unknown; neither is converted into absence.
 - Results can only be recorded after that session starts.
 - Use the current version returned by context. A stale version is rejected.
 - Apply additionally requires `reason`, query `apply=true`, and an `Idempotency-Key` header of 8–100 safe characters.

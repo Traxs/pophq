@@ -4,7 +4,7 @@ import { ulid } from "ulid";
 import { parseAccountChanges, parseNewAccount, type GameAccount } from "../domain/accounts.js";
 import { ConflictError, DomainError, ForbiddenError, NotFoundError, UnauthorizedError, ValidationError } from "../domain/errors.js";
 import { parseAttendance } from "../domain/attendance.js";
-import { participationOf } from "../domain/participation.js";
+import { eventOccurrenceKey, participationOf } from "../domain/participation.js";
 import {
   EVENT_KINDS,
   configureLegacySession,
@@ -17,6 +17,7 @@ import {
   parseNewEvent,
   rankSignUps,
   standingFor,
+  type AllianceEvent,
   type EventKind,
 } from "../domain/events.js";
 import { parseEventType, STARTER_TYPES } from "../domain/eventTypes.js";
@@ -140,18 +141,54 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     ].filter((group) => group.length > 0);
   };
 
-  const attendanceForPerson = (attendance: Awaited<ReturnType<Repository["listAttendance"]>>, ids: ReadonlySet<string>) => {
+  const attendanceForPerson = (
+    attendance: Awaited<ReturnType<Repository["listAttendance"]>>,
+    ids: ReadonlySet<string>,
+    scored = new Set<string>(),
+  ) => {
     const records = attendance.filter((record) => ids.has(record.playerId));
-    if (records.some((record) => record.status === "present")) return "present" as const;
+    if ([...ids].some((id) => scored.has(id)) || records.some((record) => record.status === "present")) return "present" as const;
     if (records.some((record) => record.status === "absent")) return "absent" as const;
     if (records.some((record) => record.status === "excused")) return "excused" as const;
     return undefined;
+  };
+
+  /** Positive points prove presence. Zero and a missing scoreboard row prove nothing. */
+  const resultEvidence = async (events: readonly AllianceEvent[]) => {
+    const byEvent = new Map<string, Set<string>>();
+    const byPlayer = new Map<string, Set<string>>();
+    await Promise.all(events.map(async (event) => {
+      const players = new Set(
+        (await repo.listResults(event.eventId)).flatMap((result) =>
+          result.playerPoints.filter((row) => row.points > 0).map((row) => row.playerId),
+        ),
+      );
+      byEvent.set(event.eventId, players);
+      for (const playerId of players) {
+        const eventIds = byPlayer.get(playerId) ?? new Set<string>();
+        eventIds.add(event.eventId);
+        byPlayer.set(playerId, eventIds);
+      }
+    }));
+    return { byEvent, byPlayer };
+  };
+
+  const groupAttendanceOccurrences = <T extends { event: AllianceEvent }>(items: readonly T[]) => {
+    const grouped = new Map<string, T[]>();
+    for (const item of items) {
+      const key = eventOccurrenceKey(item.event);
+      const group = grouped.get(key) ?? [];
+      group.push(item);
+      grouped.set(key, group);
+    }
+    return [...grouped.values()];
   };
 
   const fortressRewardRanking = async (alliance: string) => {
     const at = now();
     const from = new Date(at.getTime() - PARTICIPATION_DAYS * 24 * 60 * 60 * 1000).toISOString();
     const events = await repo.listEvents(alliance, from, 100);
+    const scores = await resultEvidence(events);
     const accounts = (await repo.listAccounts(alliance)).filter(
       (account) => account.status === "active" || account.status === "unknown",
     );
@@ -163,6 +200,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           events,
           answers: await repo.answersForAccount(account.playerId, from),
           attendance: await repo.attendanceFor(account.playerId),
+          scoreEvidence: [...(scores.byPlayer.get(account.playerId) ?? [])],
           now: at,
           ...(account.createdAt ? { knownSince: account.createdAt } : {}),
         });
@@ -1050,6 +1088,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     // One query per account is fine at alliance size (~100); a summary item replaces this later.
     const participationFrom = new Date(at.getTime() - PARTICIPATION_DAYS * 24 * 60 * 60 * 1000).toISOString();
     const pastEvents = await repo.listEvents(alliance, participationFrom, 100);
+    const scores = await resultEvidence(pastEvents);
     const items = await Promise.all(
       accounts.map(async (account) => {
         const [reports, linkedAccess, aliases] = await Promise.all([
@@ -1069,6 +1108,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           events: pastEvents,
           answers: await repo.answersForAccount(account.playerId, participationFrom),
           attendance,
+          scoreEvidence: [...(scores.byPlayer.get(account.playerId) ?? [])],
           now: at,
           ...(account.createdAt ? { knownSince: account.createdAt } : {}),
         });
@@ -1215,20 +1255,29 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       (account) => account.status === "active" || account.status === "unknown",
     );
     const people = await attendancePeople(accounts);
-    const samples = await Promise.all(
-      events.map(async (event) => {
-        const attendance = await repo.listAttendance(event.eventId);
-        const statuses = people.map((group) => attendanceForPerson(attendance, new Set(group.map((account) => account.playerId))));
-        return {
-          eventId: event.eventId,
-          at: event.startsAt,
-          present: statuses.filter((status) => status === "present").length,
-          // A reviewed event with no record for this person means they did not participate.
-          // Explicitly excused people remain outside the denominator.
-          absent: statuses.filter((status) => status !== "present" && status !== "excused").length,
-        };
-      }),
+    const scores = await resultEvidence(events);
+    const eventData = await Promise.all(events.map(async (event) => ({
+      event,
+      attendance: await repo.listAttendance(event.eventId),
+      scored: scores.byEvent.get(event.eventId) ?? new Set<string>(),
+    })));
+    const reviewed = groupAttendanceOccurrences(eventData).filter((occurrence) =>
+      occurrence.some(({ attendance }) => attendance.some((record) => record.status === "present" || record.status === "absent")),
     );
+    const samples = reviewed.map((occurrence) => {
+      const attendance = occurrence.flatMap((item) => item.attendance);
+      const scored = new Set(occurrence.flatMap((item) => [...item.scored]));
+      const statuses = people.map((group) => attendanceForPerson(attendance, new Set(group.map((account) => account.playerId)), scored));
+      const latest = occurrence.map((item) => item.event).toSorted((a, b) => b.startsAt.localeCompare(a.startsAt))[0]!;
+      return {
+        eventId: latest.eventId,
+        at: latest.startsAt,
+        present: statuses.filter((status) => status === "present").length,
+        // A reviewed occurrence with no record for this person means they did not participate.
+        // Explicitly excused people remain outside the denominator.
+        absent: statuses.filter((status) => status !== "present" && status !== "excused").length,
+      };
+    });
     return c.json({ alliance, weeks, points: allianceAttendance(samples, buckets(now(), weeks)) });
   });
 
@@ -1242,15 +1291,15 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const events = (await repo.listEvents(alliance, "1970-01-01T00:00:00.000Z", 500))
       .filter((event) => event.kind === kind && Date.parse(event.startsAt) <= now().getTime())
       .toSorted((a, b) => a.startsAt.localeCompare(b.startsAt));
-    const eventData = await Promise.all(
-      events.map(async (event) => {
-        const attendance = await repo.listAttendance(event.eventId);
-        return { event, attendance };
-      }),
-    );
+    const scores = await resultEvidence(events);
+    const eventData = await Promise.all(events.map(async (event) => ({
+      event,
+      attendance: await repo.listAttendance(event.eventId),
+      scored: scores.byEvent.get(event.eventId) ?? new Set<string>(),
+    })));
     // A partially or wholly unreviewed event cannot say anything about somebody's habits.
-    const tracked = eventData.filter(({ attendance }) =>
-      attendance.some((record) => record.status === "present" || record.status === "absent"),
+    const tracked = groupAttendanceOccurrences(eventData).filter((occurrence) =>
+      occurrence.some(({ attendance }) => attendance.some((record) => record.status === "present" || record.status === "absent")),
     );
     const accounts = (await repo.listAccounts(alliance)).filter(
       (account) => account.status === "active" || account.status === "unknown",
@@ -1262,8 +1311,11 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       let attended = 0;
       let considered = 0;
       let lastAttendedAt: string | undefined;
-      for (const { event, attendance } of tracked) {
-        const status = attendanceForPerson(attendance, ids);
+      for (const occurrence of tracked) {
+        const attendance = occurrence.flatMap((item) => item.attendance);
+        const scored = new Set(occurrence.flatMap((item) => [...item.scored]));
+        const event = occurrence.map((item) => item.event).toSorted((a, b) => b.startsAt.localeCompare(a.startsAt))[0]!;
+        const status = attendanceForPerson(attendance, ids, scored);
         if (status === "excused") continue;
         considered += 1;
         if (status === "present") {
@@ -1285,8 +1337,11 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         ...(lastAttendedAt ? { lastAttendedAt } : {}),
       };
     });
-    const samples = tracked.map(({ event, attendance }) => {
-      const statuses = people.map((group) => attendanceForPerson(attendance, new Set(group.map((account) => account.playerId))));
+    const samples = tracked.map((occurrence) => {
+      const attendance = occurrence.flatMap((item) => item.attendance);
+      const scored = new Set(occurrence.flatMap((item) => [...item.scored]));
+      const event = occurrence.map((item) => item.event).toSorted((a, b) => b.startsAt.localeCompare(a.startsAt))[0]!;
+      const statuses = people.map((group) => attendanceForPerson(attendance, new Set(group.map((account) => account.playerId)), scored));
       return {
         eventId: event.eventId,
         at: event.startsAt,
@@ -1444,11 +1499,14 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const at = now();
     const from = new Date(at.getTime() - PARTICIPATION_DAYS * 24 * 60 * 60 * 1000).toISOString();
     const account = await repo.getAccount(pid);
+    const events = await repo.listEvents(account?.alliance ?? "POP", from, 100);
+    const scores = await resultEvidence(events);
     return c.json(
       participationOf({
-        events: await repo.listEvents(account?.alliance ?? "POP", from, 100),
+        events,
         answers: await repo.answersForAccount(pid, from),
         attendance: await repo.attendanceFor(pid),
+        scoreEvidence: [...(scores.byPlayer.get(pid) ?? [])],
         now: at,
         ...(account?.createdAt ? { knownSince: account.createdAt } : {}),
       }),
@@ -1921,6 +1979,9 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const lineups = new Map((await repo.listLineups(event.eventId)).map((l) => [l.sessionId, l]));
     const strategies = new Map((await repo.listStrategies(event.eventId)).map((strategy) => [strategy.sessionId, strategy]));
     const results = new Map((await repo.listResults(event.eventId)).map((result) => [result.sessionId, result]));
+    const scoredPlayers = new Set(
+      [...results.values()].flatMap((result) => result.playerPoints.filter((row) => row.points > 0).map((row) => row.playerId)),
+    );
     // People in a published lineup need their strength shown too, even if an officer put someone
     // there who never answered.
     const needStrength = [
@@ -1933,6 +1994,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     );
     const participationFrom = new Date(now().getTime() - PARTICIPATION_DAYS * 24 * 60 * 60 * 1000).toISOString();
     const pastEvents = await repo.listEvents(event.alliance, participationFrom, 100);
+    const pastScores = await resultEvidence(pastEvents);
     const knownSince = new Map(accounts.map((a) => [a.playerId, a.createdAt]));
     const participationOfPlayer = new Map(
       await Promise.all(
@@ -1944,6 +2006,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
                 events: pastEvents,
                 answers: await repo.answersForAccount(a.playerId, participationFrom),
                 attendance: await repo.attendanceFor(a.playerId),
+                scoreEvidence: [...(pastScores.byPlayer.get(a.playerId) ?? [])],
                 now: now(),
                 ...(knownSince.get(a.playerId) ? { knownSince: knownSince.get(a.playerId)! } : {}),
               }),
@@ -2096,7 +2159,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           answer: byPlayer.get(account.playerId)?.answer ?? null,
           sessionId: byPlayer.get(account.playerId)?.sessionId ?? null,
           answeredAt: byPlayer.get(account.playerId)?.answeredAt ?? null,
-          attended: attendance.get(account.playerId)?.status ?? null,
+          attended: scoredPlayers.has(account.playerId) ? "present" : (attendance.get(account.playerId)?.status ?? null),
           lineup: placeOf.get(account.playerId) ?? null,
           strengthTrend: monthlyValues(seriesOf(own, "foundry_strength"), now()),
           attendanceTrend: trailingAverage(monthlyAttendance(history.get(account.playerId) ?? [], now())),

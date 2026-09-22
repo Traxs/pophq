@@ -21,6 +21,9 @@ The token may call normal `GET /v1/...` routes with exactly the issuer's current
 1. Run `list-events --kind foundry` to discover event and session IDs. Match the requested date, time and session label exactly; ask the officer if more than one item could match.
 2. Fetch `result-context` for that exact event and session. `lineup` is the officer-confirmed participant list when one was published; `players` is the permitted exact Player ID/name registry for legacy events without a lineup. Use only returned Player IDs, and only attach points when the scoreboard name matches exactly. Names must never be fuzzy-matched.
 3. Preserve missing facts as omitted fields. Never turn an unreadable or absent value into zero.
+   A confirmed positive scoreboard row is also attendance evidence: for historical backfills,
+   preview a matching `present` attendance record for that player and event. A zero score or a
+   missing row never proves presence or absence.
 4. Write a JSON payload with the current result's `version` as `expectedVersion`, or `0` when no result exists.
 5. Preview first. Present the returned before/after diff to the officer.
 6. Apply only after the officer explicitly approves that exact diff. Supply a meaningful reason and a stable idempotency key. Retrying the exact approved request with the same key is safe; never reuse the key for changed data.

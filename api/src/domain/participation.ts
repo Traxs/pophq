@@ -75,6 +75,8 @@ export interface ParticipationInput {
   events: readonly AllianceEvent[];
   answers: readonly EventAnswer[];
   attendance: readonly AttendanceRecord[];
+  /** Event ids where a positive, confirmed player score proves this account took part. */
+  scoreEvidence?: readonly string[];
   now: Date;
   /** How many recent events to weigh. */
   window?: number;
@@ -93,12 +95,16 @@ interface ParticipationOccurrence {
  * answering the sibling. New Foundries already use one event with two sessions and remain a
  * one-item occurrence here.
  */
+export function eventOccurrenceKey(event: AllianceEvent): string {
+  return event.kind === "foundry"
+    ? `${event.alliance}:foundry:${event.startsAt.slice(0, 10)}`
+    : `event:${event.eventId}`;
+}
+
 function occurrences(events: readonly AllianceEvent[]): ParticipationOccurrence[] {
   const grouped = new Map<string, AllianceEvent[]>();
   for (const event of events) {
-    const key = event.kind === "foundry"
-      ? `${event.alliance}:foundry:${event.startsAt.slice(0, 10)}`
-      : `event:${event.eventId}`;
+    const key = eventOccurrenceKey(event);
     const group = grouped.get(key) ?? [];
     group.push(event);
     grouped.set(key, group);
@@ -113,16 +119,18 @@ function classifyOccurrence(
   occurrence: ParticipationOccurrence,
   answerFor: ReadonlyMap<string, EventAnswer>,
   attendanceFor: ReadonlyMap<string, AttendanceRecord>,
+  scoreEvidence: ReadonlySet<string>,
 ): ParticipationEvent {
   const newest = occurrence.events.toSorted((a, b) => b.startsAt.localeCompare(a.startsAt));
   const present = newest.find((event) => attendanceFor.get(event.eventId)?.status === "present");
+  const scored = newest.find((event) => scoreEvidence.has(event.eventId));
   const selected = newest.find((event) => answerFor.get(event.eventId)?.answer === "yes");
   const answered = newest.find((event) => answerFor.has(event.eventId));
   const recorded = newest.find((event) => attendanceFor.has(event.eventId));
-  const representative = present ?? selected ?? answered ?? recorded ?? newest[0]!;
+  const representative = present ?? scored ?? selected ?? answered ?? recorded ?? newest[0]!;
 
   let outcome: Outcome;
-  if (present) {
+  if (present || scored) {
     outcome = "attended";
   } else if (selected) {
     outcome = classify(answerFor.get(selected.eventId), attendanceFor.get(selected.eventId));
@@ -154,12 +162,14 @@ export function participationOf({
   events,
   answers,
   attendance,
+  scoreEvidence = [],
   now,
   window = 10,
   knownSince,
 }: ParticipationInput): Participation {
   const answerFor = new Map(answers.map((a) => [a.eventId, a]));
   const attendanceFor = new Map(attendance.map((a) => [a.eventId, a]));
+  const scoredAt = new Set(scoreEvidence);
 
   const considered = occurrences(events.filter((event) => Date.parse(event.startsAt) <= now.getTime()))
     .filter(
@@ -169,13 +179,14 @@ export function participationOf({
           (event) =>
             Date.parse(event.startsAt) >= Date.parse(knownSince) ||
             answerFor.has(event.eventId) ||
-            attendanceFor.has(event.eventId),
+            attendanceFor.has(event.eventId) ||
+            scoredAt.has(event.eventId),
         ),
     )
     .toSorted((a, b) => b.startsAt.localeCompare(a.startsAt))
     .slice(0, window);
 
-  const outcomes = considered.map((occurrence) => classifyOccurrence(occurrence, answerFor, attendanceFor));
+  const outcomes = considered.map((occurrence) => classifyOccurrence(occurrence, answerFor, attendanceFor, scoredAt));
 
   const count = (outcome: Outcome) => outcomes.filter((o) => o.outcome === outcome).length;
   const weight = outcomes.reduce((sum, o) => sum + OUTCOME_WEIGHT[o.outcome], 0);
