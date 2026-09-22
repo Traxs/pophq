@@ -415,6 +415,31 @@ export interface AllianceGrowth {
   missing: { playerId: string; name: string }[];
 }
 
+export interface AllianceAttendanceGrowth {
+  alliance: string;
+  weeks: number;
+  points: { at: string; value: number; events: number; records: number }[];
+}
+
+export type ParticipationCategory = "always" | "sometimes" | "never" | "no_history";
+
+export interface EventParticipationMember {
+  playerId: string;
+  name: string;
+  rank?: string;
+  attended: number;
+  events: number;
+  rate?: number;
+  category: ParticipationCategory;
+  lastAttendedAt?: string;
+}
+
+export interface EventParticipationMetrics extends AllianceAttendanceGrowth {
+  kind: EventKind;
+  eventCount: number;
+  members: EventParticipationMember[];
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -464,6 +489,10 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
     revokeAgentToken: (tokenId: string) => request<{ revoked: true }>("DELETE", `/agent-tokens/${tokenId}`),
     growth: (weeks = 12, metric: StrengthMetric = "city_power", cohort: "members" | "all" = "members") =>
       request<AllianceGrowth>("GET", `/metrics/alliance?weeks=${weeks}&metric=${metric}&cohort=${cohort}`),
+    attendanceGrowth: (weeks = 12) =>
+      request<AllianceAttendanceGrowth>("GET", `/metrics/alliance-attendance?weeks=${weeks}`),
+    eventParticipation: (kind: EventKind, weeks = 12) =>
+      request<EventParticipationMetrics>("GET", `/metrics/event-participation?kind=${kind}&weeks=${weeks}`),
     events: (from?: string) =>
       request<{ items: EventListItem[] }>("GET", `/events${from ? `?from=${encodeURIComponent(from)}` : ""}`),
     event: (eventId: string) => request<EventDetail>("GET", `/events/${eventId}`),

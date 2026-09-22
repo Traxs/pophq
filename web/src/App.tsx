@@ -1,10 +1,13 @@
 import { ErrorBanner, OfflineBanner, TabBar, TopBar } from "./components/Chrome";
 import { ToastProvider } from "./components/Toast";
 import { Dev } from "./pages/Dev";
+import { AttendanceAnalytics } from "./pages/AttendanceAnalytics";
+import { GrowthAnalytics } from "./pages/GrowthAnalytics";
 import { EventPage } from "./pages/EventPage";
 import { Events } from "./pages/Events";
 import { Home } from "./pages/Home";
 import { Members } from "./pages/Members";
+import { MemberPage } from "./pages/MemberPage";
 import { Power } from "./pages/Power";
 import { Settings } from "./pages/Settings";
 import { Svs } from "./pages/Svs";
@@ -43,6 +46,11 @@ function Shell() {
 }
 
 function Page({ path }: { path: string }) {
+  if (path === "/members/attendance") return <AttendanceAnalytics />;
+  if (path === "/members/growth/city_power") return <GrowthAnalytics metric="city_power" />;
+  if (path === "/members/growth/foundry_strength") return <GrowthAnalytics metric="foundry_strength" />;
+  const memberId = path.startsWith("/members/") ? decodeURIComponent(path.slice("/members/".length)) : undefined;
+  if (memberId) return <MemberPage playerId={memberId} />;
   const eventId = path.startsWith("/events/") ? path.slice("/events/".length) : undefined;
   if (eventId) return <EventPage eventId={eventId} />;
   const roundId = path.startsWith("/svs/") ? path.slice("/svs/".length) : undefined;

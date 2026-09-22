@@ -41,4 +41,36 @@ describe("GET /v1/metrics/alliance", () => {
   it("is officer-only", async () => {
     expect((await h.call("GET", "/metrics/alliance", PLAYER)).status).toBe(403);
   });
+
+  it("reports weekly alliance attendance and carries quiet weeks forward", async () => {
+    const res = await h.call("GET", "/metrics/alliance-attendance?weeks=12", OFFICER);
+    expect(res.status).toBe(200);
+    const body = res.body as { points: { value: number; events: number; records: number }[] };
+    expect(body.points).toHaveLength(12);
+    expect(body.points.every((point) => point.value >= 0 && point.value <= 100)).toBe(true);
+    const quiet = body.points.findIndex((point, index) => index > 0 && point.events === 0);
+    if (quiet > 0) expect(body.points[quiet]!.value).toBe(body.points[quiet - 1]!.value);
+  });
+
+  it("keeps alliance attendance officer-only", async () => {
+    expect((await h.call("GET", "/metrics/alliance-attendance", PLAYER)).status).toBe(403);
+  });
+
+  it("groups member participation by event type", async () => {
+    const res = await h.call("GET", "/metrics/event-participation?kind=foundry&weeks=12", OFFICER);
+    expect(res.status).toBe(200);
+    const body = res.body as {
+      kind: string;
+      points: unknown[];
+      members: { category: string; rate?: number }[];
+    };
+    expect(body.kind).toBe("foundry");
+    expect(body.points).toHaveLength(12);
+    expect(body.members.length).toBeGreaterThan(30);
+    expect(body.members.every((member) => ["always", "sometimes", "never", "no_history"].includes(member.category))).toBe(true);
+  });
+
+  it("keeps event-type participation officer-only", async () => {
+    expect((await h.call("GET", "/metrics/event-participation?kind=foundry", PLAYER)).status).toBe(403);
+  });
 });
