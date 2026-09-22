@@ -104,7 +104,9 @@ Officers invite from the Members page and choose either **Email code** or **Crea
 
 One step creates the Cognito login, creates the game account when necessary, and links the two; repeating the same invite does not expose credentials or create another login. A linked current POP R4/R5 can immediately open officer-only pages, even when their existing token predates the invite or promotion. Logins are capped at 100 seats (FM-08); alts of the same person do not use extra seats.
 
-Locally the invite flow uses a stand-in directory in DynamoDB Local. It demonstrates and tests issuance, autocomplete and linkage, but newly invited email/password logins cannot authenticate against the mock OIDC picker; the test personas cover signed-in flows.
+For password-based access, R4/R5 users can open the member profile and choose **Reset password**. They must record a 5–200 character verification reason. POP HQ records the request before touching Cognito, sets a new seven-day temporary password, revokes the member's existing Cognito sessions, and records whether the operation completed or failed. The one-time password is never stored in POP HQ or its audit history. The member profile's **Access security** section shows the actor, time, reason, and outcome of every attempt for fraud review. Email-code accounts do not offer password reset.
+
+Locally the invite flow uses a stand-in directory in DynamoDB Local. It demonstrates and tests issuance, autocomplete, linkage, password resets, and access-audit history, but newly invited email/password logins cannot authenticate against the mock OIDC picker; the test personas cover signed-in flows.
 
 **Troops** are reported per type. Infantry, Lancer and Marksman each have their own FC level — capped by the furnace, since troops cannot pass it — and **Helios** is an upgrade on top of a type's level, so a member can hold it on all three at once. A report states both the level and whether Helios is there, so turning it off is as recordable as turning it on.
 

@@ -63,7 +63,8 @@ p {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
   color: inherit;
 }
@@ -613,6 +614,16 @@ button.card {
   font-size: 1.05rem;
 }
 
+.field textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 12px 14px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
 .field select {
   width: 100%;
   min-height: 50px;
@@ -636,6 +647,11 @@ button.card {
 }
 
 .field input:not([type="radio"]):focus-visible {
+  border-color: var(--accent);
+  outline-offset: 0;
+}
+
+.field textarea:focus-visible {
   border-color: var(--accent);
   outline-offset: 0;
 }
@@ -1242,6 +1258,26 @@ button.card {
 .member-detail-card {
   display: grid;
   gap: 12px;
+}
+
+.access-security-card {
+  grid-column: 1 / -1;
+}
+
+.access-security-card .section-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.access-security-card .section-head > div {
+  display: grid;
+  gap: 3px;
+}
+
+.access-audit-list .badge {
+  text-transform: capitalize;
 }
 
 .detail-list {

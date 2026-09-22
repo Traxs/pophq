@@ -61,6 +61,8 @@ import type { HistoryStore } from "../data/history.js";
 import type { Repository } from "../data/repository.js";
 import type { Actor } from "../data/meta.js";
 import { invite, type LoginDirectory } from "../ops/invite.js";
+import { resetMemberPassword } from "../ops/resetPassword.js";
+import { parseResetJustification } from "../domain/access.js";
 import type { TokenVerifier } from "./auth.js";
 import type { EvidenceStore } from "../ops/evidenceStore.js";
 
@@ -957,9 +959,9 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const pastEvents = await repo.listEvents(alliance, participationFrom, 100);
     const items = await Promise.all(
       accounts.map(async (account) => {
-        const [reports, linkedLogin] = await Promise.all([
+        const [reports, linkedAccess] = await Promise.all([
           repo.listReports(account.playerId),
-          repo.linkedLogin(account.playerId),
+          repo.linkedLoginAccess(account.playerId),
         ]);
         const superseded = new Set(reports.flatMap((r) => (r.supersedesReportId ? [r.supersedesReportId] : [])));
         const series = reports
@@ -981,7 +983,8 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         const foundrySeries = seriesOf(reports, "foundry_strength");
         return {
           ...account,
-          hasLogin: linkedLogin !== undefined,
+          hasLogin: linkedAccess !== undefined,
+          loginMethod: linkedAccess?.loginMethod ?? null,
           // Six trailing months for the small graphs in the table (MET-02).
           powerTrend: monthlyValues(
             series.map((p) => ({ at: p.at, value: p.power })),
@@ -1033,6 +1036,27 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       // reuse a cached copy after the officer closes the one-time credential screen.
       c.header("Cache-Control", "no-store");
       return c.json(result, result.accountCreated || result.linked || result.loginCreated ? 201 : 200);
+    });
+
+    app.post("/accounts/:pid/password-reset", async (c) => {
+      const p = c.get("principal");
+      requireOfficer(p);
+      const playerId = parsePlayerId(c.req.param("pid"));
+      const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+      const result = await resetMemberPassword(
+        { repo, logins, actor: { id: p.sub, via: "web", reason: "password recovery" } },
+        playerId,
+        parseResetJustification(body.justification),
+      );
+      c.header("Cache-Control", "no-store");
+      return c.json(result, 201);
+    });
+
+    app.get("/accounts/:pid/access-audit", async (c) => {
+      requireOfficer(c.get("principal"));
+      const playerId = parsePlayerId(c.req.param("pid"));
+      if (!(await repo.getAccount(playerId))) throw new NotFoundError(`Game account ${playerId} not found.`);
+      return c.json({ items: await repo.listAccessAudit(playerId) });
     });
   }
 

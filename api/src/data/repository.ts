@@ -9,6 +9,7 @@ import {
   type DynamoDBDocumentClient,
 } from "@aws-sdk/lib-dynamodb";
 import type { GameAccount } from "../domain/accounts.js";
+import type { AccessAuditRecord, LoginMethod, PasswordResetStatus } from "../domain/access.js";
 import type { AttendanceRecord } from "../domain/attendance.js";
 import type { AllianceEvent, Answer, EventAnswer } from "../domain/events.js";
 import type { EventType } from "../domain/eventTypes.js";
@@ -27,6 +28,7 @@ import type { Report } from "../domain/measurements.js";
 import { SEAT_CAP, type Seats } from "../domain/seats.js";
 import {
   accountKey,
+  accessAuditKey,
   agentTokenKey,
   checklistKey,
   answerIndexKey,
@@ -139,7 +141,7 @@ export class Repository {
    * Links a game account to a login. One transaction: the account must exist, and the lock item
    * guarantees a Player ID is never linked to two logins, even under concurrent requests.
    */
-  async linkAccount(sub: string, playerId: string, actor: Actor): Promise<void> {
+  async linkAccount(sub: string, playerId: string, actor: Actor, loginMethod?: LoginMethod): Promise<void> {
     const now = this.clock();
     const meta = newItemMeta(actor, now);
     try {
@@ -156,7 +158,7 @@ export class Repository {
             {
               Put: {
                 TableName: this.table,
-                Item: { ...accountLinkLockKey(playerId), type: "link-lock", sub, ...meta },
+                Item: { ...accountLinkLockKey(playerId), type: "link-lock", sub, ...(loginMethod ? { loginMethod } : {}), ...meta },
                 ConditionExpression: "attribute_not_exists(PK)",
               },
             },
@@ -946,8 +948,83 @@ export class Repository {
 
   /** The login already claiming this game account, without exposing it through the HTTP API. */
   async linkedLogin(playerId: string): Promise<string | undefined> {
+    return (await this.linkedLoginAccess(playerId))?.sub;
+  }
+
+  /** Login metadata used for officer access management. The subject never leaves the API. */
+  async linkedLoginAccess(playerId: string): Promise<{ sub: string; loginMethod: LoginMethod | null } | undefined> {
     const res = await this.db.send(new GetCommand({ TableName: this.table, Key: accountLinkLockKey(playerId) }));
-    return typeof res.Item?.sub === "string" ? res.Item.sub : undefined;
+    if (typeof res.Item?.sub !== "string") return undefined;
+    const loginMethod = res.Item.loginMethod === "email" || res.Item.loginMethod === "password"
+      ? res.Item.loginMethod
+      : null;
+    return { sub: res.Item.sub, loginMethod };
+  }
+
+  /** Starts an auditable password reset before Cognito is changed. */
+  async startPasswordReset(
+    playerId: string,
+    justification: string,
+    actor: Actor,
+    requestedByName?: string,
+  ): Promise<AccessAuditRecord> {
+    const now = this.clock();
+    const meta = newItemMeta({ ...actor, reason: "password reset requested" }, now);
+    const record: AccessAuditRecord = {
+      auditId: meta.changeId,
+      playerId,
+      action: "password_reset",
+      status: "requested",
+      justification,
+      requestedAt: now.toISOString(),
+      requestedBy: actor.id,
+      ...(requestedByName ? { requestedByName } : {}),
+    };
+    await this.db.send(new PutCommand({
+      TableName: this.table,
+      Item: { ...accessAuditKey(playerId, record.auditId), type: "access-audit", ...record, ...meta },
+      ConditionExpression: "attribute_not_exists(PK)",
+    }));
+    return record;
+  }
+
+  /** Resolves the audit entry after Cognito succeeds or fails. Passwords are never written here. */
+  async finishPasswordReset(
+    playerId: string,
+    auditId: string,
+    status: Exclude<PasswordResetStatus, "requested">,
+    actor: Actor,
+  ): Promise<AccessAuditRecord> {
+    const now = this.clock();
+    const meta = newItemMeta({ ...actor, reason: `password reset ${status}` }, now);
+    const res = await this.db.send(new UpdateCommand({
+      TableName: this.table,
+      Key: accessAuditKey(playerId, auditId),
+      UpdateExpression: "SET #status = :status, resolvedAt = :at, updatedAt = :at, updatedBy = :by, #via = :via, #reason = :reason, changeId = :changeId, version = version + :one",
+      ConditionExpression: "attribute_exists(PK) AND #status = :requested",
+      ExpressionAttributeNames: { "#status": "status", "#via": "via", "#reason": "reason" },
+      ExpressionAttributeValues: {
+        ":status": status,
+        ":requested": "requested",
+        ":at": now.toISOString(),
+        ":by": actor.id,
+        ":via": actor.via,
+        ":reason": meta.reason,
+        ":changeId": meta.changeId,
+        ":one": 1,
+      },
+      ReturnValues: "ALL_NEW",
+    }));
+    return toAccessAudit(res.Attributes ?? {});
+  }
+
+  async listAccessAudit(playerId: string): Promise<AccessAuditRecord[]> {
+    const items = await this.queryAll({
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+      ExpressionAttributeValues: { ":pk": `ACCOUNT#${playerId}`, ":sk": "ACCESS_AUDIT#" },
+      ScanIndexForward: false,
+    });
+    return items.map(toAccessAudit);
   }
 
   /**
@@ -1676,5 +1753,20 @@ function toAttendance(item: Record<string, unknown>): AttendanceRecord {
   if (item.sessionId) record.sessionId = String(item.sessionId);
   if (item.note) record.note = String(item.note);
   if (item.evidenceRef) record.evidenceRef = String(item.evidenceRef);
+  return record;
+}
+
+function toAccessAudit(item: Record<string, unknown>): AccessAuditRecord {
+  const record: AccessAuditRecord = {
+    auditId: String(item.auditId),
+    playerId: String(item.playerId),
+    action: "password_reset",
+    status: item.status as AccessAuditRecord["status"],
+    justification: String(item.justification),
+    requestedAt: String(item.requestedAt),
+    requestedBy: String(item.requestedBy),
+  };
+  if (item.resolvedAt) record.resolvedAt = String(item.resolvedAt);
+  if (item.requestedByName) record.requestedByName = String(item.requestedByName);
   return record;
 }

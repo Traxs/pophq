@@ -24,6 +24,12 @@ export function devLogins(db: DynamoDBDocumentClient, table: string): LoginDirec
       await db.send(new PutCommand({ TableName: table, Item: { ...key(username), type: "dev-login", sub, email: username } }));
       return { sub, username, password };
     },
+    async resetPassword(sub) {
+      const username = sub.replace(/^local-/, "");
+      const existing = await db.send(new GetCommand({ TableName: table, Key: key(username) }));
+      if (!existing.Item || !username.endsWith("@members.pophq.invalid")) throw new Error("Password login not found");
+      return { password: `${randomBytes(12).toString("base64url")}Aa1!` };
+    },
     async deleteLogin(sub) {
       const email = sub.replace(/^local-/, "");
       await db.send(new DeleteCommand({ TableName: table, Key: key(email) }));

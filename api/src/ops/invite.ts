@@ -14,6 +14,8 @@ export interface LoginDirectory {
   createLogin(email: string): Promise<string>;
   /** Creates an email-free login with a temporary password that must be changed at first sign-in. */
   createPasswordLogin(): Promise<{ sub: string; username: string; password: string }>;
+  /** Replaces a password login's password with a new one-time password. */
+  resetPassword(sub: string): Promise<{ password: string }>;
   /** Removes a login again; used only to undo a creation that could not be completed. */
   deleteLogin(sub: string): Promise<void>;
 }
@@ -112,7 +114,7 @@ export async function invite(
   try {
     if (!existing) await repo.createAccount(wanted, actor);
     if (sub && !alreadyLinkedSub && !(await repo.linkedAccounts(sub)).includes(wanted.playerId)) {
-      await repo.linkAccount(sub, wanted.playerId, actor);
+      await repo.linkAccount(sub, wanted.playerId, actor, method === "email" || method === "password" ? method : undefined);
       linked = true;
     }
   } catch (err) {

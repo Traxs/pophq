@@ -8,6 +8,7 @@ const row = (name: string, playerId: string, hasLogin: boolean): RosterRow => ({
   alliance: "POP",
   status: "active",
   hasLogin,
+  loginMethod: hasLogin ? "email" : null,
   power: null,
   previousPower: null,
   lastReportAt: null,

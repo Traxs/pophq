@@ -5,6 +5,7 @@ import {
   AdminCreateUserCommand,
   AdminDeleteUserCommand,
   AdminSetUserPasswordCommand,
+  AdminUserGlobalSignOutCommand,
   ListUsersCommand,
   type CognitoIdentityProviderClient,
 } from "@aws-sdk/client-cognito-identity-provider";
@@ -70,6 +71,19 @@ export function cognitoLogins(client: CognitoIdentityProviderClient, userPoolId:
       const sub = subOf(created.User?.Attributes);
       if (!sub) throw new Error("Cognito returned no subject for the password login");
       return { sub, username, password };
+    },
+
+    async resetPassword(sub) {
+      const password = temporaryPassword();
+      await client.send(new AdminSetUserPasswordCommand({
+        UserPoolId: userPoolId,
+        Username: sub,
+        Password: password,
+        Permanent: false,
+      }));
+      // Password recovery must also cut off a stolen refresh/access-token session.
+      await client.send(new AdminUserGlobalSignOutCommand({ UserPoolId: userPoolId, Username: sub }));
+      return { password };
     },
 
     async deleteLogin(sub) {

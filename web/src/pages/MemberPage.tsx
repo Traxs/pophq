@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import type { Reports, RosterRow } from "../api";
+import type { AccessAuditRecord, Reports, RosterRow } from "../api";
 import { ErrorBanner } from "../components/Chrome";
 import { InviteMemberForm } from "../components/InviteMember";
+import { ResetPasswordForm } from "../components/ResetPassword";
 import { Sheet } from "../components/Sheet";
 import { full, initials, relativeDay, shortDate } from "../format";
 import { navigate } from "../router";
@@ -33,17 +34,20 @@ export function MemberPage({ playerId }: { playerId: string }) {
   const [row, setRow] = useState<RosterRow | null | undefined>(undefined);
   const [roster, setRoster] = useState<RosterRow[]>([]);
   const [reports, setReports] = useState<Reports | null>(null);
+  const [accessAudit, setAccessAudit] = useState<AccessAuditRecord[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [inviting, setInviting] = useState(false);
+  const [resettingPassword, setResettingPassword] = useState(false);
 
   useEffect(() => {
     if (!isOfficer) return;
-    Promise.all([api.roster(), api.reports(playerId)])
-      .then(([roster, reportHistory]) => {
+    Promise.all([api.roster(), api.reports(playerId), api.accessAudit(playerId)])
+      .then(([roster, reportHistory, audit]) => {
         setRoster(roster.items);
         setRow(roster.items.find((item) => item.playerId === playerId) ?? null);
         setReports(reportHistory);
+        setAccessAudit(audit.items);
         setError(null);
       })
       .catch((e: Error) => setError(e.message));
@@ -96,6 +100,15 @@ export function MemberPage({ playerId }: { playerId: string }) {
         />
       </Sheet>
 
+      <Sheet open={resettingPassword} title={`Reset ${row.name}'s password`} onClose={() => setResettingPassword(false)}>
+        <ResetPasswordForm
+          playerId={row.playerId}
+          memberName={row.name}
+          onCompleted={(audit) => setAccessAudit((items) => [audit, ...items.filter((item) => item.auditId !== audit.auditId)])}
+          onClose={() => setResettingPassword(false)}
+        />
+      </Sheet>
+
       <div className="member-metric-grid">
         <section className="card member-metric">
           <span className="section-label">City power</span>
@@ -117,6 +130,30 @@ export function MemberPage({ playerId }: { playerId: string }) {
       </div>
 
       <div className="member-detail-grid">
+        {(row.hasLogin || accessAudit.length > 0) && <section className="card member-detail-card access-security-card">
+          <div className="section-head">
+            <div>
+              <h2>Access security</h2>
+              <p className="muted small">Password recovery actions are retained for fraud review.</p>
+            </div>
+            {row.loginMethod === "password" && <button type="button" className="btn btn-danger btn-small" onClick={() => setResettingPassword(true)}>
+              Reset password
+            </button>}
+          </div>
+          {row.loginMethod === "email" && <p className="muted">This member signs in with emailed codes; there is no password to reset.</p>}
+          {row.loginMethod === null && <p className="muted">The sign-in method predates access tracking. Reset is disabled until it is verified.</p>}
+          {accessAudit.length === 0 ? <p className="muted">No password resets recorded.</p> : <ul className="detail-list access-audit-list">
+            {accessAudit.map((audit) => <li key={audit.auditId}>
+              <span>
+                <strong>Password reset {audit.status}</strong>
+                <span className="muted small">{new Date(audit.requestedAt).toLocaleString()} · {audit.requestedByName ?? audit.requestedBy}</span>
+                <span className="small">{audit.justification}</span>
+              </span>
+              <span className={`badge ${audit.status === "failed" ? "badge-none" : ""}`}>{audit.status}</span>
+            </li>)}
+          </ul>}
+        </section>}
+
         <section className="card member-detail-card">
           <h2>Participation</h2>
           {participation.events.length === 0 ? (

@@ -131,6 +131,8 @@ export function SessionProvider({
       addReport: guard(inner.addReport),
       roster: guard(inner.roster),
       invite: guard(inner.invite),
+      accessAudit: guard(inner.accessAudit),
+      resetPassword: guard(inner.resetPassword),
       updateAccount: guard(inner.updateAccount),
       agentTokens: guard(inner.agentTokens),
       issueAgentToken: guard(inner.issueAgentToken),

@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { ConflictError, ValidationError } from "../../src/domain/errors.js";
 import { backfillSeats } from "../../src/ops/backfillSeats.js";
 import { invite, parseEmail, type LoginDirectory } from "../../src/ops/invite.js";
+import { resetMemberPassword } from "../../src/ops/resetPassword.js";
 import { createHarness, type Harness } from "./harness.js";
 
 const actor = { id: "officer-1", via: "web" as const };
@@ -26,6 +27,10 @@ function fakeLogins(): LoginDirectory & { subs: Map<string, string>; created: st
       subs.set(username, sub);
       created.push(sub);
       return { sub, username, password: "Temporary-password-123" };
+    },
+    resetPassword: async (sub) => {
+      if (![...subs.values()].includes(sub)) throw new Error("Login not found");
+      return { password: "Reset-password-456" };
     },
     deleteLogin: async (sub) => {
       for (const [email, s] of subs) if (s === sub) subs.delete(email);
@@ -124,6 +129,24 @@ describe("invite", () => {
     expect(logins.subs.has("three@example.com")).toBe(false);
     expect((await small.repo.seats(2)).used).toBe(2);
     await small.cleanup();
+  });
+
+  it("keeps a failed reset attempt in the security audit", async () => {
+    const logins = fakeLogins();
+    await invite(
+      { repo: h.repo, logins, actor },
+      { loginMethod: "password", playerId: "200000019", name: "Failed Recovery" },
+    );
+    logins.resetPassword = async () => { throw new Error("Cognito unavailable"); };
+
+    await expect(resetMemberPassword(
+      { repo: h.repo, logins, actor },
+      "200000019",
+      "Identity verified before the attempt",
+    )).rejects.toThrow("Cognito unavailable");
+    expect(await h.repo.listAccessAudit("200000019")).toEqual([
+      expect.objectContaining({ status: "failed", justification: "Identity verified before the attempt" }),
+    ]);
   });
 
   it("keeps the cap under concurrent invites and frees the losers' logins", async () => {
@@ -249,6 +272,68 @@ describe("POST /v1/invites", () => {
       linked: true,
       credentials: { username: expect.stringContaining("@members.pophq.invalid"), password: expect.any(String) },
     });
+  });
+
+  it("lets an officer reset password access and preserves a credential-free audit trail", async () => {
+    const invited = await h.call("POST", "/invites", {
+      as: "officer-1",
+      groups: ["officer"],
+      body: { loginMethod: "password", playerId: "400000013", name: "Recovery Test", rank: "R3" },
+    });
+    expect(invited.status).toBe(201);
+
+    const reset = await h.call("POST", "/accounts/400000013/password-reset", {
+      as: "officer-1",
+      groups: ["officer"],
+      body: { justification: "Identity verified in alliance Discord" },
+    });
+    expect(reset.status).toBe(201);
+    expect(reset.body).toMatchObject({
+      credentials: { password: "Reset-password-456" },
+      audit: {
+        playerId: "400000013",
+        action: "password_reset",
+        status: "completed",
+        justification: "Identity verified in alliance Discord",
+        requestedBy: "officer-1",
+      },
+    });
+
+    const audit = await h.call("GET", "/accounts/400000013/access-audit", {
+      as: "officer-1",
+      groups: ["officer"],
+    });
+    expect(audit.status).toBe(200);
+    const auditId = String((reset.body.audit as Record<string, unknown>).auditId);
+    expect(audit.body.items).toEqual([expect.objectContaining({ auditId, status: "completed" })]);
+    expect(JSON.stringify(audit.body)).not.toContain("Reset-password-456");
+
+    const roster = await h.call("GET", "/roster", { as: "officer-1", groups: ["officer"] });
+    expect(roster.body.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ playerId: "400000013", hasLogin: true, loginMethod: "password" }),
+    ]));
+  });
+
+  it("rejects reset attempts by players and for email-code accounts", async () => {
+    await h.call("POST", "/invites", {
+      as: "officer-1",
+      groups: ["officer"],
+      body: { loginMethod: "email", email: "no-password@example.com", playerId: "400000014", name: "Email Only" },
+    });
+    const player = await h.call("POST", "/accounts/400000014/password-reset", {
+      as: "player-1",
+      body: { justification: "Trying to reset another member" },
+    });
+    expect(player.status).toBe(403);
+
+    const emailLogin = await h.call("POST", "/accounts/400000014/password-reset", {
+      as: "officer-1",
+      groups: ["officer"],
+      body: { justification: "Member requested password recovery" },
+    });
+    expect(emailLogin.status).toBe(400);
+    expect(emailLogin.body).toMatchObject({ title: expect.stringContaining("only for members invited with password access") });
+    expect(await h.repo.listAccessAudit("400000014")).toEqual([]);
   });
 });
 
