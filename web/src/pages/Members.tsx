@@ -52,7 +52,7 @@ export function Members() {
     if (!rows) return [];
     const q = query.trim().toLowerCase();
     return rows
-      .filter((r) => !q || r.name.toLowerCase().includes(q) || r.playerId.includes(q))
+      .filter((r) => !q || r.name.toLowerCase().includes(q) || r.playerId.includes(q) || (r.aliases ?? []).some((alias) => alias.toLowerCase().includes(q)))
       .filter((r) => {
         if (filter === "noFoundry") return r.foundryStrength === null;
         if (filter !== "all") return r.status === filter;

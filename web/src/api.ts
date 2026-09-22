@@ -41,6 +41,7 @@ export interface Reports {
 }
 
 export interface RosterRow extends GameAccount {
+  aliases?: string[];
   /** Whether this game account is already claimed by a POP HQ sign-in. */
   hasLogin: boolean;
   /** How access is recovered; null for older or externally linked accounts. */
@@ -59,6 +60,30 @@ export interface RosterRow extends GameAccount {
   lastReportAt: string | null;
   furnace: string | null;
   reports: number;
+}
+
+export interface AccountAlias {
+  name: string;
+  addedAt: string;
+  addedBy: string;
+}
+
+export interface IdentityAuditRecord {
+  auditId: string;
+  action: "link_secondary" | "unlink_secondary" | "set_main" | "alias_add";
+  subjectPlayerId: string;
+  relatedPlayerId?: string;
+  alias?: string;
+  justification: string;
+  performedAt: string;
+  performedBy: string;
+  performedByName?: string;
+}
+
+export interface AccountIdentity {
+  primaryPlayerId: string;
+  accounts: (GameAccount & { aliases: AccountAlias[]; isPrimary: boolean })[];
+  audit: IdentityAuditRecord[];
 }
 
 /** What an officer may change about an account; "" clears a rank or a note. */
@@ -662,6 +687,15 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
       request<PasswordResetResult>("POST", `/accounts/${playerId}/password-reset`, { justification }),
     updateAccount: (playerId: string, changes: AccountChanges) =>
       request<GameAccount>("PATCH", `/accounts/${playerId}`, changes),
+    accountIdentity: (playerId: string) => request<AccountIdentity>("GET", `/accounts/${playerId}/identity`),
+    linkSecondaryAccount: (playerId: string, secondaryPlayerId: string, justification: string) =>
+      request<AccountIdentity>("POST", `/accounts/${playerId}/identity/accounts`, { secondaryPlayerId, justification }),
+    setPrimaryAccount: (playerId: string, newPrimaryPlayerId: string, justification: string) =>
+      request<AccountIdentity>("PUT", `/accounts/${playerId}/identity/main`, { playerId: newPrimaryPlayerId, justification }),
+    unlinkSecondaryAccount: (playerId: string, secondaryPlayerId: string, justification: string) =>
+      request<AccountIdentity>("DELETE", `/accounts/${playerId}/identity/accounts/${secondaryPlayerId}`, { justification }),
+    addAccountAlias: (playerId: string, name: string, justification: string) =>
+      request<AccountIdentity>("POST", `/accounts/${playerId}/aliases`, { name, justification }),
     agentTokens: () => request<{ items: AgentTokenInfo[] }>("GET", "/agent-tokens"),
     issueAgentToken: (input: { name: string; scopes: AgentScope[]; expiresInDays: number }) =>
       request<IssuedAgentToken>("POST", "/agent-tokens", input),

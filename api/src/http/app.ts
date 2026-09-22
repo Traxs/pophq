@@ -42,7 +42,7 @@ import { canonicalJson, issueAgentToken } from "../domain/agentTokens.js";
 import { HISTORICAL_CATEGORIES, parseHistoricalRecord, type HistoricalCategory } from "../domain/historicalRecords.js";
 import { authenticateAgent, effectiveBotScopes, publicAgentToken, type BotIssuerGroups } from "./agentAuth.js";
 import { listEventTypes } from "../ops/eventTypes.js";
-import { parsePlayerId } from "../domain/identity.js";
+import { parseGameName, parseIdentityJustification, parsePlayerId } from "../domain/identity.js";
 import { allianceAttendance, allianceGrowth, buckets, currentOf, seriesOf } from "../domain/metrics.js";
 import { monthlyAttendance, monthlyValues, trailingAverage } from "../domain/trends.js";
 import { activeReports, currentValues, parseImportedReport, parseReport } from "../domain/measurements.js";
@@ -966,6 +966,74 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     return c.json({ sub: body.sub, playerId: pid }, 201);
   });
 
+  const identityView = async (playerId: string) => {
+    const anchor = await repo.getAccount(playerId);
+    if (!anchor) throw new NotFoundError("Game account not found.");
+    const sub = await repo.linkedLogin(playerId);
+    const ids = sub ? await repo.linkedAccounts(sub) : [playerId];
+    const accounts = (await Promise.all(ids.map(async (id) => {
+      const [account, aliases] = await Promise.all([repo.getAccount(id), repo.listAliases(id)]);
+      return account ? { ...account, aliases } : undefined;
+    }))).filter((account): account is NonNullable<typeof account> => Boolean(account));
+    const explicitPrimary = sub ? await repo.primaryAccount(sub) : undefined;
+    const grouped = sub ? (await repo.linkedAccountGroups(ids))[0] : undefined;
+    const primaryPlayerId = explicitPrimary && ids.includes(explicitPrimary) ? explicitPrimary : grouped?.[0] ?? playerId;
+    const audit = (await Promise.all(ids.map((id) => repo.listIdentityAudit(id))))
+      .flat().toSorted((a, b) => b.performedAt.localeCompare(a.performedAt));
+    return { primaryPlayerId, accounts: accounts.map((account) => ({ ...account, isPrimary: account.playerId === primaryPlayerId })), audit };
+  };
+
+  app.get("/accounts/:pid/identity", async (c) => {
+    await requireR4(c.get("principal"));
+    return c.json(await identityView(parsePlayerId(c.req.param("pid"))));
+  });
+
+  app.post("/accounts/:pid/identity/accounts", async (c) => {
+    const p = c.get("principal");
+    const officer = await requireR4(p);
+    const anchorPlayerId = parsePlayerId(c.req.param("pid"));
+    const sub = await repo.linkedLogin(anchorPlayerId);
+    if (!sub) throw new ConflictError("Invite the main account before linking a secondary account.");
+    const body = (await readJson(c.req.raw)) as { secondaryPlayerId?: unknown; justification?: unknown };
+    const secondaryPlayerId = parsePlayerId(body.secondaryPlayerId);
+    if (secondaryPlayerId === anchorPlayerId) throw new ValidationError("Choose a different account to link.");
+    await repo.linkSecondaryAccount(sub, anchorPlayerId, secondaryPlayerId, parseIdentityJustification(body.justification), { id: p.sub, via: "web" }, officer.name);
+    return c.json(await identityView(anchorPlayerId), 201);
+  });
+
+  app.put("/accounts/:pid/identity/main", async (c) => {
+    const p = c.get("principal");
+    const officer = await requireR4(p);
+    const anchorPlayerId = parsePlayerId(c.req.param("pid"));
+    const sub = await repo.linkedLogin(anchorPlayerId);
+    if (!sub) throw new ConflictError("This account is not linked to a login.");
+    const body = (await readJson(c.req.raw)) as { playerId?: unknown; justification?: unknown };
+    await repo.setPrimaryAccount(sub, parsePlayerId(body.playerId), parseIdentityJustification(body.justification), { id: p.sub, via: "web" }, officer.name);
+    return c.json(await identityView(anchorPlayerId));
+  });
+
+  app.delete("/accounts/:pid/identity/accounts/:secondaryPid", async (c) => {
+    const p = c.get("principal");
+    const officer = await requireR4(p);
+    const anchorPlayerId = parsePlayerId(c.req.param("pid"));
+    const secondaryPlayerId = parsePlayerId(c.req.param("secondaryPid"));
+    if (secondaryPlayerId === anchorPlayerId) throw new ValidationError("Open another linked account before unlinking this one.");
+    const sub = await repo.linkedLogin(anchorPlayerId);
+    if (!sub) throw new ConflictError("This account is not linked to a login.");
+    const body = (await readJson(c.req.raw)) as { justification?: unknown };
+    await repo.unlinkSecondaryAccount(sub, anchorPlayerId, secondaryPlayerId, parseIdentityJustification(body.justification), { id: p.sub, via: "web" }, officer.name);
+    return c.json(await identityView(anchorPlayerId));
+  });
+
+  app.post("/accounts/:pid/aliases", async (c) => {
+    const p = c.get("principal");
+    const officer = await requireR4(p);
+    const playerId = parsePlayerId(c.req.param("pid"));
+    const body = (await readJson(c.req.raw)) as { name?: unknown; justification?: unknown };
+    await repo.addAlias(playerId, parseGameName(body.name), parseIdentityJustification(body.justification), { id: p.sub, via: "web" }, officer.name);
+    return c.json(await identityView(playerId), 201);
+  });
+
   app.get("/accounts/:pid/reports", async (c) => {
     const pid = parsePlayerId(c.req.param("pid"));
     const reports = await repo.listReports(pid);
@@ -983,9 +1051,10 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const pastEvents = await repo.listEvents(alliance, participationFrom, 100);
     const items = await Promise.all(
       accounts.map(async (account) => {
-        const [reports, linkedAccess] = await Promise.all([
+        const [reports, linkedAccess, aliases] = await Promise.all([
           repo.listReports(account.playerId),
           repo.linkedLoginAccess(account.playerId),
+          repo.listAliases(account.playerId),
         ]);
         const series = activeReports(reports)
           .flatMap((r) => {
@@ -1005,6 +1074,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         const foundrySeries = seriesOf(reports, "foundry_strength");
         return {
           ...account,
+          aliases: aliases.map((alias) => alias.name),
           hasLogin: linkedAccess !== undefined,
           loginMethod: linkedAccess?.loginMethod ?? null,
           // Six trailing months for the small graphs in the table (MET-02).

@@ -36,4 +36,9 @@ describe("inviteSuggestions", () => {
   it("finds unregistered members by Player ID and excludes registered people", () => {
     expect(inviteSuggestions(roster, "401").map((candidate) => candidate.name)).toEqual(["Dream"]);
   });
+
+  it("finds the current account through a recorded previous name", () => {
+    const aliased = [{ ...roster[0]!, aliases: ["No One"] }, ...roster.slice(1)];
+    expect(inviteSuggestions(aliased, "no one").map((candidate) => candidate.name)).toEqual(["Arya Stark"]);
+  });
 });

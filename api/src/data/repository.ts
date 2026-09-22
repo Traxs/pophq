@@ -23,7 +23,7 @@ import type { EventResult } from "../domain/results.js";
 import type { AgentTokenRecord } from "../domain/agentTokens.js";
 import type { HistoricalCategory, HistoricalRecord } from "../domain/historicalRecords.js";
 import { ConflictError, NotFoundError } from "../domain/errors.js";
-import { searchKey } from "../domain/identity.js";
+import { searchKey, type AccountAlias, type IdentityAuditRecord } from "../domain/identity.js";
 import type { Report } from "../domain/measurements.js";
 import { SEAT_CAP, type Seats } from "../domain/seats.js";
 import {
@@ -36,6 +36,7 @@ import {
   attendanceIndexKey,
   attendanceKey,
   accountLinkLockKey,
+  accountAliasKey,
   allianceIndexKey,
   eventIndexKey,
   eventKey,
@@ -48,6 +49,8 @@ import {
   idempotencyKey,
   historicalRecordKey,
   loginLinkKey,
+  personIdentityKey,
+  identityAuditKey,
   reportKey,
   resultKey,
   seatCounterKey,
@@ -946,6 +949,126 @@ export class Repository {
     return items.map((i) => String(i.playerId));
   }
 
+  async primaryAccount(sub: string): Promise<string | undefined> {
+    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: personIdentityKey(sub) }));
+    return typeof res.Item?.primaryPlayerId === "string" ? res.Item.primaryPlayerId : undefined;
+  }
+
+  async listAliases(playerId: string): Promise<AccountAlias[]> {
+    const items = await this.queryAll({
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+      ExpressionAttributeValues: { ":pk": `ACCOUNT#${playerId}`, ":sk": "ALIAS#" },
+    });
+    return items.map((item) => ({
+      name: String(item.name),
+      addedAt: String(item.addedAt),
+      addedBy: String(item.addedBy),
+    })).toSorted((a, b) => a.addedAt.localeCompare(b.addedAt));
+  }
+
+  async listIdentityAudit(playerId: string): Promise<IdentityAuditRecord[]> {
+    const items = await this.queryAll({
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+      ExpressionAttributeValues: { ":pk": `ACCOUNT#${playerId}`, ":sk": "IDENTITY_AUDIT#" },
+      ScanIndexForward: false,
+    });
+    return items.map(toIdentityAudit);
+  }
+
+  async addAlias(playerId: string, name: string, justification: string, actor: Actor, performedByName?: string): Promise<IdentityAuditRecord> {
+    const account = await this.getAccount(playerId);
+    if (!account) throw new NotFoundError(`Game account ${playerId} not found.`);
+    if (searchKey(account.name) === searchKey(name)) throw new ConflictError("That is already the account's current name.");
+    const now = this.clock();
+    const meta = newItemMeta(actor, now);
+    const audit: IdentityAuditRecord = {
+      auditId: meta.changeId, action: "alias_add", subjectPlayerId: playerId, alias: name,
+      justification, performedAt: now.toISOString(), performedBy: actor.id, ...(performedByName ? { performedByName } : {}),
+    };
+    try {
+      await this.db.send(new TransactWriteCommand({ TransactItems: [
+        { Put: { TableName: this.table, Item: { ...accountAliasKey(playerId, searchKey(name)), type: "account-alias", name, addedAt: now.toISOString(), addedBy: actor.id, ...meta }, ConditionExpression: "attribute_not_exists(PK)" } },
+        { Put: { TableName: this.table, Item: { ...identityAuditKey(playerId, audit.auditId), type: "identity-audit", ...audit, ...meta } } },
+      ] }));
+    } catch (err) {
+      if (cancellationCodes(err)?.[0] === "ConditionalCheckFailed") throw new ConflictError("That alternate name is already recorded.");
+      throw err;
+    }
+    return audit;
+  }
+
+  async linkSecondaryAccount(sub: string, anchorPlayerId: string, secondaryPlayerId: string, justification: string, actor: Actor, performedByName?: string): Promise<IdentityAuditRecord> {
+    const loginMethod = (await this.linkedLoginAccess(anchorPlayerId))?.loginMethod;
+    const now = this.clock();
+    const meta = newItemMeta(actor, now);
+    const audit: IdentityAuditRecord = {
+      auditId: meta.changeId, action: "link_secondary", subjectPlayerId: anchorPlayerId, relatedPlayerId: secondaryPlayerId,
+      justification, performedAt: now.toISOString(), performedBy: actor.id, ...(performedByName ? { performedByName } : {}),
+    };
+    try {
+      await this.db.send(new TransactWriteCommand({ TransactItems: [
+        { ConditionCheck: { TableName: this.table, Key: accountLinkLockKey(anchorPlayerId), ConditionExpression: "#sub = :sub", ExpressionAttributeNames: { "#sub": "sub" }, ExpressionAttributeValues: { ":sub": sub } } },
+        { ConditionCheck: { TableName: this.table, Key: accountKey(secondaryPlayerId), ConditionExpression: "attribute_exists(PK)" } },
+        { Put: { TableName: this.table, Item: { ...accountLinkLockKey(secondaryPlayerId), type: "link-lock", sub, ...(loginMethod ? { loginMethod } : {}), ...meta }, ConditionExpression: "attribute_not_exists(PK)" } },
+        { Put: { TableName: this.table, Item: { ...loginLinkKey(sub, secondaryPlayerId), GSI1PK: `ACCOUNT#${secondaryPlayerId}`, GSI1SK: `LOGIN#${sub}`, type: "login-link", sub, playerId: secondaryPlayerId, ...meta }, ConditionExpression: "attribute_not_exists(PK)" } },
+        { Put: { TableName: this.table, Item: { ...identityAuditKey(anchorPlayerId, audit.auditId), type: "identity-audit", ...audit, ...meta } } },
+      ] }));
+    } catch (err) {
+      const reasons = cancellationCodes(err);
+      if (reasons?.[0] === "ConditionalCheckFailed") throw new ConflictError("The main account is no longer linked to that login.");
+      if (reasons?.[1] === "ConditionalCheckFailed") throw new NotFoundError(`Game account ${secondaryPlayerId} not found.`);
+      if (reasons?.[2] === "ConditionalCheckFailed" || reasons?.[3] === "ConditionalCheckFailed") throw new ConflictError(`Game account ${secondaryPlayerId} is already linked to a login.`);
+      throw err;
+    }
+    return audit;
+  }
+
+  async setPrimaryAccount(sub: string, playerId: string, justification: string, actor: Actor, performedByName?: string): Promise<IdentityAuditRecord> {
+    const now = this.clock();
+    const meta = newItemMeta(actor, now);
+    const audit: IdentityAuditRecord = {
+      auditId: meta.changeId, action: "set_main", subjectPlayerId: playerId, justification,
+      performedAt: now.toISOString(), performedBy: actor.id, ...(performedByName ? { performedByName } : {}),
+    };
+    try {
+      await this.db.send(new TransactWriteCommand({ TransactItems: [
+        { ConditionCheck: { TableName: this.table, Key: accountLinkLockKey(playerId), ConditionExpression: "#sub = :sub", ExpressionAttributeNames: { "#sub": "sub" }, ExpressionAttributeValues: { ":sub": sub } } },
+        { Put: { TableName: this.table, Item: { ...personIdentityKey(sub), type: "person-identity", sub, primaryPlayerId: playerId, ...meta } } },
+        { Put: { TableName: this.table, Item: { ...identityAuditKey(playerId, audit.auditId), type: "identity-audit", ...audit, ...meta } } },
+      ] }));
+    } catch (err) {
+      if (cancellationCodes(err)?.[0] === "ConditionalCheckFailed") throw new ConflictError("That account is not linked to this person.");
+      throw err;
+    }
+    return audit;
+  }
+
+  async unlinkSecondaryAccount(sub: string, anchorPlayerId: string, secondaryPlayerId: string, justification: string, actor: Actor, performedByName?: string): Promise<IdentityAuditRecord> {
+    const linkedIds = await this.linkedAccounts(sub);
+    const explicitPrimary = await this.primaryAccount(sub);
+    const effectivePrimary = explicitPrimary ?? (await this.linkedAccountGroups(linkedIds))[0]?.[0];
+    if (effectivePrimary === secondaryPlayerId) throw new ConflictError("Choose a different main account before unlinking this one.");
+    const now = this.clock();
+    const meta = newItemMeta(actor, now);
+    const audit: IdentityAuditRecord = {
+      auditId: meta.changeId, action: "unlink_secondary", subjectPlayerId: anchorPlayerId, relatedPlayerId: secondaryPlayerId,
+      justification, performedAt: now.toISOString(), performedBy: actor.id, ...(performedByName ? { performedByName } : {}),
+    };
+    try {
+      await this.db.send(new TransactWriteCommand({ TransactItems: [
+        { ConditionCheck: { TableName: this.table, Key: accountLinkLockKey(anchorPlayerId), ConditionExpression: "#sub = :sub", ExpressionAttributeNames: { "#sub": "sub" }, ExpressionAttributeValues: { ":sub": sub } } },
+        { ConditionCheck: { TableName: this.table, Key: personIdentityKey(sub), ConditionExpression: "attribute_not_exists(primaryPlayerId) OR primaryPlayerId <> :secondary", ExpressionAttributeValues: { ":secondary": secondaryPlayerId } } },
+        { Delete: { TableName: this.table, Key: accountLinkLockKey(secondaryPlayerId), ConditionExpression: "#sub = :sub", ExpressionAttributeNames: { "#sub": "sub" }, ExpressionAttributeValues: { ":sub": sub } } },
+        { Delete: { TableName: this.table, Key: loginLinkKey(sub, secondaryPlayerId), ConditionExpression: "attribute_exists(PK)" } },
+        { Put: { TableName: this.table, Item: { ...identityAuditKey(anchorPlayerId, audit.auditId), type: "identity-audit", ...audit, ...meta } } },
+      ] }));
+    } catch (err) {
+      if (cancellationCodes(err)?.some((code, i) => i < 4 && code === "ConditionalCheckFailed")) throw new ConflictError("Those accounts are no longer linked to the same person, or the account is now the main account.");
+      throw err;
+    }
+    return audit;
+  }
+
   /**
    * Game accounts sharing one login represent one person in person-level analytics. The first
    * account linked is the display/main account; gameplay records themselves remain account-owned.
@@ -954,20 +1077,25 @@ export class Repository {
     const wanted = new Set(playerIds);
     if (wanted.size === 0) return [];
     const byLogin = new Map<string, { playerId: string; linkedAt: string }[]>();
+    const primaryByLogin = new Map<string, string>();
     let ExclusiveStartKey: Record<string, unknown> | undefined;
     do {
       const res = await this.db.send(
         new ScanCommand({
           TableName: this.table,
-          FilterExpression: "#type = :type",
+          FilterExpression: "#type IN (:link, :identity)",
           ExpressionAttributeNames: { "#type": "type", "#sub": "sub" },
-          ExpressionAttributeValues: { ":type": "login-link" },
-          ProjectionExpression: "#sub, playerId, createdAt",
+          ExpressionAttributeValues: { ":link": "login-link", ":identity": "person-identity" },
+          ProjectionExpression: "#sub, playerId, primaryPlayerId, createdAt, #type",
           ExclusiveStartKey,
         }),
       );
       for (const item of res.Items ?? []) {
         const sub = typeof item.sub === "string" ? item.sub : undefined;
+        if (sub && item.type === "person-identity" && typeof item.primaryPlayerId === "string") {
+          primaryByLogin.set(sub, item.primaryPlayerId);
+          continue;
+        }
         const playerId = typeof item.playerId === "string" ? item.playerId : undefined;
         if (!sub || !playerId || !wanted.has(playerId)) continue;
         const group = byLogin.get(sub) ?? [];
@@ -976,9 +1104,9 @@ export class Repository {
       }
       ExclusiveStartKey = res.LastEvaluatedKey;
     } while (ExclusiveStartKey);
-    return [...byLogin.values()].map((group) =>
+    return [...byLogin.entries()].map(([sub, group]) =>
       group
-        .toSorted((a, b) => a.linkedAt.localeCompare(b.linkedAt) || a.playerId.localeCompare(b.playerId))
+        .toSorted((a, b) => Number(b.playerId === primaryByLogin.get(sub)) - Number(a.playerId === primaryByLogin.get(sub)) || a.linkedAt.localeCompare(b.linkedAt) || a.playerId.localeCompare(b.playerId))
         .map((entry) => entry.playerId),
     );
   }
@@ -1845,4 +1973,18 @@ function toAccessAudit(item: Record<string, unknown>): AccessAuditRecord {
   if (item.resolvedAt) record.resolvedAt = String(item.resolvedAt);
   if (item.requestedByName) record.requestedByName = String(item.requestedByName);
   return record;
+}
+
+function toIdentityAudit(item: Record<string, unknown>): IdentityAuditRecord {
+  return {
+    auditId: String(item.auditId),
+    action: item.action as IdentityAuditRecord["action"],
+    subjectPlayerId: String(item.subjectPlayerId),
+    ...(typeof item.relatedPlayerId === "string" ? { relatedPlayerId: item.relatedPlayerId } : {}),
+    ...(typeof item.alias === "string" ? { alias: item.alias } : {}),
+    justification: String(item.justification),
+    performedAt: String(item.performedAt),
+    performedBy: String(item.performedBy),
+    ...(typeof item.performedByName === "string" ? { performedByName: item.performedByName } : {}),
+  };
 }

@@ -2739,3 +2739,21 @@ td:nth-child(3) .inline-select {
   .buff-quantity { grid-template-columns: 52px minmax(0, 1fr); align-items: center; }
   .buff-quantity .quantity-stepper { grid-column: 1 / -1; grid-template-columns: 44px 1fr 44px; }
 }
+
+.identity-card { grid-column: 1 / -1; }
+.identity-account-list { list-style: none; padding: 0; margin: 14px 0 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.identity-account-list > li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 13px 14px; background: var(--surface-2); }
+.identity-account-list > li + li { border-top: 1px solid var(--line); }
+.identity-account-copy { display: grid; gap: 3px; min-width: 0; }
+.identity-account-copy > span:first-child { display: flex; align-items: center; gap: 8px; }
+.identity-main-badge { color: var(--good); background: color-mix(in srgb, var(--good) 15%, transparent); }
+.identity-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+.danger-text { color: var(--danger); }
+.identity-audit { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
+.identity-audit summary { color: var(--accent); font-weight: 750; cursor: pointer; }
+.identity-audit .detail-list { margin-top: 10px; }
+
+@media (max-width: 680px) {
+  .identity-account-list > li { align-items: flex-start; flex-direction: column; }
+  .identity-actions { width: 100%; justify-content: flex-start; }
+}

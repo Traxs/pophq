@@ -5,6 +5,7 @@ export function inviteSuggestions(candidates: readonly RosterRow[], query: strin
   if (!q) return [];
   return candidates
     .filter((candidate) => !candidate.hasLogin)
-    .filter((candidate) => candidate.name.toLowerCase().includes(q) || candidate.playerId.includes(q))
+    .filter((candidate) => candidate.name.toLowerCase().includes(q) || candidate.playerId.includes(q)
+      || (candidate.aliases ?? []).some((alias) => alias.toLowerCase().includes(q)))
     .slice(0, 8);
 }
