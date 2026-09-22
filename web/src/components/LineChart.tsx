@@ -16,11 +16,13 @@ export function LineChart({
   label,
   height = 180,
   format = compact,
+  detailFormat = full,
 }: {
   points: ChartPoint[];
   label: string;
   height?: number;
   format?: (n: number) => string;
+  detailFormat?: (n: number) => string;
 }) {
   const id = useId();
   const [active, setActive] = useState<number | null>(null);
@@ -92,7 +94,7 @@ export function LineChart({
         </text>
       </svg>
       <figcaption className="chart-caption">
-        <strong>{full(points[shown]!.value)}</strong>
+        <strong>{detailFormat(points[shown]!.value)}</strong>
         <span className="muted"> · {shortDate(points[shown]!.at)}</span>
       </figcaption>
       <table className="visually-hidden">
@@ -101,7 +103,7 @@ export function LineChart({
           {points.map((p) => (
             <tr key={p.at}>
               <th scope="row">{shortDate(p.at)}</th>
-              <td>{full(p.value)}</td>
+              <td>{detailFormat(p.value)}</td>
             </tr>
           ))}
         </tbody>

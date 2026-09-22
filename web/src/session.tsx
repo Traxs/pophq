@@ -136,6 +136,8 @@ export function SessionProvider({
       issueAgentToken: guard(inner.issueAgentToken),
       revokeAgentToken: guard(inner.revokeAgentToken),
       growth: guard(inner.growth),
+      attendanceGrowth: guard(inner.attendanceGrowth),
+      eventParticipation: guard(inner.eventParticipation),
       events: guard(inner.events),
       event: guard(inner.event),
       createEvent: guard(inner.createEvent),

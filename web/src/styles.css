@@ -965,6 +965,405 @@ button.card {
 
 /* ---------- Members ---------- */
 
+.alliance-growth,
+.roster-section {
+  display: grid;
+  gap: 12px;
+}
+
+.alliance-growth-head,
+.roster-head,
+.metric-card-head,
+.member-profile-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.alliance-growth-head h2,
+.roster-head h2,
+.member-detail-card h2 {
+  font-size: 1.05rem;
+}
+
+.alliance-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 12px;
+}
+
+.alliance-chart-card {
+  min-height: 250px;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.attendance-chart-link {
+  cursor: pointer;
+  transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+
+.attendance-chart-link:hover,
+.attendance-chart-link:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 65%, var(--line));
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.attendance-chart-link:active {
+  transform: translateY(1px);
+}
+
+.attendance-chart-cta {
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.metric-card-head > div,
+.member-metric {
+  display: grid;
+  gap: 3px;
+}
+
+.metric-total {
+  font-size: 1.6rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.time-range {
+  flex: 0 0 auto;
+}
+
+.time-range button {
+  min-width: 48px;
+}
+
+.roster-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(210px, auto);
+  gap: 10px;
+}
+
+.filter-select select {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 42px 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  appearance: none;
+  background-color: var(--surface);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='m3 6 5 5 5-5' stroke='%2393a7b9' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: right 14px center;
+  background-repeat: no-repeat;
+  color: var(--ink);
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.filter-select select:hover,
+.inline-select:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+}
+
+.filter-select select:focus-visible,
+.inline-select:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.member-link {
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.member-link:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.roster-strength {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.back-link {
+  width: fit-content;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.member-profile-head {
+  justify-content: flex-start;
+}
+
+.avatar-large {
+  width: 56px;
+  height: 56px;
+  font-size: 1rem;
+}
+
+.member-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.member-metric strong {
+  font-size: 1.45rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.member-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.member-detail-card {
+  display: grid;
+  gap: 12px;
+}
+
+.detail-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.detail-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.detail-list li:last-child {
+  border-bottom: 0;
+}
+
+.detail-list li > span:first-child,
+.report-values {
+  display: grid;
+  gap: 2px;
+}
+
+.attendance-page-head > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.event-type-tabs {
+  max-width: 520px;
+}
+
+.attendance-overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.attendance-trend-card {
+  display: grid;
+  gap: 10px;
+}
+
+.attendance-category-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.attendance-category {
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  min-height: 96px;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.attendance-category:hover {
+  border-color: var(--accent);
+}
+
+.attendance-members {
+  display: grid;
+  gap: 12px;
+}
+
+.participation-list {
+  padding: 0;
+  overflow: hidden;
+}
+
+.participation-row {
+  display: grid;
+  grid-template-columns: minmax(210px, 1fr) minmax(170px, auto) auto;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  min-height: 68px;
+  padding: 10px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.participation-row:last-child {
+  border-bottom: 0;
+}
+
+.participation-row:hover {
+  background: var(--surface-2);
+}
+
+.participation-numbers {
+  display: grid;
+  gap: 1px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.participation-always {
+  background: var(--up-soft);
+  color: var(--up);
+}
+
+.participation-never {
+  background: var(--down-soft);
+  color: var(--down);
+}
+
+.participation-sometimes {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.growth-detail-chart {
+  display: grid;
+  gap: 10px;
+}
+
+.growth-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.growth-leaderboards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.growth-list-card,
+.missing-growth-card {
+  display: grid;
+  gap: 12px;
+}
+
+.growth-list-card h2,
+.missing-growth-card h2 {
+  font-size: 1.05rem;
+}
+
+.growth-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.growth-list li {
+  border-bottom: 1px solid var(--line);
+}
+
+.growth-list li:last-child {
+  border-bottom: 0;
+}
+
+.growth-list button {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 58px;
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.growth-list button:hover strong,
+.missing-member-grid button:hover strong {
+  color: var(--accent);
+}
+
+.growth-rank {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.missing-member-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 8px;
+}
+
+.missing-member-grid button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.missing-member-grid button > span:last-child {
+  display: grid;
+}
+
+.report-values {
+  text-align: right;
+  font-size: 0.8rem;
+}
+
 .tiles {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1133,6 +1532,62 @@ th[aria-sort="descending"] .th-btn {
 
 .table-empty {
   padding: 20px;
+}
+
+@media (max-width: 720px) {
+  .alliance-chart-grid,
+  .member-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .roster-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .attendance-overview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .growth-leaderboards {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .alliance-growth-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .attendance-page-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .member-metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .growth-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .alliance-chart-card {
+    min-height: 230px;
+  }
+
+  .participation-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .participation-row > .badge {
+    grid-column: 2;
+  }
+
+  .participation-numbers {
+    grid-row: span 2;
+  }
 }
 
 /* ---------- Dev tools ---------- */
@@ -1629,7 +2084,28 @@ th[aria-sort="descending"] .th-btn {
 }
 /* A control that has to sit inside a table cell without bulking the row. */
 .inline-select {
-  min-width: 4.5rem;
-  padding: 2px 6px;
+  min-width: 4.75rem;
+  min-height: 36px;
+  padding: 0 34px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  appearance: none;
+  background-color: var(--surface-2);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='m3 6 5 5 5-5' stroke='%2393a7b9' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: right 10px center;
+  background-repeat: no-repeat;
+  color: var(--ink);
   font-size: 0.85rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.inline-select:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+td:nth-child(3) .inline-select {
+  min-width: 8.25rem;
 }

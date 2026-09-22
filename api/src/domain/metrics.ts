@@ -39,6 +39,49 @@ export interface AllianceGrowth {
   missing: { playerId: string; name: string }[];
 }
 
+export interface EventAttendanceSample {
+  eventId: string;
+  at: string;
+  present: number;
+  absent: number;
+}
+
+export interface AttendancePoint {
+  /** End of the weekly bucket. */
+  at: string;
+  /** Percentage of checked member-event records marked present. */
+  value: number;
+  /** Events in this week with at least one checked attendance record. */
+  events: number;
+  /** Present plus absent records behind this week's observation. */
+  records: number;
+}
+
+/**
+ * Weekly alliance attendance. Empty weeks retain the last observed rate instead of becoming
+ * zero. Excused and unknown records are excluded before this function receives the samples.
+ */
+export function allianceAttendance(samples: readonly EventAttendanceSample[], ends: readonly string[]): AttendancePoint[] {
+  if (ends.length === 0) return [];
+  const weekMs = 7 * 24 * 60 * 60 * 1000;
+  const firstStart = new Date(Date.parse(ends[0]!) - weekMs).toISOString();
+  const ordered = samples.toSorted((a, b) => a.at.localeCompare(b.at));
+  const prior = ordered.filter((sample) => sample.at <= firstStart && sample.present + sample.absent > 0).at(-1);
+  let previous = prior ? (prior.present / (prior.present + prior.absent)) * 100 : 0;
+  let bucketStart = firstStart;
+
+  return ends.map((at) => {
+    const inWeek = ordered.filter(
+      (sample) => sample.at > bucketStart && sample.at <= at && sample.present + sample.absent > 0,
+    );
+    const present = inWeek.reduce((sum, sample) => sum + sample.present, 0);
+    const records = inWeek.reduce((sum, sample) => sum + sample.present + sample.absent, 0);
+    if (records > 0) previous = (present / records) * 100;
+    bucketStart = at;
+    return { at, value: Number(previous.toFixed(1)), events: inWeek.length, records };
+  });
+}
+
 /** The value of a series at a moment: the latest point at or before it. */
 export function valueAt(points: readonly { at: string; value: number }[], at: string): number | undefined {
   let best: { at: string; value: number } | undefined;

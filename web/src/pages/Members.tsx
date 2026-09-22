@@ -1,31 +1,30 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { ApiError, type AllianceGrowth, type InviteResult, type RosterRow, type Seats, type StrengthMetric } from "../api";
+import {
+  ApiError,
+  type AllianceAttendanceGrowth,
+  type AllianceGrowth,
+  type InviteResult,
+  type RosterRow,
+  type Seats,
+  type StrengthMetric,
+} from "../api";
 import { ErrorBanner } from "../components/Chrome";
 import { LineChart } from "../components/LineChart";
 import { Sheet } from "../components/Sheet";
 import { useToast } from "../components/Toast";
-import { change, compact, daysBetween, full, initials, relativeDay } from "../format";
+import { compact, full, initials } from "../format";
 import { summarise } from "../invites";
-import { isReportOverdue, isValidEmail, isValidGameName, isValidPlayerId } from "../rules";
+import { isValidEmail, isValidGameName, isValidPlayerId } from "../rules";
+import { navigate } from "../router";
 import { useSession } from "../session";
 
-type SortKey = "name" | "rank" | "power" | "change" | "lastReport" | "foundry" | "lastFoundry" | "attendance";
-type View = "foundry" | "city";
-type Filter = "all" | "overdue" | "none" | "noFoundry" | "noAttendance";
-
-const ageDays = (at: string | null) => (at ? daysBetween(new Date(at), new Date()) : Infinity);
-const pct = (r: RosterRow) => (r.power !== null ? change(r.power, r.previousPower ?? undefined)?.percent : undefined);
-const attendanceRate = (r: RosterRow) => r.attendance.rate ?? -1;
+type SortKey = "name" | "rank" | "foundry";
+type Filter = "all" | "active" | "unknown" | "transferred_out" | "noFoundry";
 
 const COMPARE: Record<SortKey, (a: RosterRow, b: RosterRow) => number> = {
   name: (a, b) => a.name.localeCompare(b.name),
   rank: (a, b) => (b.rank ?? "").localeCompare(a.rank ?? "") || a.name.localeCompare(b.name),
-  power: (a, b) => (b.power ?? -1) - (a.power ?? -1),
   foundry: (a, b) => (b.foundryStrength ?? -1) - (a.foundryStrength ?? -1),
-  attendance: (a, b) => attendanceRate(b) - attendanceRate(a) || b.attendance.sample - a.attendance.sample,
-  change: (a, b) => (pct(b) ?? -Infinity) - (pct(a) ?? -Infinity),
-  lastReport: (a, b) => ageDays(b.lastReportAt) - ageDays(a.lastReportAt),
-  lastFoundry: (a, b) => ageDays(b.lastFoundryReportAt) - ageDays(a.lastFoundryReportAt),
 };
 
 export function Members() {
@@ -35,7 +34,6 @@ export function Members() {
   const [inviting, setInviting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [view, setView] = useState<View>("foundry");
   const [filter, setFilter] = useState<Filter>("all");
   const [sort, setSort] = useState<SortKey>("foundry");
   const [attempt, setAttempt] = useState(0);
@@ -58,10 +56,8 @@ export function Members() {
     return rows
       .filter((r) => !q || r.name.toLowerCase().includes(q) || r.playerId.includes(q))
       .filter((r) => {
-        if (filter === "overdue") return isReportOverdue(r.lastReportAt);
-        if (filter === "none") return r.lastReportAt === null;
         if (filter === "noFoundry") return r.foundryStrength === null;
-        if (filter === "noAttendance") return r.attendance.sample === 0;
+        if (filter !== "all") return r.status === filter;
         return true;
       })
       .toSorted(COMPARE[sort]);
@@ -76,20 +72,14 @@ export function Members() {
     );
   }
 
-  const total = rows?.reduce((s, r) => s + (r.power ?? 0), 0) ?? 0;
-  // Overdue includes members who never reported; "No report" is the subset without any report.
-  const overdue = rows?.filter((r) => isReportOverdue(r.lastReportAt)).length ?? 0;
-  const noReport = rows?.filter((r) => r.lastReportAt === null).length ?? 0;
-  const foundryReported = rows?.filter((r) => r.foundryStrength !== null).length ?? 0;
-  const noFoundry = (rows?.length ?? 0) - foundryReported;
-  const attendanceTracked = rows?.filter((r) => r.attendance.sample > 0).length ?? 0;
-  const noAttendance = (rows?.length ?? 0) - attendanceTracked;
-
-  const changeView = (next: View) => {
-    setView(next);
-    setFilter("all");
-    setSort(next === "foundry" ? "foundry" : "power");
-  };
+  const counts = rows?.reduce(
+    (result, row) => ({
+      ...result,
+      [row.status]: (result[row.status] ?? 0) + 1,
+      noFoundry: (result.noFoundry ?? 0) + (row.foundryStrength === null ? 1 : 0),
+    }),
+    { active: 0, unknown: 0, transferred_out: 0, guest: 0, noFoundry: 0 } as Record<string, number>,
+  );
 
   const header = (key: SortKey, label: string, className = "") => (
     <th scope="col" className={className} aria-sort={sort === key ? (key === "name" ? "ascending" : "descending") : "none"}>
@@ -111,43 +101,7 @@ export function Members() {
 
       {error && <ErrorBanner message={error} onRetry={() => setAttempt((n) => n + 1)} />}
 
-      <div className="tiles">
-        <div className="card tile">
-          <span className="tile-label">Members</span>
-          <span className="tile-value">{rows ? rows.length : "–"}</span>
-        </div>
-        {view === "foundry" ? (
-          <>
-            <button type="button" className="card tile" onClick={() => setFilter(noFoundry ? "noFoundry" : "all")}>
-              <span className="tile-label">Foundry strength</span>
-              <span className="tile-value">{rows ? `${foundryReported}/${rows.length}` : "–"}</span>
-            </button>
-            <button type="button" className="card tile" onClick={() => setFilter(noAttendance ? "noAttendance" : "all")}>
-              <span className="tile-label">Attendance tracked</span>
-              <span className="tile-value">{rows ? `${attendanceTracked}/${rows.length}` : "–"}</span>
-            </button>
-          </>
-        ) : (
-          <>
-            <div className="card tile">
-              <span className="tile-label">Total city power</span>
-              <span className="tile-value">{rows ? compact(total) : "–"}</span>
-            </div>
-            <button type="button" className="card tile tile-warn" onClick={() => setFilter("overdue")}>
-              <span className="tile-label">Power overdue</span>
-              <span className="tile-value">{rows ? overdue : "–"}</span>
-            </button>
-          </>
-        )}
-      </div>
-
-      <AllianceChart key={view} metric={view === "foundry" ? "foundry_strength" : "city_power"} />
-
-      {seats && (
-        <p className="muted small">
-          {seats.used} of {seats.cap} sign-in seats used. An alt account doesn't use an extra seat.
-        </p>
-      )}
+      <AllianceCharts />
 
       <Sheet open={inviting} title="Invite a member" onClose={() => setInviting(false)}>
         <InviteForm
@@ -158,72 +112,53 @@ export function Members() {
         />
       </Sheet>
 
-      <div className="toolbar">
-        <input
-          type="search"
-          className="search"
-          placeholder="Search name or Player ID"
-          aria-label="Search members"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        <div className="segmented" role="radiogroup" aria-label="Member data">
-          <button type="button" role="radio" aria-checked={view === "foundry"} onClick={() => changeView("foundry")}>
-            Foundry & attendance
-          </button>
-          <button type="button" role="radio" aria-checked={view === "city"} onClick={() => changeView("city")}>
-            City power
-          </button>
+      <section className="roster-section" aria-labelledby="roster-title">
+        <div className="roster-head">
+          <div>
+            <h2 id="roster-title">Roster</h2>
+            <p className="muted small">
+              {rows ? `${rows.length} alliance accounts` : "Loading accounts…"}
+              {seats && ` · ${seats.used} of ${seats.cap} sign-in seats used`}
+            </p>
+          </div>
         </div>
-        <div className="segmented" role="radiogroup" aria-label="Filter">
-          {(view === "foundry"
-            ? ([
-                ["all", "All"],
-                ["noFoundry", `Missing strength${noFoundry ? ` (${noFoundry})` : ""}`],
-                ["noAttendance", `No attendance${noAttendance ? ` (${noAttendance})` : ""}`],
-              ] as [Filter, string][])
-            : ([
-                ["all", "All"],
-                ["overdue", `Overdue${overdue ? ` (${overdue})` : ""}`],
-                ["none", `No power${noReport ? ` (${noReport})` : ""}`],
-              ] as [Filter, string][])
-          ).map(([key, label]) => (
-            <button key={key} type="button" role="radio" aria-checked={filter === key} onClick={() => setFilter(key)}>
-              {label}
-            </button>
-          ))}
+        <div className="roster-toolbar">
+          <input
+            type="search"
+            className="search"
+            placeholder="Search name or Player ID"
+            aria-label="Search members"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <label className="filter-select">
+            <span className="visually-hidden">Filter roster</span>
+            <select value={filter} onChange={(e) => setFilter(e.target.value as Filter)}>
+              <option value="all">All accounts ({rows?.length ?? 0})</option>
+              <option value="active">Confirmed members ({counts?.active ?? 0})</option>
+              <option value="unknown">Unconfirmed ({counts?.unknown ?? 0})</option>
+              <option value="transferred_out">Former members ({counts?.transferred_out ?? 0})</option>
+              <option value="noFoundry">Missing Foundry strength ({counts?.noFoundry ?? 0})</option>
+            </select>
+          </label>
         </div>
-      </div>
 
-      {!rows && !error ? (
-        <div className="card skeleton" style={{ height: 320 }} />
-      ) : (
-        <div className="card table-card">
-          <div className="table-scroll">
-            <table className="table">
+        {!rows && !error ? (
+          <div className="card skeleton" style={{ height: 320 }} />
+        ) : (
+          <div className="card table-card">
+            <div className="table-scroll">
+              <table className="table">
               <thead>
                 <tr>
                   {header("name", "Member")}
                   {header("rank", "Rank")}
-                  {isOfficer && <th scope="col">Membership</th>}
-                  {view === "foundry" ? (
-                    <>
-                      {header("foundry", "Foundry strength", "num")}
-                      {header("lastFoundry", "Strength report")}
-                      {header("attendance", "Attendance")}
-                    </>
-                  ) : (
-                    <>
-                      {header("power", "City power", "num")}
-                      {header("change", "Change", "num")}
-                      {header("lastReport", "Power report")}
-                    </>
-                  )}
+                  <th scope="col">Membership</th>
+                  {header("foundry", "Foundry strength", "num")}
                 </tr>
               </thead>
               <tbody>
                 {visible.map((r) => {
-                  const p = pct(r);
                   return (
                     <tr key={r.playerId}>
                       <td>
@@ -232,66 +167,28 @@ export function Members() {
                             {initials(r.name)}
                           </span>
                           <span className="member-text">
-                            <strong>{r.name}</strong>
+                            <button type="button" className="member-link" onClick={() => navigate(`/members/${r.playerId}`)}>
+                              {r.name}
+                            </button>
                             <span className="muted small">{r.playerId}</span>
                           </span>
                         </span>
                       </td>
                       <td>{isOfficer ? <RankPicker row={r} /> : (r.rank ?? "–")}</td>
-                      {isOfficer && (
-                        <td>
-                          <StatusPicker row={r} />
-                        </td>
-                      )}
-                      {view === "foundry" ? (
-                        <>
-                          <td className="num">{r.foundryStrength !== null ? full(r.foundryStrength) : "–"}</td>
-                          <td>
-                            {r.lastFoundryReportAt ? (
-                              <span className="badge">{relativeDay(r.lastFoundryReportAt)}</span>
-                            ) : (
-                              <span className="badge badge-none">never</span>
-                            )}
-                          </td>
-                          <td>
-                            {r.attendance.rate === undefined ? (
-                              <span className="badge badge-none">not tracked</span>
-                            ) : (
-                              <span className="attendance-summary">
-                                <strong>{Math.round(r.attendance.rate * 100)}%</strong>
-                                <span className="muted small">
-                                  {r.attendance.attended} came
-                                  {r.attendance.noShows > 0 && ` · ${r.attendance.noShows} no-show`}
-                                  {r.attendance.unregistered > 0 && ` · ${r.attendance.unregistered} silent`}
-                                </span>
-                              </span>
-                            )}
-                          </td>
-                        </>
-                      ) : (
-                        <>
-                          <td className="num">{r.power !== null ? full(r.power) : "–"}</td>
-                          <td className={`num ${p === undefined ? "" : p > 0 ? "delta-up" : p < 0 ? "delta-down" : ""}`}>
-                            {p === undefined ? "–" : `${p > 0 ? "+" : p < 0 ? "−" : ""}${Math.abs(p).toFixed(1)}%`}
-                          </td>
-                          <td>
-                            {r.lastReportAt ? (
-                              <span className={isReportOverdue(r.lastReportAt) ? "badge badge-warn" : "badge"}>{relativeDay(r.lastReportAt)}</span>
-                            ) : (
-                              <span className="badge badge-none">never</span>
-                            )}
-                          </td>
-                        </>
-                      )}
+                      <td>
+                        <StatusPicker row={r} />
+                      </td>
+                      <td className="num roster-strength">{r.foundryStrength !== null ? full(r.foundryStrength) : "–"}</td>
                     </tr>
                   );
                 })}
               </tbody>
-            </table>
+              </table>
+            </div>
+            {visible.length === 0 && <p className="muted center table-empty">No members match.</p>}
           </div>
-          {visible.length === 0 && <p className="muted center table-empty">No members match.</p>}
-        </div>
-      )}
+        )}
+      </section>
     </>
   );
 }
@@ -515,40 +412,18 @@ function InviteForm({ onDone }: { onDone: () => void }) {
   );
 }
 
-/** Alliance growth over time with the movers behind it (MET-01, officers only). */
-function AllianceChart({ metric }: { metric: StrengthMetric }) {
-  const { api, dataVersion } = useSession();
-  const [growth, setGrowth] = useState<AllianceGrowth | null>(null);
+function AllianceCharts() {
+  const { account } = useSession();
   const [weeks, setWeeks] = useState(12);
-  // Historical imports are alliance data even before every account has a confirmed membership
-  // status. Foundry totals therefore include them by default; city-power totals stay conservative.
-  const [cohort, setCohort] = useState<"members" | "all">(metric === "foundry_strength" ? "all" : "members");
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    api
-      .growth(weeks, metric, cohort)
-      .then((g) => {
-        setGrowth(g);
-        setError(null);
-      })
-      .catch((e: Error) => setError(e.message));
-  }, [api, weeks, metric, cohort, dataVersion]);
-
-  if (error) return <ErrorBanner message={error} onRetry={() => setWeeks((w) => w)} />;
-  if (!growth) return <div className="card skeleton" style={{ height: 160 }} />;
-
-  const last = growth.points.at(-1);
-  const first = growth.points[0];
-  const change = first && last && first.total > 0 ? ((last.total - first.total) / first.total) * 100 : undefined;
-
+  const canViewAttendance = account?.rank === "R4" || account?.rank === "R5";
   return (
-    <section className="card stack" aria-labelledby="growth-title">
-      <div className="event-head">
-        <h2 id="growth-title" className="section-label">
-          Alliance {metric === "foundry_strength" ? "Foundry strength" : "power"}
-        </h2>
-        <div className="segmented" role="radiogroup" aria-label="Time range">
+    <section className="alliance-growth" aria-labelledby="alliance-growth-title">
+      <div className="alliance-growth-head">
+        <div>
+          <h2 id="alliance-growth-title">Alliance growth</h2>
+          <p className="muted small">Every current alliance account with a report is included.</p>
+        </div>
+        <div className="segmented time-range" role="radiogroup" aria-label="Time range">
           {[4, 12, 26].map((w) => (
             <button key={w} type="button" role="radio" aria-checked={weeks === w} onClick={() => setWeeks(w)}>
               {w}w
@@ -556,45 +431,135 @@ function AllianceChart({ metric }: { metric: StrengthMetric }) {
           ))}
         </div>
       </div>
+      <div className="alliance-chart-grid">
+        <AllianceChart metric="city_power" weeks={weeks} />
+        <AllianceChart metric="foundry_strength" weeks={weeks} />
+        {canViewAttendance && <AllianceAttendanceChart weeks={weeks} />}
+      </div>
+    </section>
+  );
+}
+
+function AllianceAttendanceChart({ weeks }: { weeks: number }) {
+  const { api, dataVersion } = useSession();
+  const [growth, setGrowth] = useState<AllianceAttendanceGrowth | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    api
+      .attendanceGrowth(weeks)
+      .then((result) => {
+        setGrowth(result);
+        setError(null);
+      })
+      .catch((e: Error) => setError(e.message));
+  }, [api, weeks, dataVersion, attempt]);
+
+  if (error) return <ErrorBanner message={error} onRetry={() => setAttempt((n) => n + 1)} />;
+  if (!growth) return <div className="card skeleton alliance-chart-card" />;
+
+  const last = growth.points.at(-1);
+  const observed = growth.points.filter((point) => point.events > 0);
+  const change = observed.length > 1 ? observed.at(-1)!.value - observed[0]!.value : undefined;
+  const percent = (value: number) => `${value.toFixed(1)}%`;
+
+  return (
+    <section
+      className="card alliance-chart-card attendance-chart-link"
+      aria-label="Alliance event attendance. Open detailed analytics."
+      role="link"
+      tabIndex={0}
+      onClick={() => navigate("/members/attendance")}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") navigate("/members/attendance");
+      }}
+    >
+      <div className="metric-card-head">
+        <div>
+          <span className="section-label">Event attendance</span>
+          <strong className="metric-total">{last ? percent(last.value) : "–"}</strong>
+        </div>
+        {change !== undefined && change !== 0 && (
+          <span className={`pill ${change > 0 ? "pill-up" : "pill-down"}`}>
+            {change > 0 ? "+" : ""}{change.toFixed(1)} pts
+          </span>
+        )}
+      </div>
+      <LineChart
+        points={growth.points}
+        height={140}
+        label="Average alliance event attendance week over week"
+        format={percent}
+        detailFormat={percent}
+      />
+      <p className="muted small">
+        {last?.events
+          ? `${last.events} event${last.events === 1 ? "" : "s"} this week · ${last.records} checked records`
+          : "No event this week · carrying the last attendance rate"}
+      </p>
+      <span className="attendance-chart-cta">View by event and member →</span>
+    </section>
+  );
+}
+
+/** One alliance-wide metric. Both cards deliberately use the same cohort and time range. */
+function AllianceChart({ metric, weeks }: { metric: StrengthMetric; weeks: number }) {
+  const { api, dataVersion } = useSession();
+  const [growth, setGrowth] = useState<AllianceGrowth | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    api
+      .growth(weeks, metric, "all")
+      .then((g) => {
+        setGrowth(g);
+        setError(null);
+      })
+      .catch((e: Error) => setError(e.message));
+  }, [api, weeks, metric, dataVersion, attempt]);
+
+  if (error) return <ErrorBanner message={error} onRetry={() => setAttempt((n) => n + 1)} />;
+  if (!growth) return <div className="card skeleton alliance-chart-card" />;
+
+  const last = growth.points.at(-1);
+  const first = growth.points[0];
+  const change = first && last && first.total > 0 ? ((last.total - first.total) / first.total) * 100 : undefined;
+
+  return (
+    <section
+      className="card alliance-chart-card attendance-chart-link"
+      aria-label={`${metric === "foundry_strength" ? "Foundry strength" : "City power"}. Open growth analytics.`}
+      role="link"
+      tabIndex={0}
+      onClick={() => navigate(`/members/growth/${metric}`)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") navigate(`/members/growth/${metric}`);
+      }}
+    >
+      <div className="metric-card-head">
+        <div>
+          <span className="section-label">{metric === "foundry_strength" ? "Foundry strength" : "City power"}</span>
+          <strong className="metric-total">{last ? full(last.total) : "–"}</strong>
+        </div>
+        {change !== undefined && (
+          <span className={`pill ${change >= 0 ? "pill-up" : "pill-down"}`}>
+            {change >= 0 ? "+" : ""}{change.toFixed(1)}%
+          </span>
+        )}
+      </div>
 
       <LineChart
         points={growth.points.map((p) => ({ at: p.at, value: p.total }))}
-        label={`Total alliance ${metric === "foundry_strength" ? "Foundry strength" : "power"} over time`}
+        height={140}
+        label={`Total alliance ${metric === "foundry_strength" ? "Foundry strength" : "city power"} over time`}
       />
       <p className="muted small">
-        {last ? `${compact(last.total)} across ${last.members} members` : "No data yet"}
-        {change !== undefined && ` · ${change >= 0 ? "+" : ""}${change.toFixed(1)}% over ${weeks} weeks`}
+        {last ? `${last.members} accounts reporting · ${compact(last.average)} average` : "No reports yet"}
+        {growth.missing.length > 0 && ` · ${growth.missing.length} missing`}
       </p>
-
-      {growth.gainers.length > 0 && (
-        <>
-          <h3 className="section-label">Top growth</h3>
-          <ul className="movers">
-            {growth.gainers.slice(0, 5).map((m) => (
-              <li key={m.playerId} className="mover">
-                <span>{m.name}</span>
-                <span className="pill pill-up">+{m.percent}%</span>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-
-      {(growth.stalled.length > 0 || growth.missing.length > 0) && (
-        <p className="muted small">
-          {growth.stalled.length > 0 && `${growth.stalled.length} not growing`}
-          {growth.stalled.length > 0 && growth.missing.length > 0 && " · "}
-          {growth.missing.length > 0 && `${growth.missing.length} without any report`}
-        </p>
-      )}
-
-      {growth.unknownMembership > 0 && (
-        <button type="button" className="text-btn" onClick={() => setCohort(cohort === "all" ? "members" : "all")}>
-          {cohort === "all"
-            ? `Including ${growth.unknownMembership} imported alliance accounts — confirmed members only`
-            : `${growth.unknownMembership} imported alliance accounts are not counted — include them`}
-        </button>
-      )}
+      <span className="attendance-chart-cta">View movers and non-movers →</span>
     </section>
   );
 }

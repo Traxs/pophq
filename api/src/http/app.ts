@@ -38,7 +38,7 @@ import { HISTORICAL_CATEGORIES, parseHistoricalRecord, type HistoricalCategory }
 import { authenticateAgent, effectiveBotScopes, publicAgentToken, type BotIssuerGroups } from "./agentAuth.js";
 import { listEventTypes } from "../ops/eventTypes.js";
 import { parsePlayerId } from "../domain/identity.js";
-import { allianceGrowth, buckets, currentOf, seriesOf } from "../domain/metrics.js";
+import { allianceAttendance, allianceGrowth, buckets, currentOf, seriesOf } from "../domain/metrics.js";
 import { monthlyAttendance, monthlyValues, trailingAverage } from "../domain/trends.js";
 import { currentValues, parseImportedReport, parseReport } from "../domain/measurements.js";
 import {
@@ -809,6 +809,94 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       alliance,
       cohort,
       unknownMembership: unknown.length,
+    });
+  });
+
+  /** Alliance-wide weekly attendance for the R4/R5 members view. */
+  app.get("/metrics/alliance-attendance", async (c) => {
+    requireOfficer(c.get("principal"));
+    const alliance = (c.req.query("alliance") ?? "POP").toUpperCase();
+    const weeks = Math.min(Math.max(Number(c.req.query("weeks") ?? 12) || 12, 2), 52);
+    const events = (await repo.listEvents(alliance, "1970-01-01T00:00:00.000Z", 500)).filter(
+      (event) => Date.parse(event.startsAt) <= now().getTime(),
+    );
+    const samples = await Promise.all(
+      events.map(async (event) => {
+        const attendance = await repo.listAttendance(event.eventId);
+        return {
+          eventId: event.eventId,
+          at: event.startsAt,
+          present: attendance.filter((record) => record.status === "present").length,
+          absent: attendance.filter((record) => record.status === "absent").length,
+        };
+      }),
+    );
+    return c.json({ alliance, weeks, points: allianceAttendance(samples, buckets(now(), weeks)) });
+  });
+
+  /** Per-event-type participation: who turns up consistently, sometimes, or never. */
+  app.get("/metrics/event-participation", async (c) => {
+    requireOfficer(c.get("principal"));
+    const alliance = (c.req.query("alliance") ?? "POP").toUpperCase();
+    const requestedKind = c.req.query("kind") ?? "foundry";
+    const kind = EVENT_KINDS.includes(requestedKind as EventKind) ? (requestedKind as EventKind) : "foundry";
+    const weeks = Math.min(Math.max(Number(c.req.query("weeks") ?? 12) || 12, 2), 52);
+    const events = (await repo.listEvents(alliance, "1970-01-01T00:00:00.000Z", 500))
+      .filter((event) => event.kind === kind && Date.parse(event.startsAt) <= now().getTime())
+      .toSorted((a, b) => a.startsAt.localeCompare(b.startsAt));
+    const eventData = await Promise.all(
+      events.map(async (event) => {
+        const attendance = await repo.listAttendance(event.eventId);
+        return { event, attendance };
+      }),
+    );
+    // A partially or wholly unreviewed event cannot say anything about somebody's habits.
+    const tracked = eventData.filter(({ attendance }) =>
+      attendance.some((record) => record.status === "present" || record.status === "absent"),
+    );
+    const accounts = (await repo.listAccounts(alliance)).filter(
+      (account) => account.status === "active" || account.status === "unknown",
+    );
+    const members = accounts.map((account) => {
+      let attended = 0;
+      let considered = 0;
+      let lastAttendedAt: string | undefined;
+      for (const { event, attendance } of tracked) {
+        const own = attendance.find((record) => record.playerId === account.playerId);
+        const eligible = !account.createdAt || event.startsAt >= account.createdAt || own !== undefined;
+        if (!eligible || own?.status === "excused" || own?.status === "unknown") continue;
+        considered += 1;
+        if (own?.status === "present") {
+          attended += 1;
+          lastAttendedAt = event.startsAt;
+        }
+      }
+      const rate = considered > 0 ? attended / considered : undefined;
+      const category = rate === undefined ? "no_history" : rate === 1 ? "always" : rate === 0 ? "never" : "sometimes";
+      return {
+        playerId: account.playerId,
+        name: account.name,
+        rank: account.rank,
+        attended,
+        events: considered,
+        ...(rate === undefined ? {} : { rate }),
+        category,
+        ...(lastAttendedAt ? { lastAttendedAt } : {}),
+      };
+    });
+    const samples = tracked.map(({ event, attendance }) => ({
+      eventId: event.eventId,
+      at: event.startsAt,
+      present: attendance.filter((record) => record.status === "present").length,
+      absent: attendance.filter((record) => record.status === "absent").length,
+    }));
+    return c.json({
+      alliance,
+      kind,
+      weeks,
+      eventCount: tracked.length,
+      points: allianceAttendance(samples, buckets(now(), weeks)),
+      members,
     });
   });
 
