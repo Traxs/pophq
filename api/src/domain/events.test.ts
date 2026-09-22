@@ -24,6 +24,38 @@ describe("parseNewEvent", () => {
     expect(e.title).toBe("Foundry Saturday");
   });
 
+  it("closes monthly SVS and KOI signups three hours before start", () => {
+    const event = parseNewEvent(
+      { kind: "koi", title: "King of Icefield", startsAt: "2026-09-27T12:00:00Z" },
+      ctx,
+    );
+    expect(event.kind).toBe("koi");
+    expect(event.deadlineAt).toBe("2026-09-27T09:00:00.000Z");
+    expect(parseNewEvent({ kind: "svs", title: "State versus state", startsAt: "2026-09-27T12:00:00Z" }, ctx).deadlineAt)
+      .toBe("2026-09-27T09:00:00.000Z");
+  });
+
+  it("accepts an explicit hourly cutoff and refuses two cutoff units", () => {
+    expect(
+      parseNewEvent(
+        { kind: "fdt", title: "Frostfire Mine", startsAt: "2026-09-27T12:00:00Z", answersCloseHoursBefore: 3 },
+        ctx,
+      ).deadlineAt,
+    ).toBe("2026-09-27T09:00:00.000Z");
+    expect(() =>
+      parseNewEvent(
+        {
+          kind: "koi",
+          title: "King of Icefield",
+          startsAt: "2026-09-27T12:00:00Z",
+          answersCloseDaysBefore: 1,
+          answersCloseHoursBefore: 3,
+        },
+        ctx,
+      ),
+    ).toThrow(ValidationError);
+  });
+
   it("uses the officer's day when they are not on UTC", () => {
     // Berlin is two hours ahead in September: their end of the 24th is 21:59:59.999Z.
     const e = parseNewEvent(

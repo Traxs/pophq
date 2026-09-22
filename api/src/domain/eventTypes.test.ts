@@ -63,11 +63,12 @@ describe("STARTER_TYPES", () => {
     expect(byId("foundry").sessions.map((s) => s.label)).toEqual(["Legion 1", "Legion 2"]);
   });
 
-  it("asks SvS and FDT how much of the event someone can give", () => {
-    for (const id of ["svs", "fdt"]) {
+  it("asks SvS, KOI and FDT how much of the event someone can give", () => {
+    for (const id of ["svs", "koi", "fdt"]) {
       expect(byId(id).sessions.map((s) => s.label)).toEqual(["Full time", "First half", "Last half"]);
       expect(byId(id).sessions.map((s) => s.id)).toEqual(["full", "first", "last"]);
     }
+    expect(byId("koi")).toMatchObject({ name: "King of Icefield (KOI)", leadDays: 3 });
   });
 
   it("leaves Canyon and Tundra League without parts, so they are a plain are-you-in", () => {

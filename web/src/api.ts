@@ -271,7 +271,7 @@ export interface FortressBuffDetail extends FortressBuffPool {
   candidates: FortressBuffCandidate[];
 }
 
-export type EventKind = "foundry" | "svs" | "fdt" | "canyon" | "tundra" | "bear" | "other";
+export type EventKind = "foundry" | "svs" | "koi" | "fdt" | "canyon" | "tundra" | "bear" | "other";
 export type Answer = "yes" | "no" | "maybe";
 
 export interface EventSession {
@@ -541,6 +541,8 @@ export interface NewEvent {
   sessions?: { id?: string; label: string; startsAt: string }[];
   /** Whole days before the start; the deadline is the end of that day in the officer's time zone. */
   answersCloseDaysBefore?: number;
+  /** Exact hours before the start, for same-day cutoffs such as SvS and KOI. */
+  answersCloseHoursBefore?: number;
   timeZoneOffsetMinutes?: number;
   deadlineAt?: string;
   notes?: string;

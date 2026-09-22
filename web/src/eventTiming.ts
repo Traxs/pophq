@@ -9,6 +9,11 @@ export function previewDeadline(startsAt: Date, leadDays: number): Date {
   return day;
 }
 
+/** Exact same-day cutoff for events whose signup remains open until shortly before start. */
+export function previewDeadlineHours(startsAt: Date, leadHours: number): Date {
+  return new Date(startsAt.getTime() - leadHours * 60 * 60 * 1000);
+}
+
 /** "2026-09-20T19:00:00Z" as the value a datetime-local input expects, in local time. */
 export function toLocalInput(iso: string): string {
   const d = new Date(iso);
@@ -23,7 +28,7 @@ export function leadDaysOf(event: Pick<AllianceEvent, "startsAt" | "deadlineAt">
 }
 
 /**
- * SvS and FDT run about six hours from 12:00 UTC, and members answer with how much of that they
+ * SvS, KOI and FDT run about six hours from 12:00 UTC, and members answer with how much of that they
  * can give. The three parts are derived from one start and a length rather than typed three
  * times: "Full time" and "First half" begin with the event, "Last half" at the midpoint.
  */
@@ -51,7 +56,7 @@ export function localInputOf(date: Date): string {
 }
 
 /**
- * The next 12:00 UTC that has not happened yet, as a local input value. SvS and FDT start there,
+ * The next 12:00 UTC that has not happened yet, as a local input value. SvS, KOI and FDT start there,
  * so an officer scheduling one only has to change the date.
  */
 export function nextUtcNoon(now: Date = new Date()): string {

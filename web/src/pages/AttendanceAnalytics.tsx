@@ -9,6 +9,7 @@ import { useSession } from "../session";
 const TYPES: { kind: EventKind; label: string }[] = [
   { kind: "foundry", label: "Foundry" },
   { kind: "svs", label: "SvS" },
+  { kind: "koi", label: "KOI" },
   { kind: "fdt", label: "FDT" },
 ];
 

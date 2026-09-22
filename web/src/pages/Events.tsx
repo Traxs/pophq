@@ -13,6 +13,7 @@ import {
   leadDaysOf,
   nextUtcNoon,
   previewDeadline,
+  previewDeadlineHours,
   toLocalInput,
 } from "../eventTiming";
 import { navigate } from "../router";
@@ -23,6 +24,7 @@ import { NoAccount } from "./Home";
 const KINDS: { value: EventKind; label: string }[] = [
   { value: "foundry", label: "Foundry" },
   { value: "svs", label: "SvS" },
+  { value: "koi", label: "King of Icefield (KOI)" },
   { value: "fdt", label: "FDT" },
   { value: "canyon", label: "Canyon" },
   { value: "tundra", label: "Tundra League" },
@@ -33,6 +35,7 @@ const KINDS: { value: EventKind; label: string }[] = [
 const KIND_LABELS: Record<EventKind, string> = {
   foundry: "Foundry",
   svs: "SvS",
+  koi: "King of Icefield (KOI)",
   fdt: "FDT",
   canyon: "Canyon",
   tundra: "Tundra League",
@@ -43,25 +46,28 @@ const KIND_LABELS: Record<EventKind, string> = {
 const kindLabel = (kind: EventKind) => KIND_LABELS[kind] ?? "Event";
 
 /** How long before the start answers close. Foundry needs days: officers sign people up in game. */
-const LEAD_CHOICES = [
-  { days: 3, label: "3 days before" },
-  { days: 2, label: "2 days before" },
-  { days: 1, label: "1 day before" },
-  { days: 0, label: "1 hour before" },
+type CloseTiming = "3d" | "2d" | "1d" | "3h" | "1h";
+const LEAD_CHOICES: { value: CloseTiming; label: string }[] = [
+  { value: "3d", label: "3 days before" },
+  { value: "2d", label: "2 days before" },
+  { value: "1d", label: "1 day before" },
+  { value: "3h", label: "3 hours before" },
+  { value: "1h", label: "1 hour before" },
 ];
-const DEFAULT_LEAD: Record<EventKind, number> = {
-  foundry: 3,
-  svs: 3,
-  fdt: 1,
-  canyon: 1,
-  tundra: 1,
-  bear: 0,
-  other: 0,
+const DEFAULT_LEAD: Record<EventKind, CloseTiming> = {
+  foundry: "3d",
+  svs: "3h",
+  koi: "3h",
+  fdt: "1d",
+  canyon: "1d",
+  tundra: "1d",
+  bear: "1h",
+  other: "1h",
 };
 const ALL_EVENT_HISTORY = "1970-01-01T00:00:00.000Z";
 
 /**
- * A Foundry is one event with two legions. SvS and FDT ask for how much of it someone can give,
+ * A Foundry is one event with two legions. SvS, KOI and FDT ask for how much of it someone can give,
  * which is the same mechanism: three parts, one pick. Canyon and Tundra League are a plain
  * "are you in?", so they have no parts.
  */
@@ -78,7 +84,7 @@ const defaultSessions = (kind: EventKind): { id?: string; label: string; startsA
       { id: "L2", label: "Legion 2", startsAt: "" },
     ];
   }
-  return kind === "svs" || kind === "fdt" ? HALVES.map((h) => ({ ...h })) : [];
+  return kind === "svs" || kind === "koi" || kind === "fdt" ? HALVES.map((h) => ({ ...h })) : [];
 };
 
 export function Events() {
@@ -323,7 +329,7 @@ function EventCard({
             disabled={event.closed || busy !== null}
             onClick={() => void choose("no")}
           >
-            {busy === "no" ? "…" : "Not signed up"}
+            {busy === "no" ? "…" : "Not at all"}
           </button>
         </div>
       ) : (
@@ -551,16 +557,32 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
       ? event.sessions.map((s) => ({ id: s.id, label: s.label, startsAt: toLocalInput(s.startsAt) }))
       : defaultSessions("foundry"),
   );
-  const [leadDays, setLeadDays] = useState<number>(event ? leadDaysOf(event) : DEFAULT_LEAD.foundry);
-  // SvS and FDT run about six hours; the halves follow from that rather than being typed out.
+  const existingLeadDays = event ? leadDaysOf(event) : 3;
+  const existingGapHours = event ? (Date.parse(event.startsAt) - Date.parse(event.deadlineAt)) / 3_600_000 : 0;
+  const [closeTiming, setCloseTiming] = useState<CloseTiming>(
+    event
+      ? existingGapHours <= 1.5
+        ? "1h"
+        : existingGapHours <= 4
+          ? "3h"
+          : (`${Math.min(3, Math.max(1, existingLeadDays))}d` as CloseTiming)
+      : DEFAULT_LEAD.foundry,
+  );
+  type SignupMode = "rsvp" | "availability" | "parts";
+  const isAvailability = (list: readonly { id: string }[]) =>
+    ["full", "first", "last"].every((id) => list.some((session) => session.id === id));
+  const [signupMode, setSignupMode] = useState<SignupMode>(
+    event ? (isAvailability(event.sessions) ? "availability" : event.sessions.length > 0 ? "parts" : "rsvp") : "parts",
+  );
+  // SvS, KOI and FDT run about six hours; the halves follow from that rather than being typed out.
   const [hours, setHours] = useState<number>(DEFAULT_EVENT_HOURS);
   const [notes, setNotes] = useState(event?.notes ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // SvS and FDT: one start and a length, from which Full time / First half / Last half follow.
-  const usesHalves = kind === "svs" || kind === "fdt";
-  const effectiveSessions = usesHalves ? halvesFor(startsAt, hours) : sessions;
+  const usesHalves = signupMode === "availability";
+  const effectiveSessions = signupMode === "availability" ? halvesFor(startsAt, hours) : signupMode === "rsvp" ? [] : sessions;
   const usesSessions = effectiveSessions.length > 0;
   const sessionTimes = effectiveSessions.map((s) => (s.startsAt ? new Date(s.startsAt) : null));
   const sessionsValid = usesSessions && sessionTimes.every((d) => d !== null && !Number.isNaN(d.getTime()));
@@ -574,15 +596,22 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
       : null;
   const startValid = start !== null && !Number.isNaN(start.getTime());
   const ready = title.trim().length >= 3 && startValid && (editing || start.getTime() > Date.now());
-  const deadline = startValid ? previewDeadline(start, leadDays) : null;
+  const closeValue = Number.parseInt(closeTiming, 10);
+  const closesInHours = closeTiming.endsWith("h");
+  const deadline = startValid
+    ? closesInHours
+      ? previewDeadlineHours(start, closeValue)
+      : previewDeadline(start, closeValue)
+    : null;
 
   const chooseKind = (value: EventKind) => {
     setKind(value);
     if (editing) return;
-    setLeadDays(DEFAULT_LEAD[value]); // a new event follows its type
+    setCloseTiming(DEFAULT_LEAD[value]); // a new event follows its type
     setSessions(defaultSessions(value));
-    // SvS and FDT normally start at 12:00 UTC, so the officer only has to pick the day.
-    if ((value === "svs" || value === "fdt") && !startsAt) setStartsAt(nextUtcNoon());
+    setSignupMode(value === "foundry" ? "parts" : value === "svs" || value === "koi" || value === "fdt" ? "availability" : "rsvp");
+    // SvS, KOI and FDT normally start at 12:00 UTC, so the officer only has to pick the day.
+    if ((value === "svs" || value === "koi" || value === "fdt") && !startsAt) setStartsAt(nextUtcNoon());
   };
 
   const setSession = (index: number, patch: Partial<{ label: string; startsAt: string }>) =>
@@ -606,7 +635,7 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
             })),
           }
         : {}),
-      answersCloseDaysBefore: leadDays,
+      ...(closesInHours ? { answersCloseHoursBefore: closeValue } : { answersCloseDaysBefore: closeValue }),
       timeZoneOffsetMinutes: -new Date().getTimezoneOffset(),
       notes: notes.trim(),
     };
@@ -646,6 +675,37 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
           placeholder={kindLabel(kind)}
         />
       </div>
+
+      {!editing && kind !== "foundry" && (
+        <fieldset className="field">
+          <legend>How members answer</legend>
+          <div className="chips" role="radiogroup">
+            <label className="chip">
+              <input
+                type="radio"
+                name="signup-mode"
+                checked={signupMode === "rsvp"}
+                onChange={() => setSignupMode("rsvp")}
+              />
+              <span>Simple RSVP</span>
+            </label>
+            <label className="chip">
+              <input
+                type="radio"
+                name="signup-mode"
+                checked={signupMode === "availability"}
+                onChange={() => setSignupMode("availability")}
+              />
+              <span>Full / first half / last half</span>
+            </label>
+          </div>
+          <span className="hint">
+            {signupMode === "rsvp"
+              ? "Members choose Joining or Not at all."
+              : "Members choose Full time, First half, Last half or Not at all."}
+          </span>
+        </fieldset>
+      )}
 
       {usesSessions && !usesHalves ? (
         <fieldset className="field">
@@ -696,9 +756,9 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
 
       <div className="field">
         <label htmlFor="e-lead">Answers close</label>
-        <select id="e-lead" value={leadDays} onChange={(e) => setLeadDays(Number(e.target.value))}>
+        <select id="e-lead" value={closeTiming} onChange={(e) => setCloseTiming(e.target.value as CloseTiming)}>
           {LEAD_CHOICES.map((c) => (
-            <option key={c.days} value={c.days}>
+            <option key={c.value} value={c.value}>
               {c.label}
             </option>
           ))}

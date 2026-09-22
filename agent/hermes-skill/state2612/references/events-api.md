@@ -2,6 +2,10 @@
 
 Event writes require `events:write` and an issuing user who is currently an officer or owner. They use guarded bot routes, never the normal web write routes. Browser-origin bot requests are rejected.
 
+Supported built-in `kind` values are `foundry`, `svs`, `koi`, `fdt`, `canyon`, `tundra`, `bear`, and `other`. KOI uses `koi` and normally has the same `full`, `first`, and `last` sessions as SvS, but it is a separate state-internal event.
+
+SvS and KOI answers close three hours before start by default. An event may override the cutoff with either `answersCloseHoursBefore` or `answersCloseDaysBefore`, never both. Omitting `sessions` creates a simple RSVP; the standard availability choice uses session ids `full`, `first`, and `last`.
+
 ## Create an event
 
 `POST /v1/agent/events`

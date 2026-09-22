@@ -97,7 +97,7 @@ export const STARTER_TYPES: readonly Omit<EventType, "createdBy">[] = [
     checklist: STARTER_CHECKLISTS.foundry!,
     archived: false,
   },
-  // SvS and FDT ask how much of the event someone can give, not which time slot they take.
+  // SvS, KOI and FDT ask how much of the event someone can give, not which time slot they take.
   // The three answers are ordinary parts: a member picks exactly one, or says they can't come.
   // Both normally run six hours from 12:00 UTC, so the last half starts at 15:00.
   {
@@ -122,6 +122,18 @@ export const STARTER_TYPES: readonly Omit<EventType, "createdBy">[] = [
       { id: "last", label: "Last half", defaultMinutes: 15 * 60 },
     ],
     checklist: STARTER_CHECKLISTS.fdt!,
+    archived: false,
+  },
+  {
+    typeId: "koi",
+    name: "King of Icefield (KOI)",
+    leadDays: 3,
+    sessions: [
+      { id: "full", label: "Full time", defaultMinutes: 12 * 60 },
+      { id: "first", label: "First half", defaultMinutes: 12 * 60 },
+      { id: "last", label: "Last half", defaultMinutes: 15 * 60 },
+    ],
+    checklist: STARTER_CHECKLISTS.koi!,
     archived: false,
   },
   // Canyon and Tundra League are a simple "are you in?", so they carry no parts.

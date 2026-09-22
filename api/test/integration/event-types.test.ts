@@ -16,11 +16,14 @@ describe("event types", () => {
     expect(first.status).toBe(200);
     const items = first.body.items as { typeId: string; name: string; leadDays: number; sessions: { label: string }[] }[];
     // The Bear hunt is kept but archived, so it is not something an officer can schedule.
-    expect(items.map((t) => t.typeId).toSorted()).toEqual(["canyon", "fdt", "foundry", "other", "svs", "tundra"]);
+    expect(items.map((t) => t.typeId).toSorted()).toEqual(["canyon", "fdt", "foundry", "koi", "other", "svs", "tundra"]);
     expect((first.body.archived as { typeId: string }[]).map((t) => t.typeId)).toEqual(["bear"]);
     const foundry = items.find((t) => t.typeId === "foundry")!;
     expect(foundry).toMatchObject({ name: "Foundry", leadDays: 3 });
     expect(foundry.sessions.map((s) => s.label)).toEqual(["Legion 1", "Legion 2"]);
+    const koi = items.find((t) => t.typeId === "koi")!;
+    expect(koi).toMatchObject({ name: "King of Icefield (KOI)", leadDays: 3 });
+    expect(koi.sessions.map((s) => s.label)).toEqual(["Full time", "First half", "Last half"]);
 
     // Written once: a second read returns the stored ones, not a fresh copy.
     const again = await h.call("GET", "/event-types", PLAYER);
@@ -76,7 +79,7 @@ describe("starter types an alliance is missing", () => {
 
     const res = await h.call("GET", "/event-types", { as: "player" });
     const items = res.body.items as { typeId: string; name: string; leadDays: number }[];
-    expect(items.map((t) => t.typeId).toSorted()).toEqual(["canyon", "fdt", "foundry", "other", "svs", "tundra"]);
+    expect(items.map((t) => t.typeId).toSorted()).toEqual(["canyon", "fdt", "foundry", "koi", "other", "svs", "tundra"]);
     // Untouched: the officer's own wording and lead time survive.
     expect(items.find((t) => t.typeId === "foundry")).toMatchObject({ name: "Foundry night", leadDays: 5 });
     expect((res.body.archived as { typeId: string }[]).map((t) => t.typeId)).toEqual(["bear"]);
