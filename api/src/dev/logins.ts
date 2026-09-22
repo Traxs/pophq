@@ -2,6 +2,7 @@
 // can be tried end to end without AWS. Never used on AWS.
 import { DeleteCommand, GetCommand, PutCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import type { LoginDirectory } from "../ops/invite.js";
+import { randomBytes } from "node:crypto";
 
 const key = (email: string) => ({ PK: `DEVLOGIN#${email}`, SK: "PROFILE" });
 
@@ -15,6 +16,19 @@ export function devLogins(db: DynamoDBDocumentClient, table: string): LoginDirec
       const sub = `local-${email}`;
       await db.send(new PutCommand({ TableName: table, Item: { ...key(email), type: "dev-login", sub, email } }));
       return sub;
+    },
+    async createPasswordLogin() {
+      const username = `member-${randomBytes(6).toString("hex")}@members.pophq.invalid`;
+      const password = `${randomBytes(12).toString("base64url")}Aa1!`;
+      const sub = `local-${username}`;
+      await db.send(new PutCommand({ TableName: table, Item: { ...key(username), type: "dev-login", sub, email: username } }));
+      return { sub, username, password };
+    },
+    async resetPassword(sub) {
+      const username = sub.replace(/^local-/, "");
+      const existing = await db.send(new GetCommand({ TableName: table, Key: key(username) }));
+      if (!existing.Item || !username.endsWith("@members.pophq.invalid")) throw new Error("Password login not found");
+      return { password: `${randomBytes(12).toString("base64url")}Aa1!` };
     },
     async deleteLogin(sub) {
       const email = sub.replace(/^local-/, "");

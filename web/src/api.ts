@@ -37,6 +37,10 @@ export interface Reports {
 }
 
 export interface RosterRow extends GameAccount {
+  /** Whether this game account is already claimed by a POP HQ sign-in. */
+  hasLogin: boolean;
+  /** How access is recovered; null for older or externally linked accounts. */
+  loginMethod: "email" | "password" | null;
   /** Six trailing months, oldest first; null for a month with nothing to say. */
   powerTrend: (number | null)[];
   strengthTrend: (number | null)[];
@@ -73,6 +77,7 @@ export interface Roster {
 }
 
 export interface InviteInput {
+  loginMethod: "email" | "password";
   email?: string;
   playerId: string;
   name: string;
@@ -85,7 +90,26 @@ export interface InviteResult {
   sub?: string;
   loginCreated: boolean;
   linked: boolean;
+  /** One-time bootstrap credentials for a password invitation. */
+  credentials?: { username: string; password: string };
   seats: Seats;
+}
+
+export interface AccessAuditRecord {
+  auditId: string;
+  playerId: string;
+  action: "password_reset";
+  status: "requested" | "completed" | "failed";
+  justification: string;
+  requestedAt: string;
+  requestedBy: string;
+  requestedByName?: string;
+  resolvedAt?: string;
+}
+
+export interface PasswordResetResult {
+  credentials: { password: string };
+  audit: AccessAuditRecord;
 }
 
 export type AgentScope = "all:read" | "results:read" | "results:write" | "events:write" | "history:write" | "rewards:write";
@@ -621,6 +645,9 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
       request<Report>("POST", `/accounts/${playerId}/reports`, { values }),
     roster: () => request<Roster>("GET", "/roster"),
     invite: (input: InviteInput) => request<InviteResult>("POST", "/invites", input),
+    accessAudit: (playerId: string) => request<{ items: AccessAuditRecord[] }>("GET", `/accounts/${playerId}/access-audit`),
+    resetPassword: (playerId: string, justification: string) =>
+      request<PasswordResetResult>("POST", `/accounts/${playerId}/password-reset`, { justification }),
     updateAccount: (playerId: string, changes: AccountChanges) =>
       request<GameAccount>("PATCH", `/accounts/${playerId}`, changes),
     agentTokens: () => request<{ items: AgentTokenInfo[] }>("GET", "/agent-tokens"),

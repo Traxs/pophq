@@ -45,7 +45,7 @@ export function SignIn() {
               Sign in
             </button>
             <p className="muted small">
-              New here? Request access after signing in; an officer checks your Player ID.
+              Use the email address or temporary login name provided by an officer.
             </p>
           </>
         )}

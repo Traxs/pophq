@@ -184,6 +184,7 @@ describe("AppStack", () => {
               "cognito-idp:AdminDeleteUser",
               "cognito-idp:AdminListGroupsForUser",
               "cognito-idp:AdminSetUserPassword",
+              "cognito-idp:AdminUserGlobalSignOut",
               "cognito-idp:ListUsers",
             ],
             Effect: "Allow",

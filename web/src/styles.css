@@ -63,7 +63,8 @@ p {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
   color: inherit;
 }
@@ -613,6 +614,16 @@ button.card {
   font-size: 1.05rem;
 }
 
+.field textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 12px 14px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
 .field select {
   width: 100%;
   min-height: 50px;
@@ -636,6 +647,11 @@ button.card {
 }
 
 .field input:not([type="radio"]):focus-visible {
+  border-color: var(--accent);
+  outline-offset: 0;
+}
+
+.field textarea:focus-visible {
   border-color: var(--accent);
   outline-offset: 0;
 }
@@ -712,6 +728,106 @@ button.card {
 }
 .field input[aria-invalid="true"] {
   border-color: var(--down);
+}
+
+.invite-method button {
+  min-height: 44px;
+}
+
+.member-lookup {
+  position: relative;
+}
+
+.member-suggestions {
+  position: absolute;
+  z-index: 3;
+  top: 76px;
+  right: 0;
+  left: 0;
+  max-height: min(320px, 45vh);
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  list-style: none;
+}
+
+.member-suggestions button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.member-suggestions button:hover,
+.member-suggestions button:focus-visible {
+  background: var(--surface-2);
+}
+
+.member-suggestions span {
+  color: var(--muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.invite-credentials {
+  display: grid;
+  gap: 14px;
+}
+
+.invite-credentials h2,
+.invite-credentials p {
+  margin: 0;
+}
+
+.success-mark {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--up-soft);
+  color: var(--up);
+  font-size: 1.4rem;
+  font-weight: 800;
+}
+
+.credential-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.credential-row > span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.credential-row small {
+  color: var(--muted);
+}
+
+.credential-row code {
+  overflow-wrap: anywhere;
+  color: var(--ink);
 }
 
 .chips {
@@ -1111,6 +1227,10 @@ button.card {
   justify-content: flex-start;
 }
 
+.member-invite-btn {
+  margin-left: auto;
+}
+
 .avatar-large {
   width: 56px;
   height: 56px;
@@ -1138,6 +1258,26 @@ button.card {
 .member-detail-card {
   display: grid;
   gap: 12px;
+}
+
+.access-security-card {
+  grid-column: 1 / -1;
+}
+
+.access-security-card .section-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.access-security-card .section-head > div {
+  display: grid;
+  gap: 3px;
+}
+
+.access-audit-list .badge {
+  text-transform: capitalize;
 }
 
 .detail-list {

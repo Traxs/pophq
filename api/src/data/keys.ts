@@ -5,6 +5,12 @@ export const accountKey = (playerId: string) => ({ PK: `ACCOUNT#${playerId}`, SK
 /** Lock item: at most one login may be linked to a game account. */
 export const accountLinkLockKey = (playerId: string) => ({ PK: `ACCOUNT#${playerId}`, SK: "LINKED_LOGIN" });
 
+/** Officer-visible security log. Records are never deleted; stream history preserves updates. */
+export const accessAuditKey = (playerId: string, auditId: string) => ({
+  PK: `ACCOUNT#${playerId}`,
+  SK: `ACCESS_AUDIT#${auditId}`,
+});
+
 export const loginLinkKey = (sub: string, playerId: string) => ({ PK: `LOGIN#${sub}`, SK: `ACCOUNT#${playerId}` });
 
 /** Report SK sorts by creation (ULID); ordering by effective date happens in the domain. */

@@ -42,6 +42,8 @@ Use the local sign-in picker:
 
 The picker changes the OIDC `client_id`; the mock issuer maps that to subject/groups. Seed data links the first three subjects to accounts.
 
+The Members invite sheet supports the same email-code/password choices and roster autocomplete as production. Local issuance is persisted in the stand-in login directory so linkage, seat counting, one-time credential display and registered/unregistered UI can be tested. Invite an unregistered demo member with password access, open that member's profile, and use **Access security → Reset password** to test the mandatory reason, one-time replacement password, and completed audit entry. The mock OIDC server authenticates only the fixed personas, so a newly generated local login cannot complete a real sign-in or demonstrate Cognito's global session revocation; verify those boundaries in the Cognito command and infrastructure tests rather than treating the picker as Cognito.
+
 ### Local Bot Token debugging
 
 Sign in locally as Aurora or Polaris, open Members, and issue a Bot Token. Enable only the write scopes being tested; historical imports are off by default. The local API resolves the token issuer against the same persona roles as the browser, so demotion/permission tests behave like production instead of failing for a missing Cognito directory.

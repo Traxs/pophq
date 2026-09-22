@@ -65,7 +65,8 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 
 ## Milestone 4: Membership lifecycle and officer inbox
 
-- [x] P4.1a Officer invites: one step creates the login (emailed codes), the game account and the link; repeating it changes nothing; officers-only; Members page form
+- [x] P4.1a Officer invites: one step creates an emailed-code or email-free password login, the game account and the link; repeating it changes nothing; officers-only; Members page autocomplete and profile prefill
+- [x] P4.1c Audited password recovery: R4/R5 reset only password-based logins after recording a reason; a fresh one-time credential is shown once, existing Cognito sessions are revoked, and requested/completed/failed outcomes remain in the member's officer-visible access history
 - [ ] P4.1b Access requests with profile screenshot, officer approval, bulk approve (ID-01, ID-02, FM-26, LCH-01) — for people who already have a login (alts, re-links); needs evidence uploads (P3.8)
 - [x] P4.2 Seat cap of 100 logins with a conditional counter (FM-08); shown on the Members page; `npm run admin -w api -- backfill-seats` counts logins created before seats existed
 - [ ] P4.3 Alt linking with verification and conflict handling (ID-12)

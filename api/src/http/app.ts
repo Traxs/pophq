@@ -61,6 +61,8 @@ import type { HistoryStore } from "../data/history.js";
 import type { Repository } from "../data/repository.js";
 import type { Actor } from "../data/meta.js";
 import { invite, type LoginDirectory } from "../ops/invite.js";
+import { resetMemberPassword } from "../ops/resetPassword.js";
+import { parseResetJustification } from "../domain/access.js";
 import type { TokenVerifier } from "./auth.js";
 import type { EvidenceStore } from "../ops/evidenceStore.js";
 
@@ -957,7 +959,10 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const pastEvents = await repo.listEvents(alliance, participationFrom, 100);
     const items = await Promise.all(
       accounts.map(async (account) => {
-        const reports = await repo.listReports(account.playerId);
+        const [reports, linkedAccess] = await Promise.all([
+          repo.listReports(account.playerId),
+          repo.linkedLoginAccess(account.playerId),
+        ]);
         const superseded = new Set(reports.flatMap((r) => (r.supersedesReportId ? [r.supersedesReportId] : [])));
         const series = reports
           .filter((r) => !superseded.has(r.reportId))
@@ -978,6 +983,8 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         const foundrySeries = seriesOf(reports, "foundry_strength");
         return {
           ...account,
+          hasLogin: linkedAccess !== undefined,
+          loginMethod: linkedAccess?.loginMethod ?? null,
           // Six trailing months for the small graphs in the table (MET-02).
           powerTrend: monthlyValues(
             series.map((p) => ({ at: p.at, value: p.power })),
@@ -1001,26 +1008,55 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
   });
 
   /**
-   * Invites someone: creates the login (emailed codes, no password), the game account and the
-   * link between them (P4.1). Repeating the same invite changes nothing. Without an email it
-   * only adds the game account, for members who report through an officer.
+   * Invites someone: creates either an emailed-code login or a one-time password login, then
+   * creates/links the game account (P4.1). Repeating the same invite changes nothing.
    */
   if (logins) {
     app.post("/invites", async (c) => {
       const p = c.get("principal");
       requireOfficer(p);
       const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+      if (body.loginMethod !== undefined && !["email", "password", "none"].includes(String(body.loginMethod))) {
+        throw new ValidationError("Choose email-code or password access.");
+      }
       const result = await invite(
         { repo, logins, actor: { id: p.sub, via: "web", reason: "invite" } },
         {
           ...(typeof body.email === "string" ? { email: body.email } : {}),
+          ...(body.loginMethod === "email" || body.loginMethod === "password" || body.loginMethod === "none"
+            ? { loginMethod: body.loginMethod }
+            : {}),
           playerId: String(body.playerId ?? ""),
           name: String(body.name ?? ""),
           ...(typeof body.rank === "string" ? { rank: body.rank } : {}),
           ...(typeof body.alliance === "string" ? { alliance: body.alliance } : {}),
         },
       );
+      // Password credentials exist only in this response. Do not let a browser or intermediary
+      // reuse a cached copy after the officer closes the one-time credential screen.
+      c.header("Cache-Control", "no-store");
       return c.json(result, result.accountCreated || result.linked || result.loginCreated ? 201 : 200);
+    });
+
+    app.post("/accounts/:pid/password-reset", async (c) => {
+      const p = c.get("principal");
+      requireOfficer(p);
+      const playerId = parsePlayerId(c.req.param("pid"));
+      const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+      const result = await resetMemberPassword(
+        { repo, logins, actor: { id: p.sub, via: "web", reason: "password recovery" } },
+        playerId,
+        parseResetJustification(body.justification),
+      );
+      c.header("Cache-Control", "no-store");
+      return c.json(result, 201);
+    });
+
+    app.get("/accounts/:pid/access-audit", async (c) => {
+      requireOfficer(c.get("principal"));
+      const playerId = parsePlayerId(c.req.param("pid"));
+      if (!(await repo.getAccount(playerId))) throw new NotFoundError(`Game account ${playerId} not found.`);
+      return c.json({ items: await repo.listAccessAudit(playerId) });
     });
   }
 
