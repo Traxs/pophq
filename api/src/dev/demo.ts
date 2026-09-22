@@ -2,7 +2,7 @@
 import { ulid } from "ulid";
 import { parseNewAccount, type GameAccount } from "../domain/accounts.js";
 import { ConflictError } from "../domain/errors.js";
-import { parseReport } from "../domain/measurements.js";
+import { activeReports, parseReport } from "../domain/measurements.js";
 import type { Actor } from "../data/meta.js";
 import type { Repository } from "../data/repository.js";
 import { ANSWERS, parseNewEvent, type AllianceEvent } from "../domain/events.js";
@@ -165,7 +165,7 @@ export async function addRandomMembers(repo: Repository, count: number, now: Dat
 
 /** Adds `months` of older monthly reports before an account's earliest report. */
 export async function backfillHistory(repo: Repository, playerId: string, months: number, now: Date, actor: Actor) {
-  const reports = await repo.listReports(playerId);
+  const reports = activeReports(await repo.listReports(playerId));
   const earliest = reports.toSorted((a, b) => a.effectiveAt.localeCompare(b.effectiveAt))[0];
   const earliestPower = earliest?.values.find((v) => v.metric === "city_power")?.value;
   const startPower = typeof earliestPower === "number" ? earliestPower : 40_000_000;
@@ -182,7 +182,7 @@ export async function everyoneReports(repo: Repository, now: Date, actor: Actor)
   let reported = 0;
   await inBatches(members, 8, async (a) => {
     if (rand() < 0.2) return;
-    const reports = await repo.listReports(a.playerId);
+    const reports = activeReports(await repo.listReports(a.playerId));
     const last = reports
       .toSorted((x, y) => x.effectiveAt.localeCompare(y.effectiveAt))
       .at(-1)

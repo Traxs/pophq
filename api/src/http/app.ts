@@ -45,7 +45,7 @@ import { listEventTypes } from "../ops/eventTypes.js";
 import { parsePlayerId } from "../domain/identity.js";
 import { allianceAttendance, allianceGrowth, buckets, currentOf, seriesOf } from "../domain/metrics.js";
 import { monthlyAttendance, monthlyValues, trailingAverage } from "../domain/trends.js";
-import { currentValues, parseImportedReport, parseReport } from "../domain/measurements.js";
+import { activeReports, currentValues, parseImportedReport, parseReport } from "../domain/measurements.js";
 import {
   defaultActing,
   effectiveGroups,
@@ -963,9 +963,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           repo.listReports(account.playerId),
           repo.linkedLoginAccess(account.playerId),
         ]);
-        const superseded = new Set(reports.flatMap((r) => (r.supersedesReportId ? [r.supersedesReportId] : [])));
-        const series = reports
-          .filter((r) => !superseded.has(r.reportId))
+        const series = activeReports(reports)
           .flatMap((r) => {
             const v = r.values.find((x) => x.metric === "city_power")?.value;
             return typeof v === "number" ? [{ at: r.effectiveAt, power: v }] : [];
@@ -2124,6 +2122,35 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     });
     await repo.addReport(report, { id: p.sub, via: "web" });
     return c.json(report, 201);
+  });
+
+  app.put("/accounts/:pid/reports/:reportId/ignored", async (c) => {
+    const p = c.get("principal");
+    const pid = parsePlayerId(c.req.param("pid"));
+    const role = requireCanWriteFor(p, pid);
+    const report = await repo.getReport(pid, c.req.param("reportId"));
+    if (!report) throw new NotFoundError("Report not found.");
+    const officer = isOfficer(p);
+    if (!officer && role === "player" && report.source !== "player") {
+      throw new ForbiddenError("You can only ignore reports you submitted yourself.");
+    }
+    const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+    if (typeof body.ignored !== "boolean") throw new ValidationError("ignored must be true or false.");
+    const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+    if (reason.length < 3 || reason.length > 300) throw new ValidationError("Give a reason between 3 and 300 characters.");
+    if (body.ignored === Boolean(report.ignoredAt)) {
+      throw new ConflictError(body.ignored ? "That report is already ignored." : "That report is not ignored.");
+    }
+    const actingId = defaultActing(p);
+    const actingAccount = actingId ? await repo.getAccount(actingId) : undefined;
+    const saved = await repo.setReportIgnored(
+      pid,
+      report.reportId,
+      body.ignored,
+      { id: p.sub, via: "web", reason },
+      actingAccount?.name ?? (officer ? "Officer" : "Member"),
+    );
+    return c.json(saved);
   });
 
   extend?.(app);

@@ -1307,6 +1307,33 @@ button.card {
   gap: 2px;
 }
 
+.report-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.report-action {
+  min-height: 36px;
+  padding-inline: 6px;
+}
+
+.report-action-ignore {
+  color: var(--down);
+}
+
+.report-row-ignored .num,
+.report-row-ignored .report-values > span:not(.report-action) {
+  opacity: 0.58;
+  text-decoration: line-through;
+}
+
+.report-status {
+  color: var(--down);
+  overflow-wrap: anywhere;
+}
+
 .attendance-page-head > div:first-child {
   display: grid;
   gap: 3px;

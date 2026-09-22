@@ -3,6 +3,7 @@ import type { AccessAuditRecord, Reports, RosterRow } from "../api";
 import { ErrorBanner } from "../components/Chrome";
 import { InviteMemberForm } from "../components/InviteMember";
 import { ResetPasswordForm } from "../components/ResetPassword";
+import { ReportModeration } from "../components/ReportModeration";
 import { Sheet } from "../components/Sheet";
 import { full, initials, relativeDay, shortDate } from "../format";
 import { navigate } from "../router";
@@ -178,16 +179,21 @@ export function MemberPage({ playerId }: { playerId: string }) {
             <p className="muted">No strength reports yet.</p>
           ) : (
             <ul className="detail-list">
-              {reports.items.slice(0, 12).map((report) => (
-                <li key={report.reportId} className="report-history-item">
+              {reports.items.toSorted((a, b) => b.effectiveAt.localeCompare(a.effectiveAt) || b.reportId.localeCompare(a.reportId)).slice(0, 12).map((report) => (
+                <li key={report.reportId} className={`report-history-item ${report.ignoredAt ? "report-row-ignored" : ""}`}>
                   <span>
                     <strong>{shortDate(report.effectiveAt)}</strong>
-                    <span className="muted small">{report.source}</span>
+                    <span className="muted small">{report.source}{report.ignoredAt ? " · Ignored" : ""}</span>
+                    {report.ignoredAt && <span className="small report-status">
+                      Ignored {shortDate(report.ignoredAt)} by {report.ignoredByName ?? "a moderator"}
+                      {report.ignoreReason ? ` · ${report.ignoreReason}` : ""}
+                    </span>}
                   </span>
                   <span className="report-values">
                     {report.values.map((value) => (
                       <span key={value.metric}>{METRIC_LABELS[value.metric] ?? value.metric}: {full(value.value)}</span>
                     ))}
+                    <ReportModeration playerId={playerId} report={report} onChanged={dataChanged} />
                   </span>
                 </li>
               ))}

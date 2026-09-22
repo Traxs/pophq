@@ -58,6 +58,11 @@ export interface Report {
   values: MeasurementValue[];
   supersedesReportId?: string;
   note?: string;
+  /** A soft-deleted observation stays auditable but is excluded from every derived value. */
+  ignoredAt?: string;
+  ignoredBy?: string;
+  ignoredByName?: string;
+  ignoreReason?: string;
 }
 
 // Furnace levels as shown in game: 1–30, then FC1–FC10 with optional sub-steps (e.g. "FC5-2").
@@ -180,13 +185,21 @@ export interface CurrentValue extends MeasurementValue {
 }
 
 /**
+ * Reports that currently contribute to derived data. An ignored correction no longer
+ * supersedes its predecessor, so removing a bad correction restores the earlier value.
+ */
+export function activeReports(reports: readonly Report[]): Report[] {
+  const visible = reports.filter((report) => !report.ignoredAt);
+  const superseded = new Set(visible.flatMap((report) => (report.supersedesReportId ? [report.supersedesReportId] : [])));
+  return visible.filter((report) => !superseded.has(report.reportId));
+}
+
+/**
  * Current value per metric: the latest non-superseded value by effectiveAt,
  * then recordedAt, then reportId (ULIDs sort by creation) as a deterministic tie-break.
  */
 export function currentValues(reports: readonly Report[]): Partial<Record<MetricName, CurrentValue>> {
-  const superseded = new Set(reports.flatMap((r) => (r.supersedesReportId ? [r.supersedesReportId] : [])));
-  const ordered = reports
-    .filter((r) => !superseded.has(r.reportId))
+  const ordered = activeReports(reports)
     .toSorted(
       (a, b) =>
         a.effectiveAt.localeCompare(b.effectiveAt) ||

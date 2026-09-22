@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, type Reports } from "../api";
 import { ErrorBanner } from "../components/Chrome";
+import { ReportModeration } from "../components/ReportModeration";
 import { Sheet } from "../components/Sheet";
 import { LineChart } from "../components/LineChart";
 import { useToast } from "../components/Toast";
@@ -73,7 +74,7 @@ export function Power() {
         </button>
       </div>
 
-      {series.length > 0 && <History series={series} />}
+      {reports && reports.items.length > 0 && <History reports={reports} series={series} playerId={account.playerId} onChanged={reload} />}
 
       <Sheet open={open} title="Update power" onClose={() => setOpen(false)}>
         <ReportForm
@@ -132,30 +133,46 @@ function OtherStats({ current }: { current: Reports["current"] }) {
   );
 }
 
-function History({ series }: { series: PowerPoint[] }) {
-  const rows = series.map((p, i) => ({ p, delta: change(p.power, series[i - 1]?.power) })).reverse();
+function History({ reports, series, playerId, onChanged }: { reports: Reports; series: PowerPoint[]; playerId: string; onChanged: () => void }) {
+  const visible = reports.items.filter((report) => !report.ignoredAt);
+  const superseded = new Set(visible.flatMap((report) => report.supersedesReportId ? [report.supersedesReportId] : []));
+  const deltas = new Map(series.map((point, index) => [point.reportId, change(point.power, series[index - 1]?.power)]));
+  const rows = reports.items
+    .flatMap((report) => {
+      const power = report.values.find((value) => value.metric === "city_power")?.value;
+      return typeof power === "number" ? [{ report, power }] : [];
+    })
+    .toSorted((a, b) => b.report.effectiveAt.localeCompare(a.report.effectiveAt) || b.report.reportId.localeCompare(a.report.reportId));
   return (
     <section aria-labelledby="history-title" className="stack">
       <h2 id="history-title" className="section-label">
         History
       </h2>
       <ol className="card list">
-        {rows.map(({ p, delta }) => (
-          <li key={p.reportId} className="list-row">
+        {rows.map(({ report, power }) => {
+          const delta = deltas.get(report.reportId);
+          const status = report.ignoredAt ? "Ignored" : superseded.has(report.reportId) ? "Corrected" : undefined;
+          return <li key={report.reportId} className={`list-row report-row ${report.ignoredAt ? "report-row-ignored" : ""}`}>
             <span className="list-main">
-              <strong className="num">{full(p.power)}</strong>
+              <strong className="num">{full(power)}</strong>
               <span className="muted small">
-                {shortDate(p.effectiveAt)} · {SOURCE_LABEL[p.source] ?? p.source}
+                {shortDate(report.effectiveAt)} · {SOURCE_LABEL[report.source] ?? report.source}
               </span>
+              {status && <span className="small report-status">
+                {status}{report.ignoredAt ? ` ${shortDate(report.ignoredAt)} by ${report.ignoredByName ?? "a moderator"}` : ""}
+                {report.ignoreReason ? ` · ${report.ignoreReason}` : ""}
+              </span>}
             </span>
-            {delta && (
-              <span className={`delta delta-${delta.direction}`}>
-                {delta.direction === "down" ? "−" : "+"}
-                {full(Math.abs(delta.absolute))}
-              </span>
-            )}
-          </li>
-        ))}
+            <span className="report-row-actions">
+              {delta && !status && (
+                <span className={`delta delta-${delta.direction}`}>
+                  {delta.direction === "down" ? "−" : "+"}{full(Math.abs(delta.absolute))}
+                </span>
+              )}
+              {report.source === "player" && <ReportModeration playerId={playerId} report={report} onChanged={onChanged} />}
+            </span>
+          </li>;
+        })}
       </ol>
     </section>
   );

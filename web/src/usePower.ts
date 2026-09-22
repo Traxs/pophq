@@ -1,13 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Report, Reports } from "./api";
+import type { Reports } from "./api";
+import { toSeries, type PowerPoint } from "./powerReports";
 import { useSession } from "./session";
 
-export interface PowerPoint {
-  reportId: string;
-  effectiveAt: string;
-  power: number;
-  source: string;
-}
+export { toSeries, type PowerPoint } from "./powerReports";
 
 export interface PowerData {
   reports: Reports | null;
@@ -18,19 +14,6 @@ export interface PowerData {
   loading: boolean;
   error: string | null;
   reload: () => void;
-}
-
-export function toSeries(items: readonly Report[]): PowerPoint[] {
-  const superseded = new Set(items.flatMap((r) => (r.supersedesReportId ? [r.supersedesReportId] : [])));
-  return items
-    .filter((r) => !superseded.has(r.reportId))
-    .flatMap((r) => {
-      const v = r.values.find((x) => x.metric === "city_power")?.value;
-      return typeof v === "number"
-        ? [{ reportId: r.reportId, effectiveAt: r.effectiveAt, power: v, source: r.source }]
-        : [];
-    })
-    .toSorted((a, b) => a.effectiveAt.localeCompare(b.effectiveAt) || a.reportId.localeCompare(b.reportId));
 }
 
 export function usePower(): PowerData {

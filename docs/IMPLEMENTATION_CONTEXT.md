@@ -63,7 +63,7 @@ At commit `8f99dd9`, the repository has 39 completed and 59 open plan checkboxes
 
 - local DynamoDB/OIDC/Discord-sink stack and local-only test personas/tools;
 - login-to-game-account links, account switching, officer invites, and a conditional 100-seat cap;
-- typed, immutable measurement reports and superseding corrections;
+- typed measurement reports, superseding corrections, and audited soft deletion/restoration by the submitting player or an R4/R5;
 - member power history, officer roster, alliance growth, and six-month mini line graphs; attendance uses a three-month trailing average rather than independent monthly bars;
 - event types, event creation/editing, and deadlines computed as the end of the day N days before the start (`foundry: 3`, `svs: 3`, `bear: 0`, `other: 0`);
 - one Foundry event with one session per legion; a member may answer yes for at most one session, and changing legion replaces the earlier choice;
@@ -102,6 +102,9 @@ Not implemented yet: SvS buff scheduling, screenshot extraction, reminders/outbo
 ### Measurements
 
 - Reports are immutable observations; corrections create a new report with `supersedesReportId`.
+- A mistaken report is never hard-deleted. `ignoredAt`, `ignoredBy`, and `ignoreReason` make it an audited soft deletion. Ignored reports remain visible in history but are excluded from current values, charts, growth, rankings, lineups, and reward calculations. Restoring removes the ignored state, while DynamoDB stream history retains both actions.
+- Players may ignore/restore only player-sourced reports on their linked accounts. R4/R5 officers may moderate any member report. Every action requires a reason.
+- Active-report resolution first removes ignored reports and only then applies `supersedesReportId`. Therefore, ignoring a bad correction correctly restores the report it had superseded.
 - Each value has a metric, value, unit, precision, effective time, recorded time, and source.
 - `city_power` and `foundry_strength`/Hermes `combat_power` are different metrics and must never be combined.
 - Current value ordering is effective time, then recorded time, then record ID; superseded reports do not provide current values.

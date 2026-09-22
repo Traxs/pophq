@@ -1,6 +1,6 @@
 // Alliance metrics for the officer charts (MET-01). Pure functions: the routes fetch the
 // reports, these decide what the numbers mean, so the rules are testable and explicit.
-import { currentValues, type MetricName, type Report } from "./measurements.js";
+import { activeReports, currentValues, type MetricName, type Report } from "./measurements.js";
 
 export interface AccountSeries {
   playerId: string;
@@ -145,9 +145,7 @@ export function allianceGrowth(metric: MetricName, series: readonly AccountSerie
 
 /** Non-superseded points of one metric from an account's reports. */
 export function seriesOf(reports: readonly Report[], metric: MetricName): { at: string; value: number }[] {
-  const superseded = new Set(reports.flatMap((r) => (r.supersedesReportId ? [r.supersedesReportId] : [])));
-  return reports
-    .filter((r) => !superseded.has(r.reportId))
+  return activeReports(reports)
     .flatMap((r) => {
       const value = r.values.find((v) => v.metric === metric)?.value;
       return typeof value === "number" ? [{ at: r.effectiveAt, value }] : [];

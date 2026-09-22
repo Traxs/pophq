@@ -120,4 +120,55 @@ describe("power reports", () => {
     const list = await h.call("GET", "/accounts/100000001/reports", PLAYER);
     expect(list.body.current).toMatchObject({ city_power: { value: 49_999_999 } });
   });
+
+  it("lets a player ignore and restore their own report with an audit reason", async () => {
+    const created = await h.call("POST", "/accounts/100000002/reports", {
+      ...PLAYER,
+      body: { values: [{ metric: "city_power", value: 77_777_777 }] },
+    });
+    const reportId = String(created.body.reportId);
+
+    const ignored = await h.call("PUT", `/accounts/100000002/reports/${reportId}/ignored`, {
+      ...PLAYER,
+      headers: { "x-account-id": "100000001" },
+      body: { ignored: true, reason: "Typed an extra digit" },
+    });
+    expect(ignored.status).toBe(200);
+    expect(ignored.body).toMatchObject({
+      reportId,
+      ignoreReason: "Typed an extra digit",
+      ignoredBy: "player-1",
+      ignoredByName: "Poppy",
+    });
+
+    const without = await h.call("GET", "/accounts/100000002/reports", PLAYER);
+    expect(without.body.current).toMatchObject({ city_power: { value: 51_000_000 } });
+
+    const restored = await h.call("PUT", `/accounts/100000002/reports/${reportId}/ignored`, {
+      ...PLAYER,
+      body: { ignored: false, reason: "Checked the screenshot again" },
+    });
+    expect(restored.status).toBe(200);
+    expect(restored.body.ignoredAt).toBeUndefined();
+
+    const current = await h.call("GET", "/accounts/100000002/reports", PLAYER);
+    expect(current.body.current).toMatchObject({ city_power: { value: 77_777_777 } });
+  });
+
+  it("prevents players from ignoring officer reports, while officers can moderate any report", async () => {
+    const created = await h.call("POST", "/accounts/100000001/reports", {
+      ...OFFICER,
+      body: { values: [{ metric: "city_power", value: 66_000_000 }] },
+    });
+    const path = `/accounts/100000001/reports/${String(created.body.reportId)}/ignored`;
+    expect((await h.call("PUT", path, { ...PLAYER, body: { ignored: true, reason: "Not mine" } })).status).toBe(403);
+    const ignored = await h.call("PUT", path, {
+      ...PLAYER,
+      groups: ["officer"],
+      headers: { "x-account-id": "100000001" },
+      body: { ignored: true, reason: "Officer correction" },
+    });
+    expect(ignored.status).toBe(200);
+    expect(ignored.body).toMatchObject({ ignoredByName: "Poppy" });
+  });
 });

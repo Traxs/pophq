@@ -1459,6 +1459,41 @@ export class Repository {
     return res.Item ? toReport(res.Item) : undefined;
   }
 
+  /** Soft-deletes or restores a report while retaining the stream-backed audit history. */
+  async setReportIgnored(playerId: string, reportId: string, ignored: boolean, actor: Actor, actorName: string): Promise<Report> {
+    const meta = newItemMeta(actor, this.clock());
+    try {
+      const res = await this.db.send(new UpdateCommand({
+        TableName: this.table,
+        Key: reportKey(playerId, reportId),
+        UpdateExpression: ignored
+          ? "SET ignoredAt = :at, ignoredBy = :by, ignoredByName = :byName, ignoreReason = :ignoreReason, updatedAt = :at, updatedBy = :by, #via = :via, #reason = :reason, changeId = :changeId, #version = if_not_exists(#version, :zero) + :one"
+          : "SET updatedAt = :at, updatedBy = :by, #via = :via, #reason = :reason, changeId = :changeId, #version = if_not_exists(#version, :zero) + :one REMOVE ignoredAt, ignoredBy, ignoredByName, ignoreReason",
+        ConditionExpression: ignored
+          ? "attribute_exists(PK) AND attribute_not_exists(ignoredAt)"
+          : "attribute_exists(PK) AND attribute_exists(ignoredAt)",
+        ExpressionAttributeNames: { "#via": "via", "#reason": "reason", "#version": "version" },
+        ExpressionAttributeValues: {
+          ":at": meta.updatedAt,
+          ":by": actor.id,
+          ":via": actor.via,
+          ":reason": actor.reason,
+          ":changeId": meta.changeId,
+          ":zero": 0,
+          ":one": 1,
+          ...(ignored ? { ":byName": actorName, ":ignoreReason": actor.reason } : {}),
+        },
+        ReturnValues: "ALL_NEW",
+      }));
+      return toReport(res.Attributes ?? {});
+    } catch (err) {
+      if (err instanceof ConditionalCheckFailedException) {
+        throw new ConflictError(ignored ? "That report is already ignored or no longer exists." : "That report is not ignored or no longer exists.");
+      }
+      throw err;
+    }
+  }
+
   /**
    * Every login that has at least one game account. Used once to give seats to logins that
    * existed before seats were counted; the table is alliance-sized, so a scan is fine.
@@ -1541,6 +1576,10 @@ function toReport(item: Record<string, unknown>): Report {
   };
   if (item.supersedesReportId) report.supersedesReportId = String(item.supersedesReportId);
   if (item.note) report.note = String(item.note);
+  if (item.ignoredAt) report.ignoredAt = String(item.ignoredAt);
+  if (item.ignoredBy) report.ignoredBy = String(item.ignoredBy);
+  if (item.ignoredByName) report.ignoredByName = String(item.ignoredByName);
+  if (item.ignoreReason) report.ignoreReason = String(item.ignoreReason);
   return report;
 }
 

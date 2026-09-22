@@ -163,6 +163,25 @@ describe("currentValues", () => {
     expect(cur.city_power).toMatchObject({ value: 150, reportId: "B" });
   });
 
+  it("ignores soft-deleted reports", () => {
+    const cur = currentValues([
+      rep("A", "2026-09-09T00:00:00.000Z", 150),
+      rep("B", "2026-09-10T00:00:00.000Z", 999, { ignoredAt: "2026-09-11T00:00:00.000Z" }),
+    ]);
+    expect(cur.city_power).toMatchObject({ value: 150, reportId: "A" });
+  });
+
+  it("restores the predecessor when an ignored correction no longer supersedes it", () => {
+    const cur = currentValues([
+      rep("A", "2026-09-09T00:00:00.000Z", 150),
+      rep("B", "2026-09-10T00:00:00.000Z", 999, {
+        supersedesReportId: "A",
+        ignoredAt: "2026-09-11T00:00:00.000Z",
+      }),
+    ]);
+    expect(cur.city_power).toMatchObject({ value: 150, reportId: "A" });
+  });
+
   it("breaks ties deterministically by report id", () => {
     const t = "2026-09-10T00:00:00.000Z";
     expect(currentValues([rep("B", t, 2), rep("A", t, 1)]).city_power?.value).toBe(2);

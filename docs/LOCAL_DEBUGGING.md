@@ -101,7 +101,7 @@ API errors use `application/problem+json` and include a stable `x-request-id`. U
 
 Useful route groups currently include:
 
-- `/v1/me`, `/accounts`, `/accounts/:pid`, `/accounts/:pid/reports`, `/accounts/:pid/timeline`;
+- `/v1/me`, `/accounts`, `/accounts/:pid`, `/accounts/:pid/reports`, `PUT /accounts/:pid/reports/:reportId/ignored`, `/accounts/:pid/timeline`;
 - `/v1/roster`, `/v1/invites`, `/v1/metrics/alliance`;
 - `/v1/event-types`, `/v1/events`, event answers, attendance, and account reliability;
 - local-only `/v1/dev/*` routes for members, history, report rounds, events, answers, and reset.
