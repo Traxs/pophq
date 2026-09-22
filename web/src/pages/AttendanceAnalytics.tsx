@@ -18,14 +18,14 @@ const CATEGORIES: { value: "all" | ParticipationCategory; label: string }[] = [
   { value: "never", label: "Never" },
   { value: "sometimes", label: "Sometimes" },
   { value: "always", label: "Always" },
-  { value: "no_history", label: "No history" },
+  { value: "no_history", label: "No recorded attendance" },
 ];
 
 const CATEGORY_LABEL: Record<ParticipationCategory, string> = {
   always: "Always",
   sometimes: "Sometimes",
   never: "Never",
-  no_history: "No history",
+  no_history: "No recorded attendance",
 };
 
 export function AttendanceAnalytics() {
@@ -82,7 +82,7 @@ export function AttendanceAnalytics() {
       <div className="page-head attendance-page-head">
         <div>
           <h1 className="page-title">Event attendance</h1>
-          <p className="muted">See which events each member consistently joins.</p>
+          <p className="muted">See which events each person consistently joins. Main and sub accounts are combined.</p>
         </div>
         <div className="segmented time-range" role="radiogroup" aria-label="Time range">
           {[4, 12, 26].map((value) => (
@@ -138,7 +138,7 @@ export function AttendanceAnalytics() {
             <div className="roster-head">
               <div>
                 <h2 id="attendance-members-title">Members</h2>
-                <p className="muted small">Only events with recorded attendance are evaluated.</p>
+                <p className="muted small">Only explicit present or absent records are evaluated. Missing records are ignored.</p>
               </div>
             </div>
             <div className="roster-toolbar">
@@ -175,6 +175,11 @@ export function AttendanceAnalytics() {
                     <span className="member-text">
                       <strong>{member.name}</strong>
                       <span className="muted small">{member.playerId}{member.rank ? ` · ${member.rank}` : ""}</span>
+                      {(member.linkedAccounts?.length ?? 0) > 0 && (
+                        <span className="muted small">
+                          Includes {member.linkedAccounts!.map((account) => account.name).join(", ")}
+                        </span>
+                      )}
                     </span>
                   </span>
                   <span className="participation-numbers">

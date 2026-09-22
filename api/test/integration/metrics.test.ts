@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { seedDemo } from "../../src/dev/demo.js";
+import { addDemoEvents, seedDemo } from "../../src/dev/demo.js";
 import { createHarness, type Harness } from "./harness.js";
 
 const OFFICER = { as: "officer", groups: ["officer"] };
@@ -9,7 +9,9 @@ describe("GET /v1/metrics/alliance", () => {
   let h: Harness;
   beforeAll(async () => {
     h = await createHarness();
-    await seedDemo(h.repo, new Date());
+    const now = new Date();
+    await seedDemo(h.repo, now);
+    await addDemoEvents(h.repo, now, { id: "seed", via: "seed" });
   });
   afterAll(() => h.cleanup());
 
@@ -62,12 +64,31 @@ describe("GET /v1/metrics/alliance", () => {
     const body = res.body as {
       kind: string;
       points: unknown[];
-      members: { category: string; rate?: number }[];
+      members: {
+        playerId: string;
+        name: string;
+        category: string;
+        rate?: number;
+        attended: number;
+        events: number;
+        linkedAccounts: { playerId: string; name: string }[];
+      }[];
     };
     expect(body.kind).toBe("foundry");
     expect(body.points).toHaveLength(12);
     expect(body.members.length).toBeGreaterThan(30);
     expect(body.members.every((member) => ["always", "sometimes", "never", "no_history"].includes(member.category))).toBe(true);
+    // Poppy and Goatzilla share one login. The main was present and the alt was absent, so this is
+    // one person who attended—not two rows and not a 50% rate.
+    expect(body.members.some((member) => member.name === "Goatzilla")).toBe(false);
+    expect(body.members.find((member) => member.name === "Poppy")).toMatchObject({
+      playerId: "100000001",
+      category: "always",
+      rate: 1,
+      attended: 1,
+      events: 1,
+      linkedAccounts: [{ playerId: "100000002", name: "Goatzilla" }],
+    });
   });
 
   it("keeps event-type participation officer-only", async () => {

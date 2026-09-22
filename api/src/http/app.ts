@@ -1,7 +1,7 @@
 import { Hono, type Context } from "hono";
 import { createHash } from "node:crypto";
 import { ulid } from "ulid";
-import { parseAccountChanges, parseNewAccount } from "../domain/accounts.js";
+import { parseAccountChanges, parseNewAccount, type GameAccount } from "../domain/accounts.js";
 import { ConflictError, DomainError, ForbiddenError, NotFoundError, UnauthorizedError, ValidationError } from "../domain/errors.js";
 import { parseAttendance } from "../domain/attendance.js";
 import { participationOf } from "../domain/participation.js";
@@ -127,6 +127,24 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const account = accounts.find(grantsOfficerAccess);
     if (!account) throw new ForbiddenError("The person who issued this bot token is no longer an R4 or R5 in POP.");
     return account;
+  };
+
+  /** One analytics row per person: linked alts stay separate in storage but roll into the main. */
+  const attendancePeople = async (accounts: GameAccount[]) => {
+    const byId = new Map(accounts.map((account) => [account.playerId, account]));
+    const linked = await repo.linkedAccountGroups(accounts.map((account) => account.playerId));
+    const groupedIds = new Set(linked.flat());
+    return [
+      ...linked.map((ids) => ids.flatMap((id) => byId.get(id) ?? [])),
+      ...accounts.filter((account) => !groupedIds.has(account.playerId)).map((account) => [account]),
+    ].filter((group) => group.length > 0);
+  };
+
+  const attendanceForPerson = (attendance: Awaited<ReturnType<Repository["listAttendance"]>>, ids: ReadonlySet<string>) => {
+    const records = attendance.filter((record) => ids.has(record.playerId));
+    if (records.some((record) => record.status === "present")) return "present" as const;
+    if (records.some((record) => record.status === "absent")) return "absent" as const;
+    return undefined;
   };
 
   const fortressRewardRanking = async (alliance: string) => {
@@ -1122,14 +1140,19 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const events = (await repo.listEvents(alliance, "1970-01-01T00:00:00.000Z", 500)).filter(
       (event) => Date.parse(event.startsAt) <= now().getTime(),
     );
+    const accounts = (await repo.listAccounts(alliance)).filter(
+      (account) => account.status === "active" || account.status === "unknown",
+    );
+    const people = await attendancePeople(accounts);
     const samples = await Promise.all(
       events.map(async (event) => {
         const attendance = await repo.listAttendance(event.eventId);
+        const statuses = people.map((group) => attendanceForPerson(attendance, new Set(group.map((account) => account.playerId))));
         return {
           eventId: event.eventId,
           at: event.startsAt,
-          present: attendance.filter((record) => record.status === "present").length,
-          absent: attendance.filter((record) => record.status === "absent").length,
+          present: statuses.filter((status) => status === "present").length,
+          absent: statuses.filter((status) => status === "absent").length,
         };
       }),
     );
@@ -1159,16 +1182,20 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const accounts = (await repo.listAccounts(alliance)).filter(
       (account) => account.status === "active" || account.status === "unknown",
     );
-    const members = accounts.map((account) => {
+    const people = await attendancePeople(accounts);
+    const members = people.map((group) => {
+      const account = group[0]!;
+      const ids = new Set(group.map((item) => item.playerId));
+      const knownSince = group.map((item) => item.createdAt).filter((value): value is string => value !== undefined).toSorted()[0];
       let attended = 0;
       let considered = 0;
       let lastAttendedAt: string | undefined;
       for (const { event, attendance } of tracked) {
-        const own = attendance.find((record) => record.playerId === account.playerId);
-        const eligible = !account.createdAt || event.startsAt >= account.createdAt || own !== undefined;
-        if (!eligible || own?.status === "excused" || own?.status === "unknown") continue;
+        const status = attendanceForPerson(attendance, ids);
+        const eligible = !knownSince || event.startsAt >= knownSince || status !== undefined;
+        if (!eligible || status === undefined) continue;
         considered += 1;
-        if (own?.status === "present") {
+        if (status === "present") {
           attended += 1;
           lastAttendedAt = event.startsAt;
         }
@@ -1179,6 +1206,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         playerId: account.playerId,
         name: account.name,
         rank: account.rank,
+        linkedAccounts: group.slice(1).map((item) => ({ playerId: item.playerId, name: item.name })),
         attended,
         events: considered,
         ...(rate === undefined ? {} : { rate }),
@@ -1186,12 +1214,15 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         ...(lastAttendedAt ? { lastAttendedAt } : {}),
       };
     });
-    const samples = tracked.map(({ event, attendance }) => ({
-      eventId: event.eventId,
-      at: event.startsAt,
-      present: attendance.filter((record) => record.status === "present").length,
-      absent: attendance.filter((record) => record.status === "absent").length,
-    }));
+    const samples = tracked.map(({ event, attendance }) => {
+      const statuses = people.map((group) => attendanceForPerson(attendance, new Set(group.map((account) => account.playerId))));
+      return {
+        eventId: event.eventId,
+        at: event.startsAt,
+        present: statuses.filter((status) => status === "present").length,
+        absent: statuses.filter((status) => status === "absent").length,
+      };
+    });
     return c.json({
       alliance,
       kind,

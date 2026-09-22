@@ -946,6 +946,43 @@ export class Repository {
     return items.map((i) => String(i.playerId));
   }
 
+  /**
+   * Game accounts sharing one login represent one person in person-level analytics. The first
+   * account linked is the display/main account; gameplay records themselves remain account-owned.
+   */
+  async linkedAccountGroups(playerIds: readonly string[]): Promise<string[][]> {
+    const wanted = new Set(playerIds);
+    if (wanted.size === 0) return [];
+    const byLogin = new Map<string, { playerId: string; linkedAt: string }[]>();
+    let ExclusiveStartKey: Record<string, unknown> | undefined;
+    do {
+      const res = await this.db.send(
+        new ScanCommand({
+          TableName: this.table,
+          FilterExpression: "#type = :type",
+          ExpressionAttributeNames: { "#type": "type", "#sub": "sub" },
+          ExpressionAttributeValues: { ":type": "login-link" },
+          ProjectionExpression: "#sub, playerId, createdAt",
+          ExclusiveStartKey,
+        }),
+      );
+      for (const item of res.Items ?? []) {
+        const sub = typeof item.sub === "string" ? item.sub : undefined;
+        const playerId = typeof item.playerId === "string" ? item.playerId : undefined;
+        if (!sub || !playerId || !wanted.has(playerId)) continue;
+        const group = byLogin.get(sub) ?? [];
+        group.push({ playerId, linkedAt: typeof item.createdAt === "string" ? item.createdAt : "" });
+        byLogin.set(sub, group);
+      }
+      ExclusiveStartKey = res.LastEvaluatedKey;
+    } while (ExclusiveStartKey);
+    return [...byLogin.values()].map((group) =>
+      group
+        .toSorted((a, b) => a.linkedAt.localeCompare(b.linkedAt) || a.playerId.localeCompare(b.playerId))
+        .map((entry) => entry.playerId),
+    );
+  }
+
   /** The login already claiming this game account, without exposing it through the HTTP API. */
   async linkedLogin(playerId: string): Promise<string | undefined> {
     return (await this.linkedLoginAccess(playerId))?.sub;
