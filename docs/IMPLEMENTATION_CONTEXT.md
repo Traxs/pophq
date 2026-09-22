@@ -90,6 +90,7 @@ Not implemented yet: SvS buff scheduling, screenshot extraction, reminders/outbo
 
 - A Cognito/login subject represents a person. A game account represents one in-game Player ID. Never merge these concepts.
 - One login may link to multiple game accounts (alts); one game account may link to at most one login.
+- Person-level attendance analytics group every login's linked accounts under its earliest-linked main account. Presence on any linked account wins over absence for the same event; only explicit present/absent records are scored, while the underlying answers and attendance remain account-owned.
 - Officers can issue either emailed-code access or an email-free temporary-password login. The production pool has an immutable email-style username schema, so email-free users receive a generated `@members.pophq.invalid` login name; it is not a real mailbox. Temporary credentials are returned once, never persisted by POP HQ, and must be replaced at first sign-in.
 - Password recovery is restricted to password-based logins and R4/R5 access. It records an immutable intent before Cognito is changed, resolves the audit as completed/failed, globally signs out existing sessions, and never stores the temporary password. Officers see actor, time, justification and outcome on the member profile.
 - Roster responses expose only `hasLogin` and the non-secret recovery kind, never the Cognito subject or generated login name. This drives invite/reset affordances and excludes already registered accounts from autocomplete.

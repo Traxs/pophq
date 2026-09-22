@@ -599,6 +599,8 @@ export interface EventParticipationMember {
   playerId: string;
   name: string;
   rank?: string;
+  /** Alts rolled into this person's main account for attendance analytics. */
+  linkedAccounts?: { playerId: string; name: string }[];
   attended: number;
   events: number;
   rate?: number;
