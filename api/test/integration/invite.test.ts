@@ -145,6 +145,44 @@ describe("POST /v1/invites", () => {
     expect(again.body).toMatchObject({ accountCreated: false, loginCreated: false, linked: false });
   });
 
+  it("gives an invited POP R4 immediate officer access without a separate Cognito group", async () => {
+    const invited = await h.call("POST", "/invites", {
+      as: "officer-1",
+      groups: ["officer"],
+      body: { email: "arya@example.com", playerId: "400000010", name: "Arya", rank: "R4" },
+    });
+    expect(invited.status).toBe(201);
+
+    const me = await h.call("GET", "/me", { as: String(invited.body.sub) });
+    expect(me.status).toBe(200);
+    expect(me.body.groups).toEqual(expect.arrayContaining(["player", "officer"]));
+    expect((await h.call("GET", "/roster", { as: String(invited.body.sub) })).status).toBe(200);
+  });
+
+  it("applies promotions and former-member removals without waiting for a new login token", async () => {
+    const invited = await h.call("POST", "/invites", {
+      as: "officer-1",
+      groups: ["officer"],
+      body: { email: "promoted@example.com", playerId: "400000011", name: "Promoted", rank: "R3" },
+    });
+    const sub = String(invited.body.sub);
+    expect((await h.call("GET", "/roster", { as: sub })).status).toBe(403);
+
+    expect((await h.call("PATCH", "/accounts/400000011", {
+      as: "officer-1",
+      groups: ["officer"],
+      body: { rank: "R4" },
+    })).status).toBe(200);
+    expect((await h.call("GET", "/roster", { as: sub })).status).toBe(200);
+
+    expect((await h.call("PATCH", "/accounts/400000011", {
+      as: "officer-1",
+      groups: ["officer"],
+      body: { status: "transferred_out" },
+    })).status).toBe(200);
+    expect((await h.call("GET", "/roster", { as: sub })).status).toBe(403);
+  });
+
   it("is officer-only and validates its input", async () => {
     const asPlayer = await h.call("POST", "/invites", { as: "player-1", body: { playerId: "400000002", name: "Nope" } });
     expect(asPlayer.status).toBe(403);
