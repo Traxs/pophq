@@ -401,6 +401,8 @@ describe("bot result agent", () => {
   it("tracks the issuer's current read and write rights", async () => {
     expect((await h.call("GET", "/agent/doctor", agent())).status).toBe(200);
     issuerGroups = new Set<Group>(["player"]);
+    const officerAccount = await h.repo.getAccount("700000001");
+    await h.repo.updateAccount({ ...officerAccount!, rank: "R3" }, { id: "fixture", via: "seed" });
     expect((await h.call("GET", "/agent/doctor", agent())).status).toBe(200);
     expect((await h.call("GET", "/events", agent())).status).toBe(200);
     expect((await h.call("GET", "/agent/history?category=alias", agent())).status).toBe(403);
@@ -416,6 +418,7 @@ describe("bot result agent", () => {
     expect(eventWrite.status).toBe(403);
     const historyWrite = await h.call("PUT", "/agent/history/alias-demoted", agent({ category: "alias" }));
     expect(historyWrite.status).toBe(403);
+    await h.repo.updateAccount({ ...officerAccount!, rank: "R4" }, { id: "fixture", via: "seed" });
     issuerGroups = new Set<Group>(["player", "officer"]);
   });
 });

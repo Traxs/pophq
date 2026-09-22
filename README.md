@@ -78,7 +78,7 @@ aws ssm put-parameter --region eu-central-1 --name /pophq/alerts/email --type St
 
 ## Roles and the first owner
 
-Roles are Cognito groups defined in the stack: `player` (every signed-in person), `officer` (roster and planning tools) and `owner` (runs the site). They are app permissions, not game ranks: R1–R5 is stored on the game account.
+Roles are Cognito groups defined in the stack: `player` (every signed-in person), `officer` (roster and planning tools) and `owner` (runs the site). R1–R5 is stored on the game account. A linked current POP R4/R5 automatically receives officer access from that rank, so inviting or promoting an R4 does not require a separate Cognito-group operation; explicit `officer` and `owner` groups remain valid for bootstrap and exceptional access.
 
 Create a login (no invitation email; sign-in uses emailed one-time codes, so the random password is never used), add it to a group, and link it to its game account:
 
@@ -100,7 +100,7 @@ npm run admin -w api -- backfill-seats
 
 ## Inviting members
 
-Officers invite from the Members page: email (optional), Player ID, game name and rank. One step creates the Cognito login (sign-in by emailed code, no password), the game account and the link between them; repeating the same invite changes nothing. Without an email only the game account is created, for members who report through an officer. Logins are capped at 100 seats (FM-08); alts of the same person don't use extra seats.
+Officers invite from the Members page: email (optional), Player ID, game name and rank. One step creates the Cognito login (sign-in by emailed code, no password), the game account and the link between them; repeating the same invite changes nothing. A linked current POP R4/R5 can immediately open the officer-only Members and planning pages, even when their existing token predates the invite or promotion. Without an email only the game account is created, for members who report through an officer. Logins are capped at 100 seats (FM-08); alts of the same person don't use extra seats.
 
 Locally the invite flow uses a stand-in directory in DynamoDB Local, so invited emails can't actually sign in there; the test personas cover signed-in flows.
 

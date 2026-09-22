@@ -48,6 +48,8 @@ import { monthlyAttendance, monthlyValues, trailingAverage } from "../domain/tre
 import { currentValues, parseImportedReport, parseReport } from "../domain/measurements.js";
 import {
   defaultActing,
+  effectiveGroups,
+  grantsOfficerAccess,
   isOfficer,
   parseGroups,
   requireCanWriteFor,
@@ -89,8 +91,24 @@ export interface AppDeps {
 const PARTICIPATION_DAYS = 180;
 const REWARD_RECIPIENTS = 40;
 
-export function createApp({ repo, verifier, now = () => new Date(), extend, isPaused, logins, history, botIssuerGroups = async () => undefined, evidence }: AppDeps) {
+export function createApp({ repo, verifier, now = () => new Date(), extend, isPaused, logins, history, botIssuerGroups: rawBotIssuerGroups = async () => undefined, evidence }: AppDeps) {
   const app = new Hono<Env>().basePath("/v1");
+
+  const groupsFor = async (claim: unknown, linked: ReadonlySet<string>) => {
+    const claimed = parseGroups(claim);
+    if (claimed.has("officer") || claimed.has("owner")) return claimed;
+    const accounts = await Promise.all([...linked].map((playerId) => repo.getAccount(playerId)));
+    return effectiveGroups([...claimed], accounts);
+  };
+
+  // Bot tokens use the same live R4/R5-derived access as the browser instead of depending on a
+  // Cognito group that may not have been manually assigned when the person was invited.
+  const botIssuerGroups: BotIssuerGroups = async (issuedBy) => {
+    const issuerGroups = await rawBotIssuerGroups(issuedBy);
+    if (!issuerGroups) return undefined;
+    const linked = new Set(await repo.linkedAccounts(issuedBy));
+    return groupsFor([...issuerGroups], linked);
+  };
 
   const requireR4 = async (principal: Principal) => {
     requireOfficer(principal);
@@ -104,7 +122,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
 
   const requireBotIssuerR4 = async (issuedBy: string) => {
     const accounts = await Promise.all((await repo.linkedAccounts(issuedBy)).map((playerId) => repo.getAccount(playerId)));
-    const account = accounts.find((candidate) => candidate?.alliance === "POP" && (candidate.rank === "R4" || candidate.rank === "R5"));
+    const account = accounts.find(grantsOfficerAccess);
     if (!account) throw new ForbiddenError("The person who issued this bot token is no longer an R4 or R5 in POP.");
     return account;
   };
@@ -836,7 +854,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     } else {
       const token = await verifier(match[1]);
       linked = new Set(await repo.linkedAccounts(token.sub));
-      principal = { sub: token.sub, groups: parseGroups(token.groups), linkedAccounts: linked };
+      principal = { sub: token.sub, groups: await groupsFor(token.groups, linked), linkedAccounts: linked };
     }
     const acting = resolveActingAccount(c.req.header("x-account-id"), linked);
     if (acting) principal.actingAs = acting;

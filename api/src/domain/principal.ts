@@ -2,6 +2,12 @@ import { ForbiddenError } from "./errors.js";
 
 export type Group = "player" | "officer" | "owner";
 
+export interface AccessAccount {
+  alliance: string;
+  rank?: string;
+  status: string;
+}
+
 /** Who is calling, derived from a verified token plus the login's verified account links. */
 export interface Principal {
   sub: string;
@@ -13,6 +19,22 @@ export interface Principal {
 }
 
 export const isOfficer = (p: Principal): boolean => p.groups.has("officer") || p.groups.has("owner");
+
+/**
+ * R4/R5 is the alliance's operational officer role. Imported accounts may still be unconfirmed
+ * when their login is linked, so `unknown` remains eligible; former members and guests do not.
+ */
+export const grantsOfficerAccess = (account: AccessAccount | undefined): boolean =>
+  account?.alliance === "POP"
+  && (account.rank === "R4" || account.rank === "R5")
+  && (account.status === "active" || account.status === "unknown");
+
+/** Cognito roles remain valid, while a linked current POP R4/R5 gains officer access immediately. */
+export function effectiveGroups(claim: unknown, accounts: readonly (AccessAccount | undefined)[]): Set<Group> {
+  const groups = parseGroups(claim);
+  if (accounts.some(grantsOfficerAccess)) groups.add("officer");
+  return groups;
+}
 
 export function requireOfficer(p: Principal): void {
   if (!isOfficer(p)) throw new ForbiddenError("Only officers can do this.");

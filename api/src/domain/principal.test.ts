@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultActing, parseGroups, requireCanWriteFor, resolveActingAccount, type Principal } from "./principal.js";
+import { defaultActing, effectiveGroups, grantsOfficerAccess, parseGroups, requireCanWriteFor, resolveActingAccount, type Principal } from "./principal.js";
 import { ForbiddenError } from "./errors.js";
 
 const principal = (groups: string[], linked: string[]): Principal => ({
@@ -37,6 +37,27 @@ describe("parseGroups", () => {
     expect([...parseGroups(["officer", "admin", "owner"])].sort()).toEqual(["officer", "owner", "player"]);
     expect([...parseGroups(undefined)]).toEqual(["player"]);
     expect([...parseGroups("officer owner")].sort()).toEqual(["officer", "owner", "player"]);
+  });
+});
+
+describe("rank-derived officer access", () => {
+  it("grants current POP R4 and R5 accounts officer access", () => {
+    expect(grantsOfficerAccess({ alliance: "POP", rank: "R4", status: "active" })).toBe(true);
+    expect(grantsOfficerAccess({ alliance: "POP", rank: "R5", status: "unknown" })).toBe(true);
+    expect([...effectiveGroups([], [{ alliance: "POP", rank: "R4", status: "active" }])].sort())
+      .toEqual(["officer", "player"]);
+  });
+
+  it("does not grant it to lower ranks, guests, or former members", () => {
+    expect(grantsOfficerAccess({ alliance: "POP", rank: "R3", status: "active" })).toBe(false);
+    expect(grantsOfficerAccess({ alliance: "OTHER", rank: "R4", status: "guest" })).toBe(false);
+    expect(grantsOfficerAccess({ alliance: "POP", rank: "R4", status: "transferred_out" })).toBe(false);
+  });
+
+  it("preserves explicit Cognito owner and officer roles", () => {
+    expect([...effectiveGroups(["owner"], [])].sort()).toEqual(["owner", "player"]);
+    expect([...effectiveGroups(["officer"], [{ alliance: "POP", rank: "R3", status: "active" }])].sort())
+      .toEqual(["officer", "player"]);
   });
 });
 
