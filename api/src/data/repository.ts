@@ -13,6 +13,7 @@ import type { AttendanceRecord } from "../domain/attendance.js";
 import type { AllianceEvent, Answer, EventAnswer } from "../domain/events.js";
 import type { EventType } from "../domain/eventTypes.js";
 import type { KudosAward } from "../domain/kudos.js";
+import { DEFAULT_REWARD_VALUATIONS, type FortressBuffAssignment, type FortressBuffPool } from "../domain/fortressBuffs.js";
 import type { Checklist } from "../domain/checklists.js";
 import type { Lineup } from "../domain/lineups.js";
 import type { SlotPreferences, SvsRound } from "../domain/svs.js";
@@ -37,6 +38,9 @@ import {
   eventIndexKey,
   eventKey,
   eventTypeKey,
+  fortressBuffAssignmentKey,
+  fortressBuffPoolIndexKey,
+  fortressBuffPoolKey,
   kudosKey,
   lineupKey,
   idempotencyKey,
@@ -1096,9 +1100,223 @@ export class Repository {
     return items.map(toPreferences);
   }
 
+  // ---- Distributable Fortress rewards ----
+
+  async putFortressBuffPool(pool: FortressBuffPool, actor: Actor): Promise<void> {
+    await this.db.send(
+      new PutCommand({
+        TableName: this.table,
+        Item: {
+          ...fortressBuffPoolKey(pool.poolId),
+          ...fortressBuffPoolIndexKey(pool.alliance, pool.acquiredAt, pool.poolId),
+          type: "fortress-buff-pool",
+          ...pool,
+          ...newItemMeta(actor, this.clock()),
+        },
+        ConditionExpression: "attribute_not_exists(PK)",
+      }),
+    );
+  }
+
+  /** One weekly entry either succeeds as a whole or leaves no partial inventory behind. */
+  async putFortressBuffPools(pools: readonly FortressBuffPool[], actor: Actor): Promise<void> {
+    if (pools.length === 0) return;
+    const meta = newItemMeta(actor, this.clock());
+    await this.db.send(new TransactWriteCommand({
+      TransactItems: pools.map((pool) => ({
+        Put: {
+          TableName: this.table,
+          Item: {
+            ...fortressBuffPoolKey(pool.poolId),
+            ...fortressBuffPoolIndexKey(pool.alliance, pool.acquiredAt, pool.poolId),
+            type: "fortress-buff-pool",
+            ...pool,
+            ...meta,
+          },
+          ConditionExpression: "attribute_not_exists(PK)",
+        },
+      })),
+    }));
+  }
+
+  /** Bot registration commits the complete haul and its retry marker as one transaction. */
+  async putFortressBuffPoolsIdempotent(
+    pools: readonly FortressBuffPool[],
+    actor: Actor,
+    tokenId: string,
+    key: string,
+    bodyHash: string,
+  ): Promise<void> {
+    if (pools.length === 0) return;
+    const changedAt = this.clock();
+    const meta = newItemMeta(actor, changedAt);
+    try {
+      await this.db.send(new TransactWriteCommand({
+        TransactItems: [
+          ...pools.map((pool) => ({
+            Put: {
+              TableName: this.table,
+              Item: {
+                ...fortressBuffPoolKey(pool.poolId),
+                ...fortressBuffPoolIndexKey(pool.alliance, pool.acquiredAt, pool.poolId),
+                type: "fortress-buff-pool",
+                ...pool,
+                ...meta,
+              },
+              ConditionExpression: "attribute_not_exists(PK)",
+            },
+          })),
+          {
+            Put: {
+              TableName: this.table,
+              Item: {
+                ...idempotencyKey(tokenId, key),
+                type: "agent-idempotency",
+                bodyHash,
+                response: pools,
+                createdAt: changedAt.toISOString(),
+                expiresAtEpoch: Math.floor(changedAt.getTime() / 1000) + 24 * 60 * 60,
+              },
+              ConditionExpression: "attribute_not_exists(PK)",
+            },
+          },
+        ],
+      }));
+    } catch (err) {
+      if (err instanceof TransactionCanceledException) {
+        throw new ConflictError("That reward batch or idempotency key already exists. Preview again before retrying.");
+      }
+      throw err;
+    }
+  }
+
+  async getFortressBuffPool(poolId: string): Promise<FortressBuffPool | undefined> {
+    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: fortressBuffPoolKey(poolId) }));
+    return res.Item ? toFortressBuffPool(res.Item) : undefined;
+  }
+
+  async listFortressBuffPools(alliance: string, limit = 50): Promise<FortressBuffPool[]> {
+    const items = await this.queryAll({
+      IndexName: "GSI1",
+      KeyConditionExpression: "GSI1PK = :pk",
+      ExpressionAttributeValues: { ":pk": `FORTBUFFS#${alliance}` },
+      ScanIndexForward: false,
+      Limit: limit,
+    });
+    return items.map(toFortressBuffPool);
+  }
+
+  async listFortressBuffAssignments(poolId: string): Promise<FortressBuffAssignment[]> {
+    const items = await this.queryAll({
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+      ExpressionAttributeValues: { ":pk": `FORTBUFF#${poolId}`, ":sk": "ASSIGN#" },
+    });
+    return items.map(toFortressBuffAssignment);
+  }
+
+  /** Decrements stock and records the recipient together, so the last reward units cannot be assigned twice. */
+  async assignFortressBuff(
+    assignment: FortressBuffAssignment,
+    actor: Actor,
+  ): Promise<FortressBuffAssignment> {
+    const meta = newItemMeta(actor, this.clock());
+    try {
+      await this.db.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              Update: {
+                TableName: this.table,
+                Key: fortressBuffPoolKey(assignment.poolId),
+                UpdateExpression:
+                  "SET remaining = remaining - :amount, updatedAt = :updatedAt, updatedBy = :updatedBy, via = :via, changeId = :changeId, #version = if_not_exists(#version, :zero) + :one",
+                ConditionExpression: "attribute_exists(PK) AND remaining >= :amount",
+                ExpressionAttributeNames: { "#version": "version" },
+                ExpressionAttributeValues: {
+                  ":one": 1,
+                  ":amount": assignment.amount,
+                  ":zero": 0,
+                  ":updatedAt": meta.updatedAt,
+                  ":updatedBy": meta.updatedBy,
+                  ":via": meta.via,
+                  ":changeId": meta.changeId,
+                },
+              },
+            },
+            {
+              ConditionCheck: {
+                TableName: this.table,
+                Key: accountKey(assignment.playerId),
+                ConditionExpression: "attribute_exists(PK) AND #status IN (:active, :unknown)",
+                ExpressionAttributeNames: { "#status": "status" },
+                ExpressionAttributeValues: { ":active": "active", ":unknown": "unknown" },
+              },
+            },
+            {
+              Put: {
+                TableName: this.table,
+                Item: {
+                  ...fortressBuffAssignmentKey(assignment.poolId, assignment.playerId),
+                  type: "fortress-buff-assignment",
+                  ...assignment,
+                  ...meta,
+                },
+                ConditionExpression: "attribute_not_exists(PK)",
+              },
+            },
+          ],
+        }),
+      );
+      return assignment;
+    } catch (err) {
+      const reasons = cancellationCodes(err);
+      if (reasons?.[0] === "ConditionalCheckFailed") throw new ConflictError("That reward batch has no buffs left.");
+      if (reasons?.[1] === "ConditionalCheckFailed") throw new ConflictError("That account is not an active alliance member.");
+      if (reasons?.[2] === "ConditionalCheckFailed") throw new ConflictError("That member already received this reward batch.");
+      throw err;
+    }
+  }
+
+  /** Marks a reserved recommendation as actually delivered in-game. */
+  async confirmFortressBuffAssignment(
+    poolId: string,
+    playerId: string,
+    confirmedAt: string,
+    actor: Actor,
+  ): Promise<FortressBuffAssignment> {
+    const current = (await this.listFortressBuffAssignments(poolId)).find((item) => item.playerId === playerId);
+    if (!current) throw new NotFoundError("Reward recommendation not found.");
+    if (current.status === "confirmed") return current;
+    const meta = newItemMeta(actor, this.clock());
+    try {
+      await this.db.send(new UpdateCommand({
+        TableName: this.table,
+        Key: fortressBuffAssignmentKey(poolId, playerId),
+        UpdateExpression: "SET #status = :confirmed, confirmedAt = :confirmedAt, confirmedBy = :confirmedBy, updatedAt = :updatedAt, updatedBy = :updatedBy, via = :via, changeId = :changeId",
+        ConditionExpression: "attribute_exists(PK) AND (attribute_not_exists(#status) OR #status = :recommended)",
+        ExpressionAttributeNames: { "#status": "status" },
+        ExpressionAttributeValues: {
+          ":confirmed": "confirmed",
+          ":recommended": "recommended",
+          ":confirmedAt": confirmedAt,
+          ":confirmedBy": actor.id,
+          ":updatedAt": meta.updatedAt,
+          ":updatedBy": meta.updatedBy,
+          ":via": meta.via,
+          ":changeId": meta.changeId,
+        },
+      }));
+    } catch (err) {
+      if (err instanceof ConditionalCheckFailedException) throw new ConflictError("That reward recommendation changed. Reload before confirming.");
+      throw err;
+    }
+    return { ...current, status: "confirmed", confirmedAt, confirmedBy: actor.id };
+  }
+
   /** Kudos are immutable: a mistake is corrected by awarding the opposite, never by editing. */
   async addKudos(award: KudosAward, actor: Actor): Promise<void> {
     try {
+      const { reason: auditReason, ...meta } = newItemMeta(actor, this.clock());
       await this.db.send(
         new TransactWriteCommand({
           TransactItems: [
@@ -1118,7 +1336,8 @@ export class Repository {
                   ...kudosKey(award.playerId, award.awardId),
                   type: "kudos",
                   ...award,
-                  ...newItemMeta(actor, this.clock()),
+                  ...meta,
+                  ...(auditReason ? { auditReason } : {}),
                 },
                 ConditionExpression: "attribute_not_exists(SK)",
               },
@@ -1273,6 +1492,40 @@ function toKudos(item: Record<string, unknown>): KudosAward {
     awardedAt: String(item.awardedAt),
     awardedBy: String(item.awardedBy),
   };
+}
+
+function toFortressBuffPool(item: Record<string, unknown>): FortressBuffPool {
+  const pool: FortressBuffPool = {
+    poolId: String(item.poolId),
+    alliance: String(item.alliance),
+    buff: item.buff as FortressBuffPool["buff"],
+    quantity: Number(item.quantity),
+    remaining: Number(item.remaining),
+    source: String(item.source),
+    acquiredAt: String(item.acquiredAt),
+    registeredAt: String(item.registeredAt ?? item.createdAt ?? item.acquiredAt),
+    createdBy: String(item.createdBy),
+  };
+  if (item.batchId) pool.batchId = String(item.batchId);
+  const valuation = item.gemValuation as FortressBuffPool["gemValuation"] | undefined
+    ?? DEFAULT_REWARD_VALUATIONS[pool.buff];
+  if (valuation) pool.gemValuation = valuation;
+  return pool;
+}
+
+function toFortressBuffAssignment(item: Record<string, unknown>): FortressBuffAssignment {
+  const assignment: FortressBuffAssignment = {
+    poolId: String(item.poolId),
+    playerId: String(item.playerId),
+    amount: Number(item.amount ?? 1),
+    assignedAt: String(item.assignedAt),
+    assignedBy: String(item.assignedBy),
+    status: item.status === "confirmed" ? "confirmed" : "recommended",
+  };
+  if (item.eligibility) assignment.eligibility = item.eligibility as NonNullable<FortressBuffAssignment["eligibility"]>;
+  if (item.confirmedAt) assignment.confirmedAt = String(item.confirmedAt);
+  if (item.confirmedBy) assignment.confirmedBy = String(item.confirmedBy);
+  return assignment;
 }
 
 function toLineup(item: Record<string, unknown>): Lineup {

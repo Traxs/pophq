@@ -86,6 +86,12 @@ def main() -> None:
     edit_event.add_argument("--reason")
     edit_event.add_argument("--idempotency-key")
     edit_event.add_argument("--expected-hash", help="expectedHash returned by the reviewed preview")
+    rewards = sub.add_parser("put-rewards", help="Preview or apply one Fortress/Stronghold reward haul")
+    rewards.add_argument("json_file", help="JSON file, or - for stdin")
+    rewards.add_argument("--apply", action="store_true")
+    rewards.add_argument("--reason")
+    rewards.add_argument("--idempotency-key")
+    rewards.add_argument("--expected-hash", help="expectedHash returned by the reviewed preview")
     history = sub.add_parser("put-history", help="Preview or apply one guarded historical record")
     history.add_argument("path", help="Path below /v1/agent/history, beginning with /agent/history/")
     history.add_argument("json_file", help="JSON file, or - for stdin")
@@ -138,6 +144,15 @@ def main() -> None:
         event = urllib.parse.quote(args.event_id, safe="")
         suffix = "?apply=true" if args.apply else ""
         result = request("PATCH", f"/agent/events/{event}{suffix}", payload, args.idempotency_key)
+    elif args.command == "put-rewards":
+        if args.apply and (not args.reason or not args.idempotency_key or not args.expected_hash):
+            raise SystemExit("--apply requires --reason, --idempotency-key and --expected-hash.")
+        payload = load_payload(args.json_file)
+        if args.apply:
+            payload["reason"] = args.reason
+            payload["expectedHash"] = args.expected_hash
+        suffix = "?apply=true" if args.apply else ""
+        result = request("POST", f"/agent/rewards{suffix}", payload, args.idempotency_key)
     elif args.command == "put-history":
         if not args.path.startswith("/agent/history/") or args.path.startswith("//"):
             raise SystemExit("History path must begin with /agent/history/.")

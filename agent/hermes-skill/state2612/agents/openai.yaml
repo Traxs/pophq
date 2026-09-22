@@ -1,4 +1,4 @@
 interface:
   display_name: "POP HQ / State 2612"
-  short_description: "Read POP HQ and safely maintain events, results and history"
-  default_prompt: "Use POP HQ to answer questions from the data or safely preview and update events, Foundry results and approved historical records."
+  short_description: "Read POP HQ and safely maintain events, results, rewards and history"
+  default_prompt: "Use POP HQ to answer questions from the data or safely preview and update events, Foundry results, Fortress rewards and approved historical records."

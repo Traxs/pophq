@@ -13,6 +13,7 @@ export function AgentTokens() {
   const [write, setWrite] = useState(true);
   const [eventsWrite, setEventsWrite] = useState(true);
   const [historyWrite, setHistoryWrite] = useState(false);
+  const [rewardsWrite, setRewardsWrite] = useState(true);
   const [secret, setSecret] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -28,6 +29,7 @@ export function AgentTokens() {
         ...(write ? ["results:write" as const] : []),
         ...(eventsWrite ? ["events:write" as const] : []),
         ...(historyWrite ? ["history:write" as const] : []),
+        ...(rewardsWrite ? ["rewards:write" as const] : []),
       ];
       const issued = await api.issueAgentToken({ name, scopes, expiresInDays: days });
       setSecret(issued.token);
@@ -38,7 +40,7 @@ export function AgentTokens() {
   };
 
   const scopeLabel = (scope: AgentScope) =>
-    scope === "results:write" ? "Update results" : scope === "events:write" ? "Manage events" : scope === "history:write" ? "Import history" : "Read data";
+    scope === "results:write" ? "Update results" : scope === "events:write" ? "Manage events" : scope === "history:write" ? "Import history" : scope === "rewards:write" ? "Register rewards" : "Read data";
 
   return (
     <section className="card bot-token-panel" aria-labelledby="agent-token-title">
@@ -52,6 +54,7 @@ export function AgentTokens() {
         <label className="checkbox-row"><input type="checkbox" checked={write} onChange={(e) => setWrite(e.target.checked)} /><span>Allow result updates <span className="muted">(preview remains the default)</span></span></label>
         <label className="checkbox-row"><input type="checkbox" checked={eventsWrite} onChange={(e) => setEventsWrite(e.target.checked)} /><span>Allow event creation and editing <span className="muted">(including historical events; preview remains the default)</span></span></label>
         <label className="checkbox-row"><input type="checkbox" checked={historyWrite} onChange={(e) => setHistoryWrite(e.target.checked)} /><span>Allow historical data imports <span className="muted">(strength, signups, attendance, lineups and tactics)</span></span></label>
+        <label className="checkbox-row"><input type="checkbox" checked={rewardsWrite} onChange={(e) => setRewardsWrite(e.target.checked)} /><span>Allow Fortress reward registration <span className="muted">(R4/R5 only; preview remains the default)</span></span></label>
         <div className="bot-token-actions">
           <button type="button" className="btn btn-primary btn-small" disabled={busy || !name.trim()} onClick={() => void issue()}>{busy ? "Issuing…" : "Issue token"}</button>
         </div>

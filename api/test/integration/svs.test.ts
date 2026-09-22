@@ -139,7 +139,7 @@ describe("kudos", () => {
     expect(res.status).toBe(201);
     expect(res.body).toMatchObject({ playerId: "100000001", points: 10, reason: "Covered a night buff slot" });
 
-    // Ninety days old, so worth half.
+    // Ninety days old, so it no longer contributes at all.
     const old = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
     await h.call("POST", "/accounts/100000001/kudos", {
       ...OFFICER,
@@ -148,7 +148,12 @@ describe("kudos", () => {
 
     const list = await h.call("GET", "/accounts/100000001/kudos", PLAYER);
     expect((list.body.items as unknown[]).length).toBe(2);
-    expect(list.body.score as number).toBeCloseTo(15, 1);
+    expect(list.body.score as number).toBeCloseTo(10, 1);
+    expect(list.body.decayDays).toBe(90);
+    expect(list.body.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ reason: "Covered a night buff slot", active: true, daysRemaining: 90 }),
+      expect.objectContaining({ reason: "Old favour", active: false, currentPoints: 0, daysRemaining: 0 }),
+    ]));
   });
 
   it("keeps members out of each other's kudos, but lets them see their own", async () => {

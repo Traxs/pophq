@@ -22,7 +22,8 @@ import {
 import { parseEventType, STARTER_TYPES } from "../domain/eventTypes.js";
 import { applyTick, datedTasks, STARTER_CHECKLISTS } from "../domain/checklists.js";
 import { parseLineup, placeIn } from "../domain/lineups.js";
-import { kudosScore, parseKudos } from "../domain/kudos.js";
+import { KUDOS_DECAY_DAYS, kudosContribution, kudosScore, kudosShare, parseKudos } from "../domain/kudos.js";
+import { FORTRESS_BUFFS, parseFortressBuffPool, parseFortressBuffPools, type FortressBuff, type FortressBuffPool } from "../domain/fortressBuffs.js";
 import {
   dayEndsAt,
   parseNewRound,
@@ -30,6 +31,10 @@ import {
   roundState,
   slotStartsAt,
   SLOTS_PER_DAY,
+  BUFF_ATTENDANCE_WEIGHT,
+  BUFF_KUDOS_WEIGHT,
+  BUFF_STRENGTH_WEIGHT,
+  buffScore,
 } from "../domain/svs.js";
 import { parseStrategy } from "../domain/strategy.js";
 import { parseEventResult } from "../domain/results.js";
@@ -82,9 +87,188 @@ export interface AppDeps {
 
 /** Events far enough back to judge participation over; the domain keeps the most recent ten. */
 const PARTICIPATION_DAYS = 180;
+const REWARD_RECIPIENTS = 40;
 
 export function createApp({ repo, verifier, now = () => new Date(), extend, isPaused, logins, history, botIssuerGroups = async () => undefined, evidence }: AppDeps) {
   const app = new Hono<Env>().basePath("/v1");
+
+  const requireR4 = async (principal: Principal) => {
+    requireOfficer(principal);
+    const playerId = defaultActing(principal);
+    const account = playerId ? await repo.getAccount(playerId) : undefined;
+    if (!account || (account.rank !== "R4" && account.rank !== "R5")) {
+      throw new ForbiddenError("Only an R4 or R5 can manage Fortress buffs.");
+    }
+    return account;
+  };
+
+  const requireBotIssuerR4 = async (issuedBy: string) => {
+    const accounts = await Promise.all((await repo.linkedAccounts(issuedBy)).map((playerId) => repo.getAccount(playerId)));
+    const account = accounts.find((candidate) => candidate?.alliance === "POP" && (candidate.rank === "R4" || candidate.rank === "R5"));
+    if (!account) throw new ForbiddenError("The person who issued this bot token is no longer an R4 or R5 in POP.");
+    return account;
+  };
+
+  const fortressRewardRanking = async (alliance: string) => {
+    const at = now();
+    const from = new Date(at.getTime() - PARTICIPATION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    const events = await repo.listEvents(alliance, from, 100);
+    const accounts = (await repo.listAccounts(alliance)).filter(
+      (account) => account.status === "active" || account.status === "unknown",
+    );
+    const details = await Promise.all(
+      accounts.map(async (account) => {
+        const reports = await repo.listReports(account.playerId);
+        const strength = currentOf(reports, "foundry_strength") ?? 0;
+        const participation = participationOf({
+          events,
+          answers: await repo.answersForAccount(account.playerId, from),
+          attendance: await repo.attendanceFor(account.playerId),
+          now: at,
+          ...(account.createdAt ? { knownSince: account.createdAt } : {}),
+        });
+        const kudos = kudosScore(await repo.listKudos(account.playerId), at);
+        // Match the established scoring rule: unknown attendance is neutral (fully reliable),
+        // never a silent penalty for a member whose history has not been recorded yet.
+        return { account, strength, participationRate: participation.rate ?? 1, kudos };
+      }),
+    );
+    const strongest = Math.max(0, ...details.map((detail) => detail.strength));
+    const bestKudos = Math.max(0, ...details.map((detail) => detail.kudos));
+    const ranked = details
+      .map((detail) => {
+        const kudosPart = kudosShare(detail.kudos, bestKudos);
+        return {
+          ...detail,
+          kudosShare: kudosPart,
+          score: buffScore({
+            attendanceRate: detail.participationRate,
+            strength: detail.strength,
+            strongest,
+            kudosShare: kudosPart,
+          }),
+        };
+      })
+      .toSorted((a, b) => b.score - a.score || a.account.name.localeCompare(b.account.name));
+    return { accounts, ranked, strongest, bestKudos };
+  };
+
+  const fortressBuffView = async (pool: FortressBuffPool, principal: Principal) => {
+    const { accounts, ranked: allRanked, strongest } = await fortressRewardRanking(pool.alliance);
+    const assignments = await repo.listFortressBuffAssignments(pool.poolId);
+    const assigned = new Set(assignments.map((assignment) => assignment.playerId));
+    const cycleKey = (item: FortressBuffPool) => item.batchId ?? `legacy:${item.acquiredAt}:${item.source}:${item.createdBy}`;
+    const cyclePools = (await repo.listFortressBuffPools(pool.alliance)).filter((item) => cycleKey(item) === cycleKey(pool));
+    const cycleAssignments = await Promise.all(cyclePools.map(async (item) => ({
+      pool: item,
+      assignments: await repo.listFortressBuffAssignments(item.poolId),
+    })));
+    const received = new Map<string, { min: number; max: number; unvaluedUnits: number }>();
+    for (const item of cycleAssignments) {
+      for (const assignment of item.assignments) {
+        const current = received.get(assignment.playerId) ?? { min: 0, max: 0, unvaluedUnits: 0 };
+        if (item.pool.gemValuation) {
+          current.min += assignment.amount * item.pool.gemValuation.min;
+          current.max += assignment.amount * item.pool.gemValuation.max;
+        } else {
+          current.unvaluedUnits += assignment.amount;
+        }
+        received.set(assignment.playerId, current);
+      }
+    }
+    const eligibleCount = Math.min(REWARD_RECIPIENTS, allRanked.length);
+    const eligibleRanked = allRanked.slice(0, eligibleCount);
+    const scoreTotal = eligibleRanked.reduce((sum, candidate) => sum + Math.max(0, candidate.score), 0);
+    const knownCycleValue = cyclePools.reduce((total, item) => ({
+      min: total.min + (item.gemValuation ? item.quantity * item.gemValuation.min : 0),
+      max: total.max + (item.gemValuation ? item.quantity * item.gemValuation.max : 0),
+    }), { min: 0, max: 0 });
+    const shareOf = (playerId: string) => {
+      const candidate = eligibleRanked.find((item) => item.account.playerId === playerId);
+      if (!candidate) return 0;
+      return scoreTotal > 0 ? Math.max(0, candidate.score) / scoreTotal : 1 / Math.max(1, eligibleCount);
+    };
+    const targetOf = (playerId: string) => ({
+      min: knownCycleValue.min * shareOf(playerId),
+      max: knownCycleValue.max * shareOf(playerId),
+    });
+
+    // Plan valuable pools first. Each unit goes to the eligible member furthest below
+    // their score-weighted cycle target; smaller divisible items then fill the gaps.
+    const plannedValue = new Map(eligibleRanked.map((candidate) => {
+      const current = received.get(candidate.account.playerId) ?? { min: 0, max: 0 };
+      return [candidate.account.playerId, (current.min + current.max) / 2] as const;
+    }));
+    const recommendations = new Map<string, Map<string, number>>();
+    const valuedPools = cycleAssignments
+      .filter((item) => item.pool.gemValuation && item.pool.remaining > 0)
+      .toSorted((a, b) => {
+        const aValue = (a.pool.gemValuation!.min + a.pool.gemValuation!.max) / 2;
+        const bValue = (b.pool.gemValuation!.min + b.pool.gemValuation!.max) / 2;
+        return bValue - aValue;
+      });
+    for (const item of valuedPools) {
+      const unitValue = (item.pool.gemValuation!.min + item.pool.gemValuation!.max) / 2;
+      const alreadyAssigned = new Set(item.assignments.map((assignment) => assignment.playerId));
+      const poolPlan = new Map<string, number>();
+      // Complete distribution rounds keep one high-ranked member from monopolising a
+      // repeatable 12-hour buff. Rank decides who receives the remainder of a round.
+      const maxPerMember = Math.max(1, Math.ceil(item.pool.quantity / Math.max(1, eligibleCount)));
+      for (let unit = 0; unit < item.pool.remaining; unit += 1) {
+        const recipient = eligibleRanked
+          .filter((candidate) => !alreadyAssigned.has(candidate.account.playerId) && (poolPlan.get(candidate.account.playerId) ?? 0) < maxPerMember)
+          .map((candidate) => {
+            const playerId = candidate.account.playerId;
+            const target = targetOf(playerId);
+            const targetMidpoint = (target.min + target.max) / 2;
+            return { playerId, deficit: targetMidpoint - (plannedValue.get(playerId) ?? 0), position: allRanked.indexOf(candidate) + 1 };
+          })
+          .toSorted((a, b) => b.deficit - a.deficit || a.position - b.position)[0];
+        if (!recipient) break;
+        poolPlan.set(recipient.playerId, (poolPlan.get(recipient.playerId) ?? 0) + 1);
+        plannedValue.set(recipient.playerId, (plannedValue.get(recipient.playerId) ?? 0) + unitValue);
+      }
+      recommendations.set(item.pool.poolId, poolPlan);
+    }
+    const ranked = allRanked
+      .map((detail, index) => ({ detail, position: index + 1 }))
+      .filter(({ detail }) => !assigned.has(detail.account.playerId));
+    const names = new Map(accounts.map((account) => [account.playerId, account.name]));
+    const acting = defaultActing(principal);
+    return {
+      ...pool,
+      assignments: assignments.map((assignment) => {
+        const { eligibility, ...publicAssignment } = assignment;
+        return {
+          ...publicAssignment,
+          ...(eligibility && (isOfficer(principal) || acting === assignment.playerId) ? { eligibility } : {}),
+          name: names.get(assignment.playerId) ?? assignment.playerId,
+        };
+      }),
+      candidates: ranked.map(({ detail: candidate, position }) => ({
+        playerId: candidate.account.playerId,
+        name: candidate.account.name,
+        position,
+        eligible: position <= Math.min(REWARD_RECIPIENTS, accounts.length),
+        cycleRewardValueMin: received.get(candidate.account.playerId)?.min ?? 0,
+        cycleRewardValueMax: received.get(candidate.account.playerId)?.max ?? 0,
+        cycleUnvaluedUnits: received.get(candidate.account.playerId)?.unvaluedUnits ?? 0,
+        cycleTargetValueMin: targetOf(candidate.account.playerId).min,
+        cycleTargetValueMax: targetOf(candidate.account.playerId).max,
+        recommendedAmount: recommendations.get(pool.poolId)?.get(candidate.account.playerId) ?? 0,
+        ...(isOfficer(principal)
+          ? {
+              score: candidate.score,
+              participationRate: candidate.participationRate,
+              strength: candidate.strength,
+              strongestStrength: strongest,
+              strengthShare: strongest > 0 ? candidate.strength / strongest : 0,
+              kudosShare: candidate.kudosShare,
+            }
+          : {}),
+      })),
+    };
+  };
 
   app.use("*", async (c, next) => {
     c.set("requestId", c.req.header("x-request-id") ?? ulid());
@@ -131,6 +315,65 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
   app.get("/agent/doctor", async (c) => {
     const { token } = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "all:read", now(), botIssuerGroups);
     return c.json({ status: "ok", tokenId: token.tokenId, scopes: effectiveBotScopes(token), expiresAt: token.expiresAt });
+  });
+
+  /** Registers one complete Fortress/Stronghold haul. Preview is the default. */
+  app.post("/agent/rewards", async (c) => {
+    const { token } = await authenticateAgent(
+      repo,
+      c.req.header("authorization"),
+      c.req.header("origin"),
+      "rewards:write",
+      now(),
+      botIssuerGroups,
+    );
+    const officer = await requireBotIssuerR4(token.issuedBy);
+    const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+    const write = agentWriteRequest(body, c.req.query("apply") === "true", c.req.header("idempotency-key"), "rewards");
+    if (write.apply) {
+      const replay = await repo.getIdempotentChange(token.tokenId, write.key);
+      if (replay) return replayAgentChange(c, replay, write.bodyHash, "rewards");
+    }
+    const batchId = typeof body.batchId === "string" ? body.batchId.trim() : "";
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{2,59}$/.test(batchId)) {
+      throw new ValidationError("batchId must be 3–60 letters, digits, dots, underscores or hyphens.");
+    }
+    const poolIds = Object.fromEntries(
+      FORTRESS_BUFFS.map((buff) => [buff, `reward-${batchId}-${buff}`]),
+    ) as Record<FortressBuff, string>;
+    const desired = parseFortressBuffPools(body, {
+      poolIds,
+      batchId,
+      alliance: officer.alliance,
+      createdBy: `agent:${token.tokenId}`,
+      now: now(),
+    });
+    const current = (await Promise.all(desired.map((pool) => repo.getFortressBuffPool(pool.poolId))))
+      .filter((pool): pool is FortressBuffPool => pool !== undefined);
+    if (current.length > 0 && canonicalJson(current) !== canonicalJson(desired)) {
+      throw new ConflictError(`Reward batch ${batchId} already exists with different data.`);
+    }
+    const currentHash = stateHash(current);
+    if (write.apply && write.expectedHash !== currentHash && canonicalJson(current) !== canonicalJson(desired)) {
+      throw new ConflictError("Reward inventory changed after preview. Preview again before applying.");
+    }
+    const unchanged = canonicalJson(current) === canonicalJson(desired);
+    if (!write.apply) {
+      return c.json({ dryRun: true, expectedHash: currentHash, unchanged, diff: { before: current, after: desired } });
+    }
+    if (unchanged) {
+      await repo.putIdempotentChange(token.tokenId, write.key, write.bodyHash, desired);
+    } else {
+      await repo.putFortressBuffPoolsIdempotent(
+        desired,
+        agentActor(token.tokenId, write.reason),
+        token.tokenId,
+        write.key,
+        write.bodyHash,
+      );
+    }
+    c.header("x-change-id", write.key);
+    return c.json({ dryRun: false, replayed: false, unchanged, rewards: desired }, unchanged ? 200 : 201);
   });
 
   /** Reads preserved import records that do not yet have a richer product-specific view. */
@@ -619,6 +862,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const active = (await repo.listAgentTokens(p.sub)).filter((token) => !token.revokedAt && Date.parse(token.expiresAt) > now().getTime());
     if (active.length >= 5) throw new ConflictError("You already have five active bot tokens. Revoke one first.");
     const issued = issueAgentToken(await readJson(c.req.raw), p.sub, now());
+    if (issued.record.scopes.includes("rewards:write")) await requireBotIssuerR4(p.sub);
     await repo.createAgentToken(issued.record);
     return c.json({ ...publicAgentToken(issued.record), token: issued.token }, 201);
   });
@@ -1135,7 +1379,12 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const pid = parsePlayerId(c.req.param("pid"));
     if (!p.linkedAccounts.has(pid)) requireOfficer(p);
     const awards = await repo.listKudos(pid);
-    return c.json({ items: awards, score: kudosScore(awards, now()) });
+    const at = now();
+    return c.json({
+      items: awards.map((award) => ({ ...award, ...kudosContribution(award, at) })),
+      score: kudosScore(awards, at),
+      decayDays: KUDOS_DECAY_DAYS,
+    });
   });
 
   /** Officers award kudos for what the numbers cannot see. Awards are immutable. */
@@ -1151,6 +1400,293 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     });
     await repo.addKudos(award, { id: p.sub, via: "web", reason: "kudos awarded" });
     return c.json(award, 201);
+  });
+
+  // ---- Fortress reward buffs ----
+
+  /** Current and recent distributable reward batches are visible to every alliance member. */
+  app.get("/fortress-buffs", async (c) => {
+    const principal = c.get("principal");
+    const acting = defaultActing(principal);
+    const alliance = (c.req.query("alliance") ?? "POP").toUpperCase();
+    const accounts = new Map((await repo.listAccounts(alliance)).map((account) => [account.playerId, account.name]));
+    const items = await Promise.all(
+      (await repo.listFortressBuffPools(alliance)).map(async (pool) => ({
+        ...pool,
+        assignments: (await repo.listFortressBuffAssignments(pool.poolId)).map((assignment) => {
+          const { eligibility, ...publicAssignment } = assignment;
+          return {
+            ...publicAssignment,
+            ...(eligibility && (isOfficer(principal) || acting === assignment.playerId) ? { eligibility } : {}),
+            name: accounts.get(assignment.playerId) ?? assignment.playerId,
+          };
+        }),
+      })),
+    );
+    return c.json({ items });
+  });
+
+  app.get("/fortress-buffs/:id", async (c) => {
+    const pool = await repo.getFortressBuffPool(c.req.param("id"));
+    if (!pool) throw new NotFoundError("Fortress buff batch not found.");
+    return c.json(await fortressBuffView(pool, c.get("principal")));
+  });
+
+  /** The acting account's immutable reward history, including the eligibility decision snapshot. */
+  app.get("/reward-assignments/mine", async (c) => {
+    const playerId = defaultActing(c.get("principal"));
+    if (!playerId) return c.json({ items: [], currentCycle: null });
+    const account = await repo.getAccount(playerId);
+    if (!account) return c.json({ items: [], currentCycle: null });
+    const pools = await repo.listFortressBuffPools(account.alliance);
+    const items = (await Promise.all(pools.map(async (pool) => {
+      const assignment = (await repo.listFortressBuffAssignments(pool.poolId)).find((item) => item.playerId === playerId);
+      return assignment ? { ...assignment, pool } : undefined;
+    })))
+      .filter((item): item is NonNullable<typeof item> => item !== undefined)
+      .toSorted((a, b) => b.assignedAt.localeCompare(a.assignedAt));
+    const newest = pools.toSorted((a, b) => (b.registeredAt ?? b.acquiredAt).localeCompare(a.registeredAt ?? a.acquiredAt))[0];
+    const cycleKey = (pool: FortressBuffPool) => pool.batchId ?? `legacy:${pool.acquiredAt}:${pool.source}:${pool.createdBy}`;
+    const currentKey = newest ? cycleKey(newest) : undefined;
+    const currentItems = currentKey ? items.filter((item) => cycleKey(item.pool) === currentKey) : [];
+    return c.json({
+      items,
+      currentCycle: newest ? {
+        source: newest.source,
+        acquiredAt: newest.acquiredAt,
+        items: currentItems,
+      } : null,
+    });
+  });
+
+  /** The acting account's live place in the same ranking used to assign Fortress rewards. */
+  app.get("/reward-eligibility/mine", async (c) => {
+    const playerId = defaultActing(c.get("principal"));
+    if (!playerId) throw new NotFoundError("Choose a game account first.");
+    const account = await repo.getAccount(playerId);
+    if (!account) throw new NotFoundError("Game account not found.");
+    const { ranked, strongest, bestKudos } = await fortressRewardRanking(account.alliance);
+    const index = ranked.findIndex((candidate) => candidate.account.playerId === playerId);
+    if (index < 0) throw new NotFoundError("This account is not in the active reward ranking.");
+    const candidate = ranked[index]!;
+    const eligibleThrough = Math.min(REWARD_RECIPIENTS, ranked.length);
+    const pools = await repo.listFortressBuffPools(account.alliance);
+    const newest = pools.toSorted((a, b) => (b.registeredAt ?? b.acquiredAt).localeCompare(a.registeredAt ?? a.acquiredAt))[0];
+    const cycleKey = (item: FortressBuffPool) => item.batchId ?? `legacy:${item.acquiredAt}:${item.source}:${item.createdBy}`;
+    const cyclePools = newest ? pools.filter((item) => cycleKey(item) === cycleKey(newest)) : [];
+    const knownCycleValue = cyclePools.reduce((total, item) => ({
+      min: total.min + (item.gemValuation ? item.quantity * item.gemValuation.min : 0),
+      max: total.max + (item.gemValuation ? item.quantity * item.gemValuation.max : 0),
+    }), { min: 0, max: 0 });
+    const eligible = ranked.slice(0, eligibleThrough);
+    const scoreTotal = eligible.reduce((sum, item) => sum + Math.max(0, item.score), 0);
+    const share = index < eligibleThrough
+      ? (scoreTotal > 0 ? Math.max(0, candidate.score) / scoreTotal : 1 / Math.max(1, eligibleThrough))
+      : 0;
+    const assigned = { min: 0, max: 0, unvaluedUnits: 0 };
+    for (const item of cyclePools) {
+      const assignment = (await repo.listFortressBuffAssignments(item.poolId)).find((entry) => entry.playerId === playerId);
+      if (!assignment) continue;
+      if (item.gemValuation) {
+        assigned.min += assignment.amount * item.gemValuation.min;
+        assigned.max += assignment.amount * item.gemValuation.max;
+      } else {
+        assigned.unvaluedUnits += assignment.amount;
+      }
+    }
+    return c.json({
+      playerId,
+      position: index + 1,
+      totalMembers: ranked.length,
+      eligible: index < eligibleThrough,
+      eligibleThrough,
+      score: candidate.score,
+      participationRate: candidate.participationRate,
+      strength: candidate.strength,
+      strongestStrength: strongest,
+      strengthShare: strongest > 0 ? candidate.strength / strongest : 0,
+      kudosScore: candidate.kudos,
+      bestKudosScore: bestKudos,
+      kudosShare: candidate.kudosShare,
+      weights: {
+        participation: BUFF_ATTENDANCE_WEIGHT,
+        strength: BUFF_STRENGTH_WEIGHT,
+        kudos: BUFF_KUDOS_WEIGHT,
+      },
+      allocation: newest ? {
+        source: newest.source,
+        targetValueMin: knownCycleValue.min * share,
+        targetValueMax: knownCycleValue.max * share,
+        assignedValueMin: assigned.min,
+        assignedValueMax: assigned.max,
+        assignedUnvaluedUnits: assigned.unvaluedUnits,
+      } : null,
+    });
+  });
+
+  /** R4/R5 register what the alliance won; this is inventory, not an assignment yet. */
+  app.post("/fortress-buffs", async (c) => {
+    const p = c.get("principal");
+    const officer = await requireR4(p);
+    const pool = parseFortressBuffPool(await readJson(c.req.raw), {
+      poolId: ulid(),
+      batchId: ulid(),
+      alliance: officer.alliance,
+      createdBy: p.sub,
+      now: now(),
+    });
+    await repo.putFortressBuffPool(pool, { id: p.sub, via: "web", reason: "Fortress reward registered" });
+    return c.json({ ...pool, assignments: [] }, 201);
+  });
+
+  /** Register a whole takeover haul at once instead of submitting each buff type separately. */
+  app.post("/fortress-buffs/bulk", async (c) => {
+    const p = c.get("principal");
+    const officer = await requireR4(p);
+    const batchId = ulid();
+    const pools = parseFortressBuffPools(await readJson(c.req.raw), {
+      poolIds: {
+        allocatable: ulid(), speedup: ulid(), health: ulid(), hero_shard: ulid(), teleport: ulid(),
+        damage: ulid(), deployment: ulid(), stronghold_material: ulid(), stronghold_component: ulid(),
+        stronghold_hero_shard: ulid(), fire_crystal: ulid(),
+      },
+      batchId,
+      alliance: officer.alliance,
+      createdBy: p.sub,
+      now: now(),
+    });
+    await repo.putFortressBuffPools(pools, { id: p.sub, via: "web", reason: "Fortress reward haul registered" });
+    return c.json({ items: pools.map((pool) => ({ ...pool, assignments: [] })) }, 201);
+  });
+
+  /** Materialise the deterministic high-value-first recommendations for the newest cycle. */
+  app.post("/fortress-buffs/plan-current", async (c) => {
+    const p = c.get("principal");
+    const officer = await requireR4(p);
+    const pools = await repo.listFortressBuffPools(officer.alliance);
+    const newest = pools.toSorted((a, b) => (b.registeredAt ?? b.acquiredAt).localeCompare(a.registeredAt ?? a.acquiredAt))[0];
+    if (!newest) throw new NotFoundError("Register Fortress rewards before building a plan.");
+    const cycleKey = (item: FortressBuffPool) => item.batchId ?? `legacy:${item.acquiredAt}:${item.source}:${item.createdBy}`;
+    const cyclePools = pools
+      .filter((item) => cycleKey(item) === cycleKey(newest) && item.gemValuation && item.remaining > 0)
+      .toSorted((a, b) => {
+        const aValue = (a.gemValuation!.min + a.gemValuation!.max) / 2;
+        const bValue = (b.gemValuation!.min + b.gemValuation!.max) / 2;
+        return bValue - aValue;
+      });
+    let recommendations = 0;
+    let units = 0;
+    for (const currentPool of cyclePools) {
+      const view = await fortressBuffView(currentPool, p);
+      for (const candidate of view.candidates.filter((item) => item.eligible && item.recommendedAmount > 0)) {
+        if (
+          candidate.score === undefined
+          || candidate.participationRate === undefined
+          || candidate.strength === undefined
+          || candidate.strongestStrength === undefined
+          || candidate.strengthShare === undefined
+          || candidate.kudosShare === undefined
+        ) continue;
+        await repo.assignFortressBuff({
+          poolId: currentPool.poolId,
+          playerId: candidate.playerId,
+          amount: candidate.recommendedAmount,
+          eligibility: {
+            position: candidate.position,
+            eligibleThrough: Math.min(REWARD_RECIPIENTS, view.candidates.length + view.assignments.length),
+            score: candidate.score,
+            participationRate: candidate.participationRate,
+            strength: candidate.strength,
+            strongestStrength: candidate.strongestStrength,
+            strengthShare: candidate.strengthShare,
+            kudosShare: candidate.kudosShare,
+            weights: {
+              participation: BUFF_ATTENDANCE_WEIGHT,
+              strength: BUFF_STRENGTH_WEIGHT,
+              kudos: BUFF_KUDOS_WEIGHT,
+            },
+          },
+          assignedAt: now().toISOString(),
+          assignedBy: p.sub,
+          status: "recommended",
+        }, { id: p.sub, via: "web", reason: "Value-weighted Fortress reward plan generated" });
+        recommendations += 1;
+        units += candidate.recommendedAmount;
+      }
+    }
+    return c.json({ recommendations, units, skippedUnvaluedPools: pools.filter((item) => cycleKey(item) === cycleKey(newest) && !item.gemValuation).length });
+  });
+
+  /** Assigning consumes the chosen quantity atomically and leaves an immutable recipient record. */
+  app.post("/fortress-buffs/:id/assignments", async (c) => {
+    const p = c.get("principal");
+    await requireR4(p);
+    const pool = await repo.getFortressBuffPool(c.req.param("id"));
+    if (!pool) throw new NotFoundError("Fortress buff batch not found.");
+    const body = (await readJson(c.req.raw)) as { playerId?: unknown; amount?: unknown };
+    const playerId = parsePlayerId(body.playerId);
+    const amount = Number(body.amount ?? 1);
+    if (!Number.isInteger(amount) || amount < 1 || amount > 10_000) {
+      throw new ValidationError("Reward amount must be a whole number between 1 and 10,000.");
+    }
+    const view = await fortressBuffView(pool, p);
+    const candidate = view.candidates.find((item) => item.playerId === playerId);
+    if (!candidate?.eligible) {
+      throw new ForbiddenError("This member is not currently eligible for this reward.");
+    }
+    if (
+      candidate.score === undefined
+      || candidate.participationRate === undefined
+      || candidate.strength === undefined
+      || candidate.strongestStrength === undefined
+      || candidate.strengthShare === undefined
+      || candidate.kudosShare === undefined
+    ) {
+      throw new ConflictError("The eligibility calculation could not be preserved. Reload before assigning.");
+    }
+    const assignment = await repo.assignFortressBuff(
+      {
+        poolId: pool.poolId,
+        playerId,
+        amount,
+        eligibility: {
+          position: candidate.position,
+          eligibleThrough: Math.min(REWARD_RECIPIENTS, view.candidates.length),
+          score: candidate.score,
+          participationRate: candidate.participationRate,
+          strength: candidate.strength,
+          strongestStrength: candidate.strongestStrength,
+          strengthShare: candidate.strengthShare,
+          kudosShare: candidate.kudosShare,
+          weights: {
+            participation: BUFF_ATTENDANCE_WEIGHT,
+            strength: BUFF_STRENGTH_WEIGHT,
+            kudos: BUFF_KUDOS_WEIGHT,
+          },
+        },
+        assignedAt: now().toISOString(),
+        assignedBy: p.sub,
+        status: "recommended",
+      },
+      { id: p.sub, via: "web", reason: "Fortress reward recommended" },
+    );
+    return c.json(assignment, 201);
+  });
+
+  /** A recommendation becomes historical receipt only after an officer confirms delivery. */
+  app.post("/fortress-buffs/:id/assignments/:playerId/confirm", async (c) => {
+    const p = c.get("principal");
+    await requireR4(p);
+    const pool = await repo.getFortressBuffPool(c.req.param("id"));
+    if (!pool) throw new NotFoundError("Fortress reward pool not found.");
+    const playerId = parsePlayerId(c.req.param("playerId"));
+    const assignment = await repo.confirmFortressBuffAssignment(
+      pool.poolId,
+      playerId,
+      now().toISOString(),
+      { id: p.sub, via: "web", reason: "Fortress reward delivery confirmed" },
+    );
+    return c.json(assignment);
   });
 
   /** Officers change an event: title, type, start, deadline or notes. Answers stay. */
@@ -1556,11 +2092,11 @@ interface AgentWriteRequest {
   bodyHash: string;
 }
 
-function agentWriteRequest(body: Record<string, unknown>, apply: boolean, key = ""): AgentWriteRequest {
+function agentWriteRequest(body: Record<string, unknown>, apply: boolean, key = "", subject = "historical data"): AgentWriteRequest {
   const reason = typeof body.reason === "string" ? body.reason.trim() : "";
   const expectedHash = typeof body.expectedHash === "string" ? body.expectedHash : "";
   if (apply) {
-    if (!reason || !expectedHash) throw new ValidationError("Applying historical data requires a reason and the expectedHash from preview.");
+    if (!reason || !expectedHash) throw new ValidationError(`Applying ${subject} requires a reason and the expectedHash from preview.`);
     if (!/^[A-Za-z0-9._:-]{8,100}$/.test(key)) throw new ValidationError("Applying requires an Idempotency-Key of 8–100 safe characters.");
   }
   return {

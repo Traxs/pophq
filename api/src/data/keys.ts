@@ -101,5 +101,16 @@ export const kudosKey = (playerId: string, awardId: string) => ({
   SK: `KUDOS#${awardId}`,
 });
 
+/** One distributable Fortress reward batch and its immutable recipient records. */
+export const fortressBuffPoolKey = (poolId: string) => ({ PK: `FORTBUFF#${poolId}`, SK: "META" });
+export const fortressBuffPoolIndexKey = (alliance: string, acquiredAt: string, poolId: string) => ({
+  GSI1PK: `FORTBUFFS#${alliance}`,
+  GSI1SK: `${acquiredAt}#${poolId}`,
+});
+export const fortressBuffAssignmentKey = (poolId: string, playerId: string) => ({
+  PK: `FORTBUFF#${poolId}`,
+  SK: `ASSIGN#${playerId}`,
+});
+
 /** The checklist of jobs for running one event; one item, replaced as officers tick things off. */
 export const checklistKey = (eventId: string) => ({ PK: `EVENT#${eventId}`, SK: "CHECKLIST" });

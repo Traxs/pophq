@@ -144,7 +144,21 @@ While the round is collecting, every member picks **up to three times per day, b
 
 Officers then assign. Who gets a contested slot is a formula, not a hunch: **0.6 × attendance rate + 0.2 × (Foundry strength ÷ strongest) + 0.2 × kudos share**, with a first choice beating a second choice before the score is consulted. Unknown attendance counts as reliable, so missing data never costs someone their place. One slot per person per buff day and at most two across the round — the cap is per person, so alts do not multiply someone's share.
 
-**Kudos** are what the numbers cannot see: an officer awards points with a reason, and points halve every 90 days so the score reflects who is contributing now. Awards are immutable; taking points back is its own award, and both stay in the history.
+## Fortress and Stronghold rewards
+
+Fortress and Stronghold takeover rewards are tracked separately from scheduled SvS ministry slots. An R4 or R5 registers a complete haul in one form using recognizable game icons and one-tap presets: allocatable chests, speedups, Health, Damage and Deployment Capacity buffs, Fortress and Stronghold hero shards, Advanced Teleporters, Stronghold materials/components and Fire Crystals. Quantities remain editable because the won forts and current game phase can differ.
+
+POP HQ ranks active members using the same 60% participation, 20% Foundry-strength and 20% kudos formula. Members can see who is currently eligible; officers also see the calculation behind each position. Officers can split a pool into different quantities for several eligible recipients. Every allocation is recorded permanently and decrements the remaining inventory atomically.
+
+Each takeover registration has a durable batch identity. R4/R5 users get separate **Available inventory** and **Distribution history** views; history groups the complete haul by cycle and shows every reward's original quantity, remaining stock, recipient, amount and assignment time. Older pools created before batch identities are reconstructed from their shared source, acquisition timestamp and creator.
+
+When an officer assigns a reward, POP HQ also freezes the eligibility decision: position, total score, participation, Foundry strength relative to the strongest account, kudos share and the weights used. The recipient sees the reward on Home with an expandable **Why you received this reward** explanation. These private inputs are visible only to that recipient and R4/R5 users; later reports or participation changes do not rewrite the historical reason.
+
+Every active member sees a private **Fortress reward eligibility** card on Home: eligible or waiting, their live place and cutoff, the overall score, and the exact participation, Foundry-strength and Kudos arithmetic behind it. It also shows the live decayed Kudos total, the original and current value of every award or correction, its officer-written reason, percentage and days remaining, and expired history. Eligibility permits an R4 selection while inventory exists; it does not promise an assignment.
+
+Once an R4 makes an assignment from the newest registered takeover cycle, Home shows it separately as **Coming to you**, including the game icon, exact amount, confirmation time, and the frozen eligibility explanation. Older cycles remain history and are never mislabeled as upcoming.
+
+**Kudos** are what the numbers cannot see: an officer awards points with a reason, and each award decreases linearly to zero over 90 days so the score reflects who is contributing now. Awards are immutable; taking points back is its own award, and both stay in the history.
 
 **Running an event** is a checklist. Each type carries its jobs — a Foundry runs from "post the sign-up call" through registering people, publishing the lineup and setting deployments, to recording who turned up — and every job hangs off one of the event's own moments rather than a fixed date, so moving the event moves the whole list. An event names the officer who runs it, and Home shows each officer what is still to do: their own events first, then anyone else's, with anything a day late in red. Any officer can tick a job off and the tick records who did it. A job whose chance has gone — a lineup for a battle already fought — stops appearing on Home and stays on the event page.
 
@@ -158,7 +172,7 @@ npm run import:foundry -w api -- --bundle /path/to/foundry --apply --aws   # wri
 
 ## Bot result access
 
-Officers can issue a dedicated credential from **Members → Bot tokens**. The secret is shown once. A bot may read everything its issuing user can currently read; normal write routes remain forbidden. Optionally allow narrowly scoped result updates so it can preview and apply reviewed Foundry results and player scores. Every request re-checks the issuing person's current Cognito groups and linked accounts, so demotion immediately reduces the bot's access and account removal disables it.
+Officers can issue a dedicated credential from **Members → Bot tokens**. The secret is shown once. A bot may read everything its issuing user can currently read; normal write routes remain forbidden. Optional scopes cover preview-first Foundry results, event maintenance, historical imports and Fortress reward registration. `rewards:write` is available only to a current POP R4/R5 and registers inventory without assigning recipients. Every request re-checks the issuing person's current Cognito groups and linked accounts, so demotion immediately reduces the bot's access and account removal disables it.
 
 The checked-in skill is [`agent/hermes-skill/state2612`](agent/hermes-skill/state2612/SKILL.md). Give that folder to the bot and set `POPHQ_URL` plus the issued `POPHQ_BOT_TOKEN` in its environment. From the repository root, the included standard-library client starts with:
 
