@@ -205,6 +205,7 @@ export function Members() {
                 <tr>
                   {header("name", "Member")}
                   {header("rank", "Rank")}
+                  {isOfficer && <th scope="col">Membership</th>}
                   {view === "foundry" ? (
                     <>
                       {header("foundry", "Foundry strength", "num")}
@@ -236,7 +237,12 @@ export function Members() {
                           </span>
                         </span>
                       </td>
-                      <td>{r.rank ?? "–"}</td>
+                      <td>{isOfficer ? <RankPicker row={r} /> : (r.rank ?? "–")}</td>
+                      {isOfficer && (
+                        <td>
+                          <StatusPicker row={r} />
+                        </td>
+                      )}
                       {view === "foundry" ? (
                         <>
                           <td className="num">{r.foundryStrength !== null ? full(r.foundryStrength) : "–"}</td>
@@ -283,6 +289,95 @@ export function Members() {
         </div>
       )}
     </>
+  );
+}
+
+const RANKS = ["R1", "R2", "R3", "R4", "R5"] as const;
+
+/**
+ * Membership, as an officer would say it. "Guest" is missing on purpose: a guest belongs to
+ * another alliance, so it is set together with the alliance rather than on its own.
+ */
+const MEMBERSHIP = [
+  { value: "active", label: "Member" },
+  { value: "unknown", label: "Unconfirmed" },
+  { value: "transferred_out", label: "Left" },
+] as const;
+
+function StatusPicker({ row }: { row: RosterRow }) {
+  const { api, dataChanged } = useSession();
+  const toast = useToast();
+  const [saving, setSaving] = useState(false);
+  // A guest's membership is bound up with their alliance, so it is shown but not changed here.
+  if (row.status === "guest") return <span className="badge">Guest · {row.alliance}</span>;
+
+  const change = async (status: string) => {
+    setSaving(true);
+    try {
+      await api.updateAccount(row.playerId, { status: status as "active" });
+      toast(`${row.name}: ${MEMBERSHIP.find((m) => m.value === status)?.label ?? status}`);
+      dataChanged();
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Couldn't save that");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <select
+      aria-label={`${row.name}'s membership`}
+      className="inline-select"
+      value={row.status}
+      disabled={saving}
+      onChange={(e) => void change(e.target.value)}
+    >
+      {MEMBERSHIP.map((m) => (
+        <option key={m.value} value={m.value}>
+          {m.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/**
+ * Rank, set where an officer is already looking. Most of the roster arrived from an import with
+ * no rank at all, and a form per member would mean ninety-odd round trips.
+ */
+function RankPicker({ row }: { row: RosterRow }) {
+  const { api, dataChanged } = useSession();
+  const toast = useToast();
+  const [saving, setSaving] = useState(false);
+
+  const change = async (rank: string) => {
+    setSaving(true);
+    try {
+      await api.updateAccount(row.playerId, { rank });
+      toast(rank ? `${row.name} is ${rank}` : `${row.name}'s rank cleared`);
+      dataChanged();
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Couldn't save that");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <select
+      aria-label={`${row.name}'s rank`}
+      className="inline-select"
+      value={row.rank ?? ""}
+      disabled={saving}
+      onChange={(e) => void change(e.target.value)}
+    >
+      <option value="">–</option>
+      {RANKS.map((rank) => (
+        <option key={rank} value={rank}>
+          {rank}
+        </option>
+      ))}
+    </select>
   );
 }
 

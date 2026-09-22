@@ -90,6 +90,33 @@ export class Repository {
     }
   }
 
+  /**
+   * Replaces an account's details. The roster index is keyed on the name, so a rename rewrites
+   * it here — otherwise the account would still exist but drop out of the Members list.
+   */
+  async updateAccount(account: GameAccount, actor: Actor): Promise<void> {
+    try {
+      await this.db.send(
+        new PutCommand({
+          TableName: this.table,
+          Item: {
+            ...accountKey(account.playerId),
+            ...allianceIndexKey(account.alliance, searchKey(account.name), account.playerId),
+            type: "account",
+            ...account,
+            ...newItemMeta(actor, this.clock()),
+          },
+          ConditionExpression: "attribute_exists(PK)",
+        }),
+      );
+    } catch (err) {
+      if (err instanceof ConditionalCheckFailedException) {
+        throw new NotFoundError(`Game account ${account.playerId} not found.`);
+      }
+      throw err;
+    }
+  }
+
   async getAccount(playerId: string): Promise<GameAccount | undefined> {
     const res = await this.db.send(new GetCommand({ TableName: this.table, Key: accountKey(playerId) }));
     return res.Item ? toAccount(res.Item) : undefined;
@@ -1195,6 +1222,7 @@ function toAccount(item: Record<string, unknown>): GameAccount {
     status: item.status as GameAccount["status"],
   };
   if (item.rank) account.rank = item.rank as NonNullable<GameAccount["rank"]>;
+  if (item.note) account.note = String(item.note);
   return account;
 }
 

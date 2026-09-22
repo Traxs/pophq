@@ -1,7 +1,7 @@
 import { Hono, type Context } from "hono";
 import { createHash } from "node:crypto";
 import { ulid } from "ulid";
-import { parseNewAccount } from "../domain/accounts.js";
+import { parseAccountChanges, parseNewAccount } from "../domain/accounts.js";
 import { ConflictError, DomainError, ForbiddenError, NotFoundError, UnauthorizedError, ValidationError } from "../domain/errors.js";
 import { parseAttendance, reliabilityOf } from "../domain/attendance.js";
 import {
@@ -644,6 +644,18 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const account = parseNewAccount(await readJson(c.req.raw));
     await repo.createAccount(account, { id: p.sub, via: "web" });
     return c.json(account, 201);
+  });
+
+  /** Officers keep the roster right: rank, status, name, alliance and a note (ROS-01..05). */
+  app.patch("/accounts/:pid", async (c) => {
+    const p = c.get("principal");
+    requireOfficer(p);
+    const pid = parsePlayerId(c.req.param("pid"));
+    const account = await repo.getAccount(pid);
+    if (!account) throw new NotFoundError("Game account not found.");
+    const updated = parseAccountChanges(account, await readJson(c.req.raw));
+    await repo.updateAccount(updated, { id: p.sub, via: "web", reason: "roster edit" });
+    return c.json(updated);
   });
 
   app.get("/accounts/:pid", async (c) => {

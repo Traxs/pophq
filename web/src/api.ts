@@ -6,6 +6,8 @@ export interface GameAccount {
   alliance: string;
   rank?: string;
   status: string;
+  /** An officer's note about this account. */
+  note?: string;
 }
 
 export interface Me {
@@ -49,6 +51,15 @@ export interface RosterRow extends GameAccount {
   lastReportAt: string | null;
   furnace: string | null;
   reports: number;
+}
+
+/** What an officer may change about an account; "" clears a rank or a note. */
+export interface AccountChanges {
+  name?: string;
+  alliance?: string;
+  rank?: string;
+  status?: "active" | "guest" | "unknown" | "transferred_out";
+  note?: string;
 }
 
 export interface Seats {
@@ -429,6 +440,8 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
       request<Report>("POST", `/accounts/${playerId}/reports`, { values }),
     roster: () => request<Roster>("GET", "/roster"),
     invite: (input: InviteInput) => request<InviteResult>("POST", "/invites", input),
+    updateAccount: (playerId: string, changes: AccountChanges) =>
+      request<GameAccount>("PATCH", `/accounts/${playerId}`, changes),
     agentTokens: () => request<{ items: AgentTokenInfo[] }>("GET", "/agent-tokens"),
     issueAgentToken: (input: { name: string; scopes: AgentScope[]; expiresInDays: number }) =>
       request<IssuedAgentToken>("POST", "/agent-tokens", input),

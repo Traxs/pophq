@@ -1627,3 +1627,9 @@ th[aria-sort="descending"] .th-btn {
   color: var(--muted);
   font-weight: 500;
 }
+/* A control that has to sit inside a table cell without bulking the row. */
+.inline-select {
+  min-width: 4.5rem;
+  padding: 2px 6px;
+  font-size: 0.85rem;
+}
