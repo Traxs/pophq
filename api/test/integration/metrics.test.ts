@@ -89,6 +89,14 @@ describe("GET /v1/metrics/alliance", () => {
       events: 1,
       linkedAccounts: [{ playerId: "100000002", name: "Goatzilla" }],
     });
+    // Once an event has been reviewed, no record means the person did not participate.
+    expect(body.members.find((member) => member.name === "FrostByte")).toMatchObject({
+      category: "never",
+      rate: 0,
+      attended: 0,
+      events: 1,
+    });
+    expect(body.members.filter((member) => member.category === "no_history")).toHaveLength(1); // one excused person
   });
 
   it("keeps event-type participation officer-only", async () => {

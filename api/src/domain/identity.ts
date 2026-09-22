@@ -35,3 +35,33 @@ export function parseGameName(raw: unknown): string {
 export function searchKey(name: string): string {
   return name.normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim();
 }
+
+export interface AccountAlias {
+  name: string;
+  addedAt: string;
+  addedBy: string;
+}
+
+export type IdentityAuditAction = "link_secondary" | "unlink_secondary" | "set_main" | "alias_add";
+
+export interface IdentityAuditRecord {
+  auditId: string;
+  action: IdentityAuditAction;
+  subjectPlayerId: string;
+  relatedPlayerId?: string;
+  alias?: string;
+  justification: string;
+  performedAt: string;
+  performedBy: string;
+  performedByName?: string;
+}
+
+export function parseIdentityJustification(raw: unknown): string {
+  if (typeof raw !== "string") throw new ValidationError("A reason is required.");
+  const value = raw.normalize("NFKC").trim();
+  if (FORBIDDEN_CHARS.test(value)) throw new ValidationError("Reason contains invisible or control characters.");
+  if ([...value].length < 5 || [...value].length > 200) {
+    throw new ValidationError("Reason must be 5–200 characters.");
+  }
+  return value;
+}

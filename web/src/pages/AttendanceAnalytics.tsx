@@ -18,14 +18,14 @@ const CATEGORIES: { value: "all" | ParticipationCategory; label: string }[] = [
   { value: "never", label: "Never" },
   { value: "sometimes", label: "Sometimes" },
   { value: "always", label: "Always" },
-  { value: "no_history", label: "No recorded attendance" },
+  { value: "no_history", label: "No counted events" },
 ];
 
 const CATEGORY_LABEL: Record<ParticipationCategory, string> = {
   always: "Always",
   sometimes: "Sometimes",
   never: "Never",
-  no_history: "No recorded attendance",
+  no_history: "No counted events",
 };
 
 export function AttendanceAnalytics() {
@@ -138,7 +138,7 @@ export function AttendanceAnalytics() {
             <div className="roster-head">
               <div>
                 <h2 id="attendance-members-title">Members</h2>
-                <p className="muted small">Only explicit present or absent records are evaluated. Missing records are ignored.</p>
+                <p className="muted small">No attendance record means the person did not participate. Linked secondary accounts count with their main account.</p>
               </div>
             </div>
             <div className="roster-toolbar">

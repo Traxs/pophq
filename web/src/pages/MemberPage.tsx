@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import type { AccessAuditRecord, Reports, RosterRow } from "../api";
+import type { AccessAuditRecord, AccountIdentity, Reports, RosterRow } from "../api";
+import { AccountIdentityPanel } from "../components/AccountIdentity";
 import { ErrorBanner } from "../components/Chrome";
 import { InviteMemberForm } from "../components/InviteMember";
 import { ResetPasswordForm } from "../components/ResetPassword";
@@ -31,11 +32,13 @@ const OUTCOME_LABELS: Record<string, string> = {
 };
 
 export function MemberPage({ playerId }: { playerId: string }) {
-  const { api, isOfficer, dataVersion, dataChanged } = useSession();
+  const { api, account, isOfficer, dataVersion, dataChanged } = useSession();
+  const canManageIdentity = account?.rank === "R4" || account?.rank === "R5";
   const [row, setRow] = useState<RosterRow | null | undefined>(undefined);
   const [roster, setRoster] = useState<RosterRow[]>([]);
   const [reports, setReports] = useState<Reports | null>(null);
   const [accessAudit, setAccessAudit] = useState<AccessAuditRecord[]>([]);
+  const [identity, setIdentity] = useState<AccountIdentity | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [inviting, setInviting] = useState(false);
@@ -43,16 +46,17 @@ export function MemberPage({ playerId }: { playerId: string }) {
 
   useEffect(() => {
     if (!isOfficer) return;
-    Promise.all([api.roster(), api.reports(playerId), api.accessAudit(playerId)])
-      .then(([roster, reportHistory, audit]) => {
+    Promise.all([api.roster(), api.reports(playerId), api.accessAudit(playerId), canManageIdentity ? api.accountIdentity(playerId) : Promise.resolve(null)])
+      .then(([roster, reportHistory, audit, accountIdentity]) => {
         setRoster(roster.items);
         setRow(roster.items.find((item) => item.playerId === playerId) ?? null);
         setReports(reportHistory);
         setAccessAudit(audit.items);
+        setIdentity(accountIdentity);
         setError(null);
       })
       .catch((e: Error) => setError(e.message));
-  }, [api, isOfficer, playerId, dataVersion, attempt]);
+  }, [api, isOfficer, canManageIdentity, playerId, dataVersion, attempt]);
 
   if (!isOfficer) {
     return (
@@ -131,6 +135,12 @@ export function MemberPage({ playerId }: { playerId: string }) {
       </div>
 
       <div className="member-detail-grid">
+        {canManageIdentity && identity && <AccountIdentityPanel
+          anchorPlayerId={playerId}
+          identity={identity}
+          roster={roster}
+          onChanged={setIdentity}
+        />}
         {(row.hasLogin || accessAudit.length > 0) && <section className="card member-detail-card access-security-card">
           <div className="section-head">
             <div>

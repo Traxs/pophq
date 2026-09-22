@@ -13,6 +13,21 @@ export const accessAuditKey = (playerId: string, auditId: string) => ({
 
 export const loginLinkKey = (sub: string, playerId: string) => ({ PK: `LOGIN#${sub}`, SK: `ACCOUNT#${playerId}` });
 
+/** Which linked account represents a person in people-level views. */
+export const personIdentityKey = (sub: string) => ({ PK: `LOGIN#${sub}`, SK: "IDENTITY" });
+
+/** Previous/alternate names remain attached to the exact Player ID. */
+export const accountAliasKey = (playerId: string, normalizedName: string) => ({
+  PK: `ACCOUNT#${playerId}`,
+  SK: `ALIAS#${encodeURIComponent(normalizedName)}`,
+});
+
+/** Immutable officer log for account relationship and alias changes. */
+export const identityAuditKey = (playerId: string, auditId: string) => ({
+  PK: `ACCOUNT#${playerId}`,
+  SK: `IDENTITY_AUDIT#${auditId}`,
+});
+
 /** Report SK sorts by creation (ULID); ordering by effective date happens in the domain. */
 export const reportKey = (playerId: string, reportId: string) => ({
   PK: `ACCOUNT#${playerId}`,
