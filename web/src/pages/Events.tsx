@@ -5,6 +5,7 @@ import { Sheet } from "../components/Sheet";
 import { useToast } from "../components/Toast";
 import { compact, dayTime, full, relativeDay, shortTime, untilText } from "../format";
 import { latestKnown, sortForBreakdown, totalsOf, valueOf } from "../eventBreakdown";
+import { withEventAnswer } from "../eventAnswers";
 import { isReportOverdue } from "../rules";
 import {
   DEFAULT_EVENT_HOURS,
@@ -243,11 +244,31 @@ function EventCard({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [details, setDetails] = useState<EventDetail | null>(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
 
   useEffect(() => {
     setAnswer(event.myAnswer);
     setSession(event.mySessionId);
   }, [event.myAnswer, event.mySessionId]);
+
+  useEffect(() => {
+    if (!isOfficer || past) return;
+    let current = true;
+    setDetailsLoading(true);
+    api.event(event.eventId)
+      .then((detail) => {
+        if (current) setDetails(detail);
+      })
+      .catch((e: Error) => {
+        if (current) setError(e.message);
+      })
+      .finally(() => {
+        if (current) setDetailsLoading(false);
+      });
+    return () => {
+      current = false;
+    };
+  }, [api, event.eventId, isOfficer, past]);
 
   /** Picking a legion replaces an earlier pick: nobody is in two legions of one battle. */
   const choose = async (value: Answer, sessionId?: string) => {
@@ -260,7 +281,8 @@ function EventCard({
     setAnswer(value);
     setSession(sessionId ?? null);
     try {
-      await api.answer(event.eventId, accountId, value, sessionId);
+      const saved = await api.answer(event.eventId, accountId, value, sessionId);
+      setDetails((current) => current ? withEventAnswer(current, accountId, saved) : current);
       const label = sessionId ? event.sessions.find((s) => s.id === sessionId)?.label : undefined;
       toast(label ? `You're in for ${label}` : value === "yes" ? "You're in" : value === "no" ? "Signup withdrawn" : "Marked as maybe");
       onAnswered();
@@ -275,17 +297,22 @@ function EventCard({
 
   const showDetails = async () => {
     setError(null);
+    setDetailsLoading(true);
     try {
       setDetails(await api.event(event.eventId));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Couldn't load the details.");
+    } finally {
+      setDetailsLoading(false);
     }
   };
 
   return (
     <article className={`card event${past ? " event-past" : ""}`}>
       <div className="event-head">
-        <span className="badge">{kindLabel(event.kind)}</span>
+        <span className="badge">
+          {kindLabel(event.kind)}{event.kind === "foundry" && event.sessions.length > 1 ? " · one event" : ""}
+        </span>
         <span className="muted small">{event.closed ? "Answers closed" : `Answers close ${untilText(event.deadlineAt)}`}</span>
       </div>
       <h3 className="event-title">
@@ -309,28 +336,38 @@ function EventCard({
       {!accountId ? (
         <p className="muted small">Pick a game account to answer.</p>
       ) : event.sessions.length > 0 ? (
-        <div className="segmented answers" role="radiogroup" aria-label={`Your answer for ${event.title}`}>
-          {event.sessions.map((s) => (
+        <div className="event-signup">
+          <div className="event-signup-intro">
+            <strong>{event.kind === "foundry" ? "Sign up for Foundry" : "Choose your attendance"}</strong>
+            <span className="muted small">
+              {event.kind === "foundry"
+                ? "This is one event. Choose either Legion 1 or Legion 2—you can switch until answers close."
+                : "Choose how much of this event you can attend. You can change it until answers close."}
+            </span>
+          </div>
+          <div className="segmented answers" role="radiogroup" aria-label={`Your answer for ${event.title}`}>
+            {event.sessions.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                role="radio"
+                aria-checked={answer === "yes" && session === s.id}
+                disabled={event.closed || busy !== null}
+                onClick={() => void choose("yes", s.id)}
+              >
+                {busy === s.id ? "…" : `${event.kind === "foundry" ? "Join " : ""}${s.label} · ${shortTime(s.startsAt)}`}
+              </button>
+            ))}
             <button
-              key={s.id}
               type="button"
               role="radio"
-              aria-checked={answer === "yes" && session === s.id}
+              aria-checked={answer === "no"}
               disabled={event.closed || busy !== null}
-              onClick={() => void choose("yes", s.id)}
+              onClick={() => void choose("no")}
             >
-              {busy === s.id ? "…" : `${s.label} · ${shortTime(s.startsAt)}`}
+              {busy === "no" ? "…" : "Not attending"}
             </button>
-          ))}
-          <button
-            type="button"
-            role="radio"
-            aria-checked={answer === "no"}
-            disabled={event.closed || busy !== null}
-            onClick={() => void choose("no")}
-          >
-            {busy === "no" ? "…" : "Not at all"}
-          </button>
+          </div>
         </div>
       ) : (
         // No parts to choose between: one button to join, and the same button to drop out again.
@@ -367,14 +404,15 @@ function EventCard({
         </button>
       )}
 
-      {isOfficer &&
-        (details ? (
-          <EventBreakdown detail={details} />
-        ) : (
-          <button type="button" className="text-btn" onClick={() => void showDetails()}>
-            Who's coming?
-          </button>
-        ))}
+      {isOfficer && (details ? (
+        <EventBreakdown detail={details} />
+      ) : detailsLoading ? (
+        <p className="muted small">Loading attendance…</p>
+      ) : (
+        <button type="button" className="text-btn" onClick={() => void showDetails()}>
+          {past ? "Attendance" : "Retry attendance"}
+        </button>
+      ))}
     </article>
   );
 }
@@ -435,44 +473,69 @@ function LegacySessionForm({ event, onDone }: { event: EventListItem; onDone: ()
 }
 
 function EventBreakdown({ detail }: { detail: EventDetail }) {
-  const groups: { key: string; label: string; match: (m: EventMember) => boolean }[] =
+  const members = detail.members ?? [];
+  const answerGroups: { key: string; label: string; match: (m: EventMember) => boolean }[] =
     detail.sessions.length > 0
       ? [
           ...detail.sessions.map((s) => ({
             key: s.id,
-            label: `${s.label} (${detail.counts.bySession[s.id] ?? 0})`,
+            label: s.label,
             match: (m: EventMember) => m.answer === "yes" && m.sessionId === s.id,
           })),
-          { key: "no", label: `Can't (${detail.counts.no})`, match: (m: EventMember) => m.answer === "no" },
-          { key: "pending", label: `No answer (${detail.counts.pending})`, match: (m: EventMember) => m.answer === null },
+          { key: "no", label: "Can't", match: (m: EventMember) => m.answer === "no" },
+          { key: "pending", label: "No answer", match: (m: EventMember) => m.answer === null },
         ]
       : [
-          { key: "yes", label: `Joined (${detail.counts.yes})`, match: (m: EventMember) => m.answer === "yes" },
+          { key: "yes", label: "Joined", match: (m: EventMember) => m.answer === "yes" },
           // "Maybe" is no longer offered; the group appears only while older answers still have one.
           ...(detail.counts.maybe > 0
-            ? [{ key: "maybe", label: `Maybe (${detail.counts.maybe})`, match: (m: EventMember) => m.answer === "maybe" }]
+            ? [{ key: "maybe", label: "Maybe", match: (m: EventMember) => m.answer === "maybe" }]
             : []),
-          { key: "no", label: `Can't (${detail.counts.no})`, match: (m: EventMember) => m.answer === "no" },
-          { key: "pending", label: `No answer (${detail.counts.pending})`, match: (m: EventMember) => m.answer === null },
+          { key: "no", label: "Can't", match: (m: EventMember) => m.answer === "no" },
+          { key: "pending", label: "No answer", match: (m: EventMember) => m.answer === null },
         ];
-  const [filter, setFilter] = useState<string>(groups[0]!.key);
-  const members = detail.members ?? [];
+  const groups = [
+    { key: "all", label: "All", match: (_member: EventMember) => true },
+    ...answerGroups,
+  ].map((group) => ({ ...group, count: members.filter(group.match).length }));
+  const preferredFilter = detail.myAnswer === "yes" && detail.mySessionId
+    ? detail.mySessionId
+    : detail.myAnswer === "no"
+      ? "no"
+      : (answerGroups.find((group) => group.key !== "pending" && members.some(group.match))?.key ?? "pending");
+  const [filter, setFilter] = useState(preferredFilter);
+  useEffect(() => {
+    if (detail.myAnswer === "yes" && detail.mySessionId) setFilter(detail.mySessionId);
+    if (detail.myAnswer === "no") setFilter("no");
+  }, [detail.myAnswer, detail.mySessionId]);
   const match = groups.find((g) => g.key === filter)?.match;
   const shown = match ? members.filter(match) : [];
+  const answered = members.length - detail.counts.pending;
+  const answeredPercent = members.length > 0 ? Math.round((answered / members.length) * 100) : 0;
 
   return (
     <div className="event-breakdown">
-      <div className="segmented" role="radiogroup" aria-label="Show members by answer">
-        {groups.map(({ key, label }) => (
-          <button key={key} type="button" role="radio" aria-checked={filter === key} onClick={() => setFilter(key)}>
-            {label}
+      <div className="response-overview">
+        <div>
+          <strong>Responses</strong>
+          <span className="muted small">{answered} of {members.length} answered</span>
+        </div>
+        <div className="response-progress" role="progressbar" aria-label="Event responses" aria-valuemin={0} aria-valuemax={100} aria-valuenow={answeredPercent}>
+          <span style={{ width: `${answeredPercent}%` }} />
+        </div>
+      </div>
+      <div className="response-filters" role="tablist" aria-label="Filter members by response">
+        {groups.map(({ key, label, count }) => (
+          <button key={key} type="button" role="tab" aria-selected={filter === key} onClick={() => setFilter(key)}>
+            <span>{label}</span>
+            <span className="response-filter-count">{count}</span>
           </button>
         ))}
       </div>
       {shown.length === 0 ? (
         <p className="muted small">Nobody in this group.</p>
       ) : (
-        <BreakdownTable members={shown} pending={filter === "pending"} kind={detail.kind} />
+        <BreakdownTable members={shown} pending={filter === "pending"} kind={detail.kind} sessions={detail.sessions} />
       )}
     </div>
   );
@@ -483,7 +546,17 @@ function EventBreakdown({ detail }: { detail: EventDetail }) {
  * One answer group as a table. Strongest first: when a legion is short, the officer wants to know
  * which of the missing people actually matter, not just how many there are.
  */
-function BreakdownTable({ members, pending, kind }: { members: EventMember[]; pending: boolean; kind: EventKind }) {
+function BreakdownTable({
+  members,
+  pending,
+  kind,
+  sessions,
+}: {
+  members: EventMember[];
+  pending: boolean;
+  kind: EventKind;
+  sessions: EventDetail["sessions"];
+}) {
   // Foundry strength decides a Foundry; for a bear hunt or an SvS call, city power is the number
   // an officer actually weighs. The table sorts by whichever it shows.
   const foundry = kind === "foundry";
@@ -499,6 +572,7 @@ function BreakdownTable({ members, pending, kind }: { members: EventMember[]; pe
             <tr>
               <th scope="col">Member</th>
               <th scope="col">Rank</th>
+              <th scope="col">Response</th>
               <th scope="col" className="num">
                 {foundry ? "Foundry" : "Power"}
               </th>
@@ -517,6 +591,17 @@ function BreakdownTable({ members, pending, kind }: { members: EventMember[]; pe
                 <tr key={m.playerId}>
                   <td>{m.name}</td>
                   <td className="muted">{m.rank ?? "–"}</td>
+                  <td>
+                    <span className={`response-status response-status-${m.answer ?? "pending"}`}>
+                      {m.answer === "yes"
+                        ? (sessions.find((session) => session.id === m.sessionId)?.label ?? "Joined")
+                        : m.answer === "no"
+                          ? "Can't"
+                          : m.answer === "maybe"
+                            ? "Maybe"
+                            : "No answer"}
+                    </span>
+                  </td>
                   <td className="num">{valueOf(m, metric) === null ? "–" : full(valueOf(m, metric)!)}</td>
                   <td className="num">{attendance === undefined ? "–" : `${Math.round(attendance * 100)}%`}</td>
                   <td className={pending && isReportOverdue(m.lastReportAt) ? "delta-down" : undefined}>

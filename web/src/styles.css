@@ -1833,6 +1833,18 @@ th[aria-sort="descending"] .th-btn {
   background: var(--surface-2);
   font-size: 0.9rem;
 }
+.event-signup {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+.event-signup-intro {
+  display: grid;
+  gap: 2px;
+}
 .event-past {
   opacity: 0.7;
 }
@@ -1841,18 +1853,91 @@ th[aria-sort="descending"] .th-btn {
   color: var(--accent-ink);
   border-color: var(--accent);
 }
-/* Four answer groups don't fit a phone row: let them wrap instead of clipping. */
-.event-breakdown .segmented {
-  flex-wrap: wrap;
-}
-.event-breakdown .segmented button {
-  flex: 1 0 45%;
-}
 .event-breakdown {
   display: grid;
-  gap: 8px;
+  gap: 12px;
   border-top: 1px solid var(--line);
-  padding-top: 10px;
+  padding-top: 12px;
+}
+.response-overview {
+  display: grid;
+  gap: 7px;
+}
+.response-overview > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.response-progress {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+.response-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 180ms ease-out;
+}
+.response-filters {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  padding: 1px 1px 3px;
+  scrollbar-width: none;
+}
+.response-filters::-webkit-scrollbar {
+  display: none;
+}
+.response-filters button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 6px 8px 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+.response-filters button[aria-selected="true"] {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--line));
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.response-filter-count {
+  min-width: 22px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--ink);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.response-status {
+  display: inline-flex;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.response-status-yes {
+  background: var(--up-soft);
+  color: var(--up);
+}
+.response-status-no {
+  background: var(--down-soft);
+  color: var(--down);
 }
 .member-chips {
   display: flex;
