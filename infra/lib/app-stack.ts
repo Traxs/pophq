@@ -334,6 +334,10 @@ export class AppStack extends Stack {
     const loginAsset = (file: string) => readFileSync(join(LOGIN_ASSETS, file)).toString("base64");
     const logo = loginAsset("logo.png");
     const favicon = loginAsset("favicon.ico");
+    // The page links the SVG favicon first, and Cognito keeps an asset category until it is given
+    // a new one, so the SVG is needed as well: a 64 px copy of the logo wrapped in SVG. Browsers
+    // without SVG favicons (Safari) use the .ico.
+    const faviconSvg = loginAsset("favicon.svg");
     new cognito.CfnManagedLoginBranding(this, "LoginBranding", {
       userPoolId: users.userPoolId,
       clientId: client.userPoolClientId,
@@ -342,6 +346,7 @@ export class AppStack extends Stack {
       assets: (["LIGHT", "DARK"] as const).flatMap((colorMode) => [
         { category: "FORM_LOGO", colorMode, extension: "PNG", bytes: logo },
         { category: "FAVICON_ICO", colorMode, extension: "ICO", bytes: favicon },
+        { category: "FAVICON_SVG", colorMode, extension: "SVG", bytes: faviconSvg },
       ]),
     });
 
