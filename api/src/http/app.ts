@@ -361,14 +361,36 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
 
   app.onError((err, c) => {
     if (err instanceof DomainError) {
+      console.warn(JSON.stringify({
+        level: "warn",
+        source: "api",
+        kind: "domain_error",
+        requestId: c.get("requestId"),
+        method: c.req.method,
+        path: c.req.path,
+        status: err.status,
+        errorCode: err.code,
+        message: err.message,
+      }));
       return c.json(
-        { type: `about:blank#${err.code}`, title: err.message, status: err.status, detail: err.details },
+        { type: `about:blank#${err.code}`, title: err.message, status: err.status, detail: err.details, requestId: c.get("requestId") },
         err.status as 400,
         { "content-type": "application/problem+json" },
       );
     }
-    console.error(JSON.stringify({ level: "error", requestId: c.get("requestId"), message: String(err) }));
-    return c.json({ type: "about:blank", title: "Internal error", status: 500 }, 500, {
+    console.error(JSON.stringify({
+      level: "error",
+      source: "api",
+      kind: "unhandled_error",
+      requestId: c.get("requestId"),
+      method: c.req.method,
+      path: c.req.path,
+      status: 500,
+      errorName: err instanceof Error ? err.name : "UnknownError",
+      message: err instanceof Error ? err.message : String(err),
+      ...(err instanceof Error && err.stack ? { stack: err.stack } : {}),
+    }));
+    return c.json({ type: "about:blank", title: "Internal error", status: 500, requestId: c.get("requestId") }, 500, {
       "content-type": "application/problem+json",
     });
   });
@@ -1008,15 +1030,15 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
   const identityView = async (playerId: string) => {
     const anchor = await repo.getAccount(playerId);
     if (!anchor) throw new NotFoundError("Game account not found.");
+    const identityGroup = await repo.identityGroup(playerId);
     const sub = await repo.linkedLogin(playerId);
-    const ids = sub ? await repo.linkedAccounts(sub) : [playerId];
+    const ids = identityGroup?.playerIds ?? (sub ? await repo.linkedAccounts(sub) : [playerId]);
     const accounts = (await Promise.all(ids.map(async (id) => {
       const [account, aliases] = await Promise.all([repo.getAccount(id), repo.listAliases(id)]);
       return account ? { ...account, aliases } : undefined;
     }))).filter((account): account is NonNullable<typeof account> => Boolean(account));
     const explicitPrimary = sub ? await repo.primaryAccount(sub) : undefined;
-    const grouped = sub ? (await repo.linkedAccountGroups(ids))[0] : undefined;
-    const primaryPlayerId = explicitPrimary && ids.includes(explicitPrimary) ? explicitPrimary : grouped?.[0] ?? playerId;
+    const primaryPlayerId = identityGroup?.primaryPlayerId ?? (explicitPrimary && ids.includes(explicitPrimary) ? explicitPrimary : ids[0] ?? playerId);
     const audit = (await Promise.all(ids.map((id) => repo.listIdentityAudit(id))))
       .flat().toSorted((a, b) => b.performedAt.localeCompare(a.performedAt));
     return { primaryPlayerId, accounts: accounts.map((account) => ({ ...account, isPrimary: account.playerId === primaryPlayerId })), audit };
@@ -1031,12 +1053,10 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const p = c.get("principal");
     const officer = await requireR4(p);
     const anchorPlayerId = parsePlayerId(c.req.param("pid"));
-    const sub = await repo.linkedLogin(anchorPlayerId);
-    if (!sub) throw new ConflictError("Invite the main account before linking a secondary account.");
     const body = (await readJson(c.req.raw)) as { secondaryPlayerId?: unknown; justification?: unknown };
     const secondaryPlayerId = parsePlayerId(body.secondaryPlayerId);
     if (secondaryPlayerId === anchorPlayerId) throw new ValidationError("Choose a different account to link.");
-    await repo.linkSecondaryAccount(sub, anchorPlayerId, secondaryPlayerId, parseIdentityJustification(body.justification), { id: p.sub, via: "web" }, officer.name);
+    await repo.linkSecondaryAccount(anchorPlayerId, secondaryPlayerId, parseIdentityJustification(body.justification), { id: p.sub, via: "web" }, officer.name);
     return c.json(await identityView(anchorPlayerId), 201);
   });
 
@@ -1044,10 +1064,8 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const p = c.get("principal");
     const officer = await requireR4(p);
     const anchorPlayerId = parsePlayerId(c.req.param("pid"));
-    const sub = await repo.linkedLogin(anchorPlayerId);
-    if (!sub) throw new ConflictError("This account is not linked to a login.");
     const body = (await readJson(c.req.raw)) as { playerId?: unknown; justification?: unknown };
-    await repo.setPrimaryAccount(sub, parsePlayerId(body.playerId), parseIdentityJustification(body.justification), { id: p.sub, via: "web" }, officer.name);
+    await repo.setPrimaryAccount(anchorPlayerId, parsePlayerId(body.playerId), parseIdentityJustification(body.justification), { id: p.sub, via: "web" }, officer.name);
     return c.json(await identityView(anchorPlayerId));
   });
 
@@ -1057,10 +1075,8 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const anchorPlayerId = parsePlayerId(c.req.param("pid"));
     const secondaryPlayerId = parsePlayerId(c.req.param("secondaryPid"));
     if (secondaryPlayerId === anchorPlayerId) throw new ValidationError("Open another linked account before unlinking this one.");
-    const sub = await repo.linkedLogin(anchorPlayerId);
-    if (!sub) throw new ConflictError("This account is not linked to a login.");
     const body = (await readJson(c.req.raw)) as { justification?: unknown };
-    await repo.unlinkSecondaryAccount(sub, anchorPlayerId, secondaryPlayerId, parseIdentityJustification(body.justification), { id: p.sub, via: "web" }, officer.name);
+    await repo.unlinkSecondaryAccount(anchorPlayerId, secondaryPlayerId, parseIdentityJustification(body.justification), { id: p.sub, via: "web" }, officer.name);
     return c.json(await identityView(anchorPlayerId));
   });
 

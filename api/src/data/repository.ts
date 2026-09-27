@@ -36,6 +36,7 @@ import {
   attendanceIndexKey,
   attendanceKey,
   accountLinkLockKey,
+  accountIdentityGroupKey,
   accountAliasKey,
   allianceIndexKey,
   eventIndexKey,
@@ -145,23 +146,26 @@ export class Repository {
    * guarantees a Player ID is never linked to two logins, even under concurrent requests.
    */
   async linkAccount(sub: string, playerId: string, actor: Actor, loginMethod?: LoginMethod): Promise<void> {
+    if (!(await this.getAccount(playerId))) throw new NotFoundError(`Game account ${playerId} not found.`);
     const now = this.clock();
     const meta = newItemMeta(actor, now);
+    const group = await this.identityGroup(playerId);
+    const playerIds = group?.playerIds ?? [playerId];
+    const access = await Promise.all(playerIds.map((id) => this.linkedLoginAccess(id)));
+    if (access.some((item) => item && item.sub !== sub)) {
+      throw new ConflictError("One of these game accounts is already linked to another login.");
+    }
+    const missing = playerIds.filter((_, index) => !access[index]);
+    if (missing.length === 0) return;
+    if (missing.length > 50) throw new ConflictError("Too many accounts are linked to this person.");
     try {
       await this.db.send(
         new TransactWriteCommand({
-          TransactItems: [
-            {
-              ConditionCheck: {
-                TableName: this.table,
-                Key: accountKey(playerId),
-                ConditionExpression: "attribute_exists(PK)",
-              },
-            },
+          TransactItems: missing.flatMap((id) => [
             {
               Put: {
                 TableName: this.table,
-                Item: { ...accountLinkLockKey(playerId), type: "link-lock", sub, ...(loginMethod ? { loginMethod } : {}), ...meta },
+                Item: { ...accountLinkLockKey(id), type: "link-lock", sub, ...(loginMethod ? { loginMethod } : {}), ...meta },
                 ConditionExpression: "attribute_not_exists(PK)",
               },
             },
@@ -169,25 +173,23 @@ export class Repository {
               Put: {
                 TableName: this.table,
                 Item: {
-                  ...loginLinkKey(sub, playerId),
-                  GSI1PK: `ACCOUNT#${playerId}`,
+                  ...loginLinkKey(sub, id),
+                  GSI1PK: `ACCOUNT#${id}`,
                   GSI1SK: `LOGIN#${sub}`,
                   type: "login-link",
                   sub,
-                  playerId,
+                  playerId: id,
                   ...meta,
                 },
+                ConditionExpression: "attribute_not_exists(PK)",
               },
             },
-          ],
+          ]),
         }),
       );
     } catch (err) {
       const reasons = cancellationCodes(err);
-      if (reasons?.[0] === "ConditionalCheckFailed") throw new NotFoundError(`Game account ${playerId} not found.`);
-      if (reasons?.[1] === "ConditionalCheckFailed") {
-        throw new ConflictError(`Game account ${playerId} is already linked to a login.`);
-      }
+      if (reasons?.some((code) => code === "ConditionalCheckFailed")) throw new ConflictError("One of these game accounts is already linked to a login.");
       throw err;
     }
   }
@@ -945,19 +947,38 @@ export class Repository {
     const items = await this.queryAll({
       KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
       ExpressionAttributeValues: { ":pk": `LOGIN#${sub}`, ":sk": "ACCOUNT#" },
+      ConsistentRead: true,
     });
-    return items.map((i) => String(i.playerId));
+    return items
+      .toSorted((a, b) => String(a.createdAt ?? "").localeCompare(String(b.createdAt ?? "")) || String(a.playerId).localeCompare(String(b.playerId)))
+      .map((i) => String(i.playerId));
   }
 
   async primaryAccount(sub: string): Promise<string | undefined> {
-    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: personIdentityKey(sub) }));
+    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: personIdentityKey(sub), ConsistentRead: true }));
     return typeof res.Item?.primaryPlayerId === "string" ? res.Item.primaryPlayerId : undefined;
+  }
+
+  /** R4-managed account relationships are independent of whether the person has a login. */
+  async identityGroup(playerId: string): Promise<{ primaryPlayerId: string; playerIds: string[] } | undefined> {
+    const res = await this.db.send(new GetCommand({
+      TableName: this.table,
+      Key: accountIdentityGroupKey(playerId),
+      ConsistentRead: true,
+    }));
+    const primaryPlayerId = typeof res.Item?.primaryPlayerId === "string" ? res.Item.primaryPlayerId : undefined;
+    const playerIds = Array.isArray(res.Item?.playerIds)
+      ? res.Item.playerIds.filter((id): id is string => typeof id === "string")
+      : [];
+    if (!primaryPlayerId || playerIds.length === 0 || !playerIds.includes(playerId)) return undefined;
+    return { primaryPlayerId, playerIds };
   }
 
   async listAliases(playerId: string): Promise<AccountAlias[]> {
     const items = await this.queryAll({
       KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
       ExpressionAttributeValues: { ":pk": `ACCOUNT#${playerId}`, ":sk": "ALIAS#" },
+      ConsistentRead: true,
     });
     return items.map((item) => ({
       name: String(item.name),
@@ -971,6 +992,7 @@ export class Repository {
       KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
       ExpressionAttributeValues: { ":pk": `ACCOUNT#${playerId}`, ":sk": "IDENTITY_AUDIT#" },
       ScanIndexForward: false,
+      ConsistentRead: true,
     });
     return items.map(toIdentityAudit);
   }
@@ -997,8 +1019,41 @@ export class Repository {
     return audit;
   }
 
-  async linkSecondaryAccount(sub: string, anchorPlayerId: string, secondaryPlayerId: string, justification: string, actor: Actor, performedByName?: string): Promise<IdentityAuditRecord> {
-    const loginMethod = (await this.linkedLoginAccess(anchorPlayerId))?.loginMethod;
+  async linkSecondaryAccount(anchorPlayerId: string, secondaryPlayerId: string, justification: string, actor: Actor, performedByName?: string): Promise<IdentityAuditRecord> {
+    const [anchor, secondary, anchorGroup, secondaryGroup, anchorAccess, secondaryAccess] = await Promise.all([
+      this.getAccount(anchorPlayerId),
+      this.getAccount(secondaryPlayerId),
+      this.identityGroup(anchorPlayerId),
+      this.identityGroup(secondaryPlayerId),
+      this.linkedLoginAccess(anchorPlayerId),
+      this.linkedLoginAccess(secondaryPlayerId),
+    ]);
+    if (!anchor) throw new NotFoundError(`Game account ${anchorPlayerId} not found.`);
+    if (!secondary) throw new NotFoundError(`Game account ${secondaryPlayerId} not found.`);
+    if (anchorGroup?.playerIds.includes(secondaryPlayerId) || secondaryGroup?.playerIds.includes(anchorPlayerId)) {
+      throw new ConflictError("Those accounts are already linked.");
+    }
+    if (anchorGroup && secondaryGroup) throw new ConflictError("Those accounts already belong to different people.");
+    if (anchorAccess && secondaryAccess && anchorAccess.sub !== secondaryAccess.sub) {
+      throw new ConflictError("Those accounts already have different sign-ins.");
+    }
+    const sub = anchorAccess?.sub ?? secondaryAccess?.sub;
+    const loginIds = sub ? await this.linkedAccounts(sub) : [];
+    const existing = anchorGroup ?? secondaryGroup;
+    const primaryPlayerId = existing?.primaryPlayerId ?? (sub ? await this.primaryAccount(sub) : undefined) ?? anchorPlayerId;
+    const playerIds = [primaryPlayerId, ...new Set([
+      ...(existing?.playerIds ?? []),
+      ...loginIds,
+      anchorPlayerId,
+      secondaryPlayerId,
+    ])].filter((id, index, all) => all.indexOf(id) === index);
+    const [groups, access] = await Promise.all([
+      Promise.all(playerIds.map((id) => this.identityGroup(id))),
+      Promise.all(playerIds.map((id) => this.linkedLoginAccess(id))),
+    ]);
+    if (sub && access.some((item) => item && item.sub !== sub)) {
+      throw new ConflictError("One of these accounts already has a different sign-in.");
+    }
     const now = this.clock();
     const meta = newItemMeta(actor, now);
     const audit: IdentityAuditRecord = {
@@ -1006,24 +1061,42 @@ export class Repository {
       justification, performedAt: now.toISOString(), performedBy: actor.id, ...(performedByName ? { performedByName } : {}),
     };
     try {
-      await this.db.send(new TransactWriteCommand({ TransactItems: [
-        { ConditionCheck: { TableName: this.table, Key: accountLinkLockKey(anchorPlayerId), ConditionExpression: "#sub = :sub", ExpressionAttributeNames: { "#sub": "sub" }, ExpressionAttributeValues: { ":sub": sub } } },
-        { ConditionCheck: { TableName: this.table, Key: accountKey(secondaryPlayerId), ConditionExpression: "attribute_exists(PK)" } },
-        { Put: { TableName: this.table, Item: { ...accountLinkLockKey(secondaryPlayerId), type: "link-lock", sub, ...(loginMethod ? { loginMethod } : {}), ...meta }, ConditionExpression: "attribute_not_exists(PK)" } },
-        { Put: { TableName: this.table, Item: { ...loginLinkKey(sub, secondaryPlayerId), GSI1PK: `ACCOUNT#${secondaryPlayerId}`, GSI1SK: `LOGIN#${sub}`, type: "login-link", sub, playerId: secondaryPlayerId, ...meta }, ConditionExpression: "attribute_not_exists(PK)" } },
-        { Put: { TableName: this.table, Item: { ...identityAuditKey(anchorPlayerId, audit.auditId), type: "identity-audit", ...audit, ...meta } } },
-      ] }));
+      const items: ConstructorParameters<typeof TransactWriteCommand>[0]["TransactItems"] = playerIds.map((id, index) => ({
+        Put: {
+          TableName: this.table,
+          Item: { ...accountIdentityGroupKey(id), type: "identity-group", primaryPlayerId, playerIds, ...meta },
+          ConditionExpression: groups[index] ? "playerIds = :expected" : "attribute_not_exists(PK)",
+          ...(groups[index] ? { ExpressionAttributeValues: { ":expected": groups[index]!.playerIds } } : {}),
+        },
+      }));
+      if (sub) {
+        const loginMethod = anchorAccess?.loginMethod ?? secondaryAccess?.loginMethod;
+        playerIds.forEach((id, index) => {
+          if (access[index]) return;
+          items.push(
+            { Put: { TableName: this.table, Item: { ...accountLinkLockKey(id), type: "link-lock", sub, ...(loginMethod ? { loginMethod } : {}), ...meta }, ConditionExpression: "attribute_not_exists(PK)" } },
+            { Put: { TableName: this.table, Item: { ...loginLinkKey(sub, id), GSI1PK: `ACCOUNT#${id}`, GSI1SK: `LOGIN#${sub}`, type: "login-link", sub, playerId: id, ...meta }, ConditionExpression: "attribute_not_exists(PK)" } },
+          );
+        });
+      }
+      items.push({ Put: { TableName: this.table, Item: { ...identityAuditKey(anchorPlayerId, audit.auditId), type: "identity-audit", ...audit, ...meta } } });
+      if (items.length > 100) throw new ConflictError("Too many accounts are linked to this person.");
+      await this.db.send(new TransactWriteCommand({ TransactItems: items }));
     } catch (err) {
+      if (err instanceof ConflictError) throw err;
       const reasons = cancellationCodes(err);
-      if (reasons?.[0] === "ConditionalCheckFailed") throw new ConflictError("The main account is no longer linked to that login.");
-      if (reasons?.[1] === "ConditionalCheckFailed") throw new NotFoundError(`Game account ${secondaryPlayerId} not found.`);
-      if (reasons?.[2] === "ConditionalCheckFailed" || reasons?.[3] === "ConditionalCheckFailed") throw new ConflictError(`Game account ${secondaryPlayerId} is already linked to a login.`);
+      if (reasons?.some((code) => code === "ConditionalCheckFailed")) throw new ConflictError("The account relationship changed while you were saving. Refresh and try again.");
       throw err;
     }
     return audit;
   }
 
-  async setPrimaryAccount(sub: string, playerId: string, justification: string, actor: Actor, performedByName?: string): Promise<IdentityAuditRecord> {
+  async setPrimaryAccount(anchorPlayerId: string, playerId: string, justification: string, actor: Actor, performedByName?: string): Promise<IdentityAuditRecord> {
+    const anchorGroup = await this.identityGroup(anchorPlayerId);
+    const sub = await this.linkedLogin(anchorPlayerId);
+    const playerIds = anchorGroup?.playerIds ?? (sub ? await this.linkedAccounts(sub) : [anchorPlayerId]);
+    if (!playerIds.includes(playerId)) throw new ConflictError("That account is not linked to this person.");
+    const groups = await Promise.all(playerIds.map((id) => this.identityGroup(id)));
     const now = this.clock();
     const meta = newItemMeta(actor, now);
     const audit: IdentityAuditRecord = {
@@ -1031,23 +1104,32 @@ export class Repository {
       performedAt: now.toISOString(), performedBy: actor.id, ...(performedByName ? { performedByName } : {}),
     };
     try {
-      await this.db.send(new TransactWriteCommand({ TransactItems: [
-        { ConditionCheck: { TableName: this.table, Key: accountLinkLockKey(playerId), ConditionExpression: "#sub = :sub", ExpressionAttributeNames: { "#sub": "sub" }, ExpressionAttributeValues: { ":sub": sub } } },
-        { Put: { TableName: this.table, Item: { ...personIdentityKey(sub), type: "person-identity", sub, primaryPlayerId: playerId, ...meta } } },
-        { Put: { TableName: this.table, Item: { ...identityAuditKey(playerId, audit.auditId), type: "identity-audit", ...audit, ...meta } } },
-      ] }));
+      const items: ConstructorParameters<typeof TransactWriteCommand>[0]["TransactItems"] = playerIds.map((id, index) => ({ Put: {
+        TableName: this.table,
+        Item: { ...accountIdentityGroupKey(id), type: "identity-group", primaryPlayerId: playerId, playerIds, ...meta },
+        ConditionExpression: groups[index] ? "playerIds = :expected" : "attribute_not_exists(PK)",
+        ...(groups[index] ? { ExpressionAttributeValues: { ":expected": groups[index]!.playerIds } } : {}),
+      } }));
+      if (sub) items.push({ Put: { TableName: this.table, Item: { ...personIdentityKey(sub), type: "person-identity", sub, primaryPlayerId: playerId, ...meta } } });
+      items.push({ Put: { TableName: this.table, Item: { ...identityAuditKey(anchorPlayerId, audit.auditId), type: "identity-audit", ...audit, ...meta } } });
+      await this.db.send(new TransactWriteCommand({ TransactItems: items }));
     } catch (err) {
-      if (cancellationCodes(err)?.[0] === "ConditionalCheckFailed") throw new ConflictError("That account is not linked to this person.");
+      if (cancellationCodes(err)?.some((code) => code === "ConditionalCheckFailed")) throw new ConflictError("The account relationship changed while you were saving. Refresh and try again.");
       throw err;
     }
     return audit;
   }
 
-  async unlinkSecondaryAccount(sub: string, anchorPlayerId: string, secondaryPlayerId: string, justification: string, actor: Actor, performedByName?: string): Promise<IdentityAuditRecord> {
-    const linkedIds = await this.linkedAccounts(sub);
-    const explicitPrimary = await this.primaryAccount(sub);
-    const effectivePrimary = explicitPrimary ?? (await this.linkedAccountGroups(linkedIds))[0]?.[0];
+  async unlinkSecondaryAccount(anchorPlayerId: string, secondaryPlayerId: string, justification: string, actor: Actor, performedByName?: string): Promise<IdentityAuditRecord> {
+    const group = await this.identityGroup(anchorPlayerId);
+    const sub = await this.linkedLogin(anchorPlayerId);
+    const linkedIds = group?.playerIds ?? (sub ? await this.linkedAccounts(sub) : [anchorPlayerId]);
+    if (!linkedIds.includes(secondaryPlayerId)) throw new ConflictError("Those accounts are not linked.");
+    const effectivePrimary = group?.primaryPlayerId ?? (sub ? await this.primaryAccount(sub) : undefined) ?? linkedIds[0];
     if (effectivePrimary === secondaryPlayerId) throw new ConflictError("Choose a different main account before unlinking this one.");
+    const remaining = linkedIds.filter((id) => id !== secondaryPlayerId);
+    const groups = await Promise.all(linkedIds.map((id) => this.identityGroup(id)));
+    const secondaryAccess = await this.linkedLoginAccess(secondaryPlayerId);
     const now = this.clock();
     const meta = newItemMeta(actor, now);
     const audit: IdentityAuditRecord = {
@@ -1055,42 +1137,65 @@ export class Repository {
       justification, performedAt: now.toISOString(), performedBy: actor.id, ...(performedByName ? { performedByName } : {}),
     };
     try {
-      await this.db.send(new TransactWriteCommand({ TransactItems: [
-        { ConditionCheck: { TableName: this.table, Key: accountLinkLockKey(anchorPlayerId), ConditionExpression: "#sub = :sub", ExpressionAttributeNames: { "#sub": "sub" }, ExpressionAttributeValues: { ":sub": sub } } },
-        { ConditionCheck: { TableName: this.table, Key: personIdentityKey(sub), ConditionExpression: "attribute_not_exists(primaryPlayerId) OR primaryPlayerId <> :secondary", ExpressionAttributeValues: { ":secondary": secondaryPlayerId } } },
-        { Delete: { TableName: this.table, Key: accountLinkLockKey(secondaryPlayerId), ConditionExpression: "#sub = :sub", ExpressionAttributeNames: { "#sub": "sub" }, ExpressionAttributeValues: { ":sub": sub } } },
-        { Delete: { TableName: this.table, Key: loginLinkKey(sub, secondaryPlayerId), ConditionExpression: "attribute_exists(PK)" } },
-        { Put: { TableName: this.table, Item: { ...identityAuditKey(anchorPlayerId, audit.auditId), type: "identity-audit", ...audit, ...meta } } },
-      ] }));
+      const items: ConstructorParameters<typeof TransactWriteCommand>[0]["TransactItems"] = remaining.map((id) => {
+        const index = linkedIds.indexOf(id);
+        return { Put: {
+          TableName: this.table,
+          Item: { ...accountIdentityGroupKey(id), type: "identity-group", primaryPlayerId: effectivePrimary, playerIds: remaining, ...meta },
+          ConditionExpression: groups[index] ? "playerIds = :expected" : "attribute_not_exists(PK)",
+          ...(groups[index] ? { ExpressionAttributeValues: { ":expected": groups[index]!.playerIds } } : {}),
+        } };
+      });
+      const secondaryIndex = linkedIds.indexOf(secondaryPlayerId);
+      items.push({ Delete: {
+        TableName: this.table,
+        Key: accountIdentityGroupKey(secondaryPlayerId),
+        ConditionExpression: groups[secondaryIndex] ? "playerIds = :expected" : "attribute_not_exists(PK)",
+        ...(groups[secondaryIndex] ? { ExpressionAttributeValues: { ":expected": groups[secondaryIndex]!.playerIds } } : {}),
+      } });
+      if (secondaryAccess) {
+        items.push(
+          { Delete: { TableName: this.table, Key: accountLinkLockKey(secondaryPlayerId), ConditionExpression: "#sub = :sub", ExpressionAttributeNames: { "#sub": "sub" }, ExpressionAttributeValues: { ":sub": secondaryAccess.sub } } },
+          { Delete: { TableName: this.table, Key: loginLinkKey(secondaryAccess.sub, secondaryPlayerId), ConditionExpression: "attribute_exists(PK)" } },
+        );
+      }
+      items.push({ Put: { TableName: this.table, Item: { ...identityAuditKey(anchorPlayerId, audit.auditId), type: "identity-audit", ...audit, ...meta } } });
+      await this.db.send(new TransactWriteCommand({ TransactItems: items }));
     } catch (err) {
-      if (cancellationCodes(err)?.some((code, i) => i < 4 && code === "ConditionalCheckFailed")) throw new ConflictError("Those accounts are no longer linked to the same person, or the account is now the main account.");
+      if (cancellationCodes(err)?.some((code) => code === "ConditionalCheckFailed")) throw new ConflictError("The account relationship changed while you were saving. Refresh and try again.");
       throw err;
     }
     return audit;
   }
 
-  /**
-   * Game accounts sharing one login represent one person in person-level analytics. The first
-   * account linked is the display/main account; gameplay records themselves remain account-owned.
-   */
+  /** Explicit R4 relationships and legacy shared-login relationships both collapse to one person. */
   async linkedAccountGroups(playerIds: readonly string[]): Promise<string[][]> {
     const wanted = new Set(playerIds);
     if (wanted.size === 0) return [];
     const byLogin = new Map<string, { playerId: string; linkedAt: string }[]>();
     const primaryByLogin = new Map<string, string>();
+    const explicit = new Map<string, string[]>();
     let ExclusiveStartKey: Record<string, unknown> | undefined;
     do {
       const res = await this.db.send(
         new ScanCommand({
           TableName: this.table,
-          FilterExpression: "#type IN (:link, :identity)",
+          FilterExpression: "#type IN (:link, :identity, :group)",
           ExpressionAttributeNames: { "#type": "type", "#sub": "sub" },
-          ExpressionAttributeValues: { ":link": "login-link", ":identity": "person-identity" },
-          ProjectionExpression: "#sub, playerId, primaryPlayerId, createdAt, #type",
+          ExpressionAttributeValues: { ":link": "login-link", ":identity": "person-identity", ":group": "identity-group" },
+          ProjectionExpression: "#sub, playerId, playerIds, primaryPlayerId, createdAt, #type",
           ExclusiveStartKey,
         }),
       );
       for (const item of res.Items ?? []) {
+        if (item.type === "identity-group" && Array.isArray(item.playerIds) && typeof item.primaryPlayerId === "string") {
+          const ids = item.playerIds.filter((id): id is string => typeof id === "string" && wanted.has(id));
+          if (ids.length > 1) {
+            const ordered = [item.primaryPlayerId, ...ids].filter((id, index, all) => wanted.has(id) && all.indexOf(id) === index);
+            explicit.set([...ids].toSorted().join("#"), ordered);
+          }
+          continue;
+        }
         const sub = typeof item.sub === "string" ? item.sub : undefined;
         if (sub && item.type === "person-identity" && typeof item.primaryPlayerId === "string") {
           primaryByLogin.set(sub, item.primaryPlayerId);
@@ -1104,11 +1209,13 @@ export class Repository {
       }
       ExclusiveStartKey = res.LastEvaluatedKey;
     } while (ExclusiveStartKey);
-    return [...byLogin.entries()].map(([sub, group]) =>
-      group
+    const explicitIds = new Set([...explicit.values()].flat());
+    const legacy = [...byLogin.entries()].map(([sub, group]) =>
+      group.filter((entry) => !explicitIds.has(entry.playerId))
         .toSorted((a, b) => Number(b.playerId === primaryByLogin.get(sub)) - Number(a.playerId === primaryByLogin.get(sub)) || a.linkedAt.localeCompare(b.linkedAt) || a.playerId.localeCompare(b.playerId))
         .map((entry) => entry.playerId),
-    );
+    ).filter((ids) => ids.length > 1);
+    return [...explicit.values(), ...legacy];
   }
 
   /** The login already claiming this game account, without exposing it through the HTTP API. */
@@ -1118,7 +1225,7 @@ export class Repository {
 
   /** Login metadata used for officer access management. The subject never leaves the API. */
   async linkedLoginAccess(playerId: string): Promise<{ sub: string; loginMethod: LoginMethod | null } | undefined> {
-    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: accountLinkLockKey(playerId) }));
+    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: accountLinkLockKey(playerId), ConsistentRead: true }));
     if (typeof res.Item?.sub !== "string") return undefined;
     const loginMethod = res.Item.loginMethod === "email" || res.Item.loginMethod === "password"
       ? res.Item.loginMethod

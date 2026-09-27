@@ -109,6 +109,22 @@ describe("invite", () => {
     expect((await h.repo.linkedAccounts(first.sub!)).toSorted()).toEqual(["200000004", "200000005"]);
   });
 
+  it("gives a new login access to every account an R4 linked beforehand", async () => {
+    const logins = fakeLogins();
+    await h.repo.createAccount({ playerId: "200000021", name: "Prelinked Main", alliance: "POP", status: "active" }, actor);
+    await h.repo.createAccount({ playerId: "200000022", name: "Prelinked Alt", alliance: "POP", status: "active" }, actor);
+    await h.repo.linkSecondaryAccount("200000021", "200000022", "Confirmed before sign-in", actor);
+
+    const result = await invite(
+      { repo: h.repo, logins, actor },
+      { loginMethod: "email", email: "prelinked@example.com", playerId: "200000021", name: "Prelinked Main" },
+    );
+
+    expect(result).toMatchObject({ loginCreated: true, linked: true });
+    expect((await h.repo.linkedAccounts(result.sub!)).toSorted()).toEqual(["200000021", "200000022"]);
+    expect(await h.repo.linkedLogin("200000022")).toBe(result.sub);
+  });
+
   it("refuses to take a game account that already belongs to someone else", async () => {
     const logins = fakeLogins();
     await invite({ repo: h.repo, logins, actor }, { email: "owner@example.com", playerId: "200000006", name: "Owner" });

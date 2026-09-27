@@ -2837,8 +2837,48 @@ td:nth-child(3) .inline-select {
 .identity-audit { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
 .identity-audit summary { color: var(--accent); font-weight: 750; cursor: pointer; }
 .identity-audit .detail-list { margin-top: 10px; }
+.identity-form { gap: 18px; }
+.identity-form-intro { margin-top: -4px; line-height: 1.5; }
+.identity-lookup { z-index: 2; }
+.identity-lookup .member-suggestions { top: 82px; }
+.identity-selected-account {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-top: -6px;
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--good) 45%, var(--line));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--good) 8%, var(--surface-2));
+}
+.identity-selected-account > span:nth-child(2) { display: grid; gap: 1px; min-width: 0; }
+.identity-selected-account small { color: var(--muted); }
+.identity-selected-check {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--good) 18%, transparent);
+  color: var(--good);
+  font-weight: 850;
+}
+.identity-reason textarea { min-height: 92px; }
+.identity-form .field-help { color: var(--muted); font-size: 0.8rem; line-height: 1.4; }
+.identity-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin: 2px -16px calc(-20px - env(safe-area-inset-bottom, 0px));
+  padding: 14px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-2) 72%, var(--surface));
+}
+.identity-form-actions .btn { min-width: 132px; }
 
 @media (max-width: 680px) {
   .identity-account-list > li { align-items: flex-start; flex-direction: column; }
   .identity-actions { width: 100%; justify-content: flex-start; }
+  .identity-form-actions .btn { min-width: 0; flex: 1 1 0; }
 }

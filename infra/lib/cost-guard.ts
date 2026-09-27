@@ -26,6 +26,7 @@ export interface CostGuardProps {
 /** Budget alerts and the kill switch (P1.12, FM-13). */
 export class CostGuard extends Construct {
   readonly killSwitch: ssm.StringParameter;
+  readonly alertsTopic: sns.Topic;
 
   constructor(scope: Construct, id: string, props: CostGuardProps) {
     super(scope, id);
@@ -52,6 +53,7 @@ export class CostGuard extends Construct {
       return t;
     };
     const alerts = topic("AlertsTopic");
+    this.alertsTopic = alerts;
     const trip = topic("TripTopic");
 
     const tripFn = new NodejsFunction(this, "Trip", {
