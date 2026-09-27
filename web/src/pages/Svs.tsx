@@ -26,7 +26,7 @@ const BUFF_LABEL: Record<string, string> = {
   training: "Training",
 };
 
-/** One SvS round: when you could take a buff on each day (BUF-02). */
+/** One Ministry registration: when you could take an SvS buff on each day (BUF-02). */
 export function Svs({ roundId }: { roundId: string }) {
   const { api, account, dataVersion, dataChanged } = useSession();
   const [round, setRound] = useState<SvsRoundDetail | null>(null);
@@ -88,6 +88,7 @@ export function Svs({ roundId }: { roundId: string }) {
         {" · "}
         {round.answeredBy} {round.answeredBy === 1 ? "person has" : "people have"} answered
       </p>
+      <p className="event-notes">SvS Ministry scheduling · Construction, Research and Training buffs</p>
 
       {error && (
         <p className="banner banner-error" role="alert">

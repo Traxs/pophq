@@ -1209,7 +1209,13 @@ function CompletedEventReport({ event, members }: { event: EventDetail; members:
         <div>
           <p className="section-label">Completed event</p>
           <h2 id="completed-report-title">Attendance &amp; individual scores</h2>
-          <p className="muted small">A positive recorded score counts as attendance evidence. Missing evidence stays “Not reviewed”—it is never silently changed to absent.</p>
+          <p className="muted small">
+            Recorded scores and approved R4 bot result rows count as attendance evidence. {event.kind === "foundry" || event.kind === "canyon"
+              ? "A complete officer review can identify everyone who attended; until that review is imported, missing evidence stays “Not reviewed”."
+              : event.kind === "svs" || event.kind === "koi" || event.kind === "fdt"
+                ? "The statewide Top 100 is partial: listed POP players count as attended, while unlisted members stay “Not reviewed”."
+                : "Missing evidence stays “Not reviewed”—it is never silently changed to absent."}
+          </p>
         </div>
         <span className="pill pill-flat">{recordCount} event records</span>
       </div>

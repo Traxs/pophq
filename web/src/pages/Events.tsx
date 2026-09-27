@@ -436,44 +436,92 @@ function EventCard({
 function PastEventSummary({ event }: { event: EventListItem }) {
   const results = event.history?.results ?? [];
   const phases = event.history?.phases ?? [];
-  if (results.length === 0 && phases.length === 0) {
-    return (
+  const mine = event.history?.mine;
+  return (
+    <>
+      <PersonalEventPerformance performance={mine} />
+      {results.length === 0 && phases.length === 0 ? (
       <div className="event-result-empty">
         <strong>Result not recorded yet</strong>
         <span>The event is over. Scores and attendance can still be added to its report.</span>
       </div>
-    );
-  }
+      ) : (
+        <div className="event-result-grid" aria-label={`${event.title} results`}>
+          {results.map((result) => {
+            const label = result.outcome === "win" ? "Victory" : result.outcome === "loss" ? "Defeat" : "Draw";
+            return (
+              <section key={result.sessionId} className={`event-result-tile result-${result.outcome}`}>
+                <div className="event-result-tile-head">
+                  <span>{result.sessionLabel}</span>
+                  <strong>{label}</strong>
+                </div>
+                <p className="event-result-score"><strong>{full(result.ourScore)}</strong><span>–</span><strong>{full(result.opponentScore)}</strong></p>
+                {result.participants !== undefined && <small>{result.participants} scored participants</small>}
+              </section>
+            );
+          })}
+          {phases.map((phase) => (
+            <section key={phase.phaseKey} className="event-result-tile result-points">
+              <div className="event-result-tile-head">
+                <span>{phase.phaseLabel} scores</span>
+                <strong>{phase.coverage === "complete" ? "Complete results" : "Partial results"}</strong>
+              </div>
+              <p className="event-result-score"><strong>{full(phase.reportedPlayerSubtotal)}</strong><small>pts</small></p>
+              <small>
+                {phase.scope === "alliance"
+                  ? `${phase.scoredPlayers} player scores · alliance subtotal`
+                  : phase.scoredPlayers > 0 ? "Your reported score" : "Your score is not recorded"}
+              </small>
+            </section>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+function PersonalEventPerformance({
+  performance,
+}: {
+  performance: NonNullable<NonNullable<EventListItem["history"]>["mine"]> | undefined;
+}) {
+  const attendance = performance?.attendance ?? "not_reviewed";
+  const attendanceLabel = attendance === "attended"
+    ? "Attended"
+    : attendance === "did_not_attend"
+      ? "Did not attend"
+      : attendance === "excused"
+        ? "Excused"
+        : "Not recorded";
+  const attendanceClass = attendance === "attended"
+    ? "pill-up"
+    : attendance === "did_not_attend"
+      ? "pill-down"
+      : attendance === "excused"
+        ? "pill-warn"
+        : "pill-flat";
+
   return (
-    <div className="event-result-grid" aria-label={`${event.title} results`}>
-      {results.map((result) => {
-        const label = result.outcome === "win" ? "Victory" : result.outcome === "loss" ? "Defeat" : "Draw";
-        return (
-          <section key={result.sessionId} className={`event-result-tile result-${result.outcome}`}>
-            <div className="event-result-tile-head">
-              <span>{result.sessionLabel}</span>
-              <strong>{label}</strong>
-            </div>
-            <p className="event-result-score"><strong>{full(result.ourScore)}</strong><span>–</span><strong>{full(result.opponentScore)}</strong></p>
-            {result.participants !== undefined && <small>{result.participants} scored participants</small>}
-          </section>
-        );
-      })}
-      {phases.map((phase) => (
-        <section key={phase.phaseKey} className="event-result-tile result-points">
-          <div className="event-result-tile-head">
-            <span>{phase.phaseLabel} scores</span>
-            <strong>{phase.coverage === "complete" ? "Complete results" : "Partial results"}</strong>
-          </div>
-          <p className="event-result-score"><strong>{full(phase.reportedPlayerSubtotal)}</strong><small>pts</small></p>
-          <small>
-            {phase.scope === "alliance"
-              ? `${phase.scoredPlayers} player scores · alliance subtotal`
-              : phase.scoredPlayers > 0 ? "Your reported score" : "Your score is not recorded"}
-          </small>
-        </section>
-      ))}
-    </div>
+    <section className="event-my-performance" aria-label="Your performance">
+      <div className="event-my-performance-head">
+        <strong>Your performance</strong>
+        <span className={`pill ${attendanceClass}`}>{attendanceLabel}</span>
+      </div>
+      {performance && performance.scores.length > 0 ? (
+        <div className="event-my-score-list">
+          {performance.scores.map((score) => (
+            <span key={score.key}>
+              <small>{score.label}</small>
+              <strong>{full(score.points)} pts</strong>
+              <b>#{score.place} of {score.scoredPlayers}</b>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <small>No individual score is recorded for you.</small>
+      )}
+      {performance?.attendanceEvidence === "score" && <small>Your recorded result confirms your attendance.</small>}
+    </section>
   );
 }
 

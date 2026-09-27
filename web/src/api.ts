@@ -446,6 +446,18 @@ export interface EventListItem extends AllianceEvent {
       reportedPlayerSubtotal: number;
       scope: "alliance" | "mine";
     }[];
+    /** The acting account's private performance, included even for officers. */
+    mine?: {
+      attendance: "attended" | "did_not_attend" | "excused" | "not_reviewed";
+      attendanceEvidence: "score" | "record" | null;
+      scores: {
+        key: string;
+        label: string;
+        points: number;
+        place: number;
+        scoredPlayers: number;
+      }[];
+    };
   };
 }
 
@@ -514,6 +526,8 @@ export interface EventMember {
   answeredAt: string | null;
   /** Officer view only. */
   attended: AttendanceStatus | null;
+  /** True when a positive score or an approved officer-bot result row confirms attendance. */
+  attendedByScore?: boolean;
   /** Where this member ended up in a published lineup, if anywhere. */
   lineup: { sessionId: string; role: LineupRole; position: number } | null;
   strengthTrend: (number | null)[];

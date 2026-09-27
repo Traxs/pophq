@@ -21,13 +21,26 @@ The token may call normal `GET /v1/...` routes with exactly the issuer's current
 1. Run `list-events --kind foundry` to discover event and session IDs. Match the requested date, time and session label exactly; ask the officer if more than one item could match.
 2. Fetch `result-context` for that exact event and session. `lineup` is the officer-confirmed participant list when one was published; `players` is the permitted exact Player ID/name registry for legacy events without a lineup. Use only returned Player IDs, and only attach points when the scoreboard name matches exactly. Names must never be fuzzy-matched.
 3. Preserve missing facts as omitted fields. Never turn an unreadable or absent value into zero.
-   A confirmed positive scoreboard row is also attendance evidence: for historical backfills,
-   preview a matching `present` attendance record for that player and event. A zero score or a
-   missing row never proves presence or absence.
+   Every player row deliberately included in an approved R4/R5 bot result is trusted as
+   attendance evidence, including an explicit zero. Never manufacture a zero for a missing or
+   unreadable score. For historical backfills, preview a matching `present` attendance record
+   for every visibly listed participant; a missing row never proves presence or absence.
 4. Write a JSON payload with the current result's `version` as `expectedVersion`, or `0` when no result exists.
 5. Preview first. Present the returned before/after diff to the officer.
 6. Apply only after the officer explicitly approves that exact diff. Supply a meaningful reason and a stable idempotency key. Retrying the exact approved request with the same key is safe; never reuse the key for changed data.
 7. Stop on validation, conflict, expired-token, or unknown-player errors. Do not guess a replacement ID, silently drop a row, or bypass a stale version.
+
+### Attendance coverage by event
+
+- **Foundry and Canyon:** an R4/R5 can inspect the complete participant list. After reconciling
+  every visible participant to an exact POP HQ Player ID, import a complete attendance review:
+  listed participants are `present`; known alliance accounts not in that complete list may be
+  `absent`. If any visible participant is unresolved, keep the review partial and do not infer
+  absences yet.
+- **SvS, King of Icefield and FDT:** the statewide ranking exposes only the Top 100 across all
+  alliances. Every exact POP player row found there is trusted as `present`, including an explicit
+  zero in an approved result, but omission proves nothing. Never mark an unlisted POP member
+  absent from this ranking.
 
 Typical commands:
 

@@ -74,6 +74,31 @@ export type Env = { Variables: { principal: Principal; requestId: string } };
 /** Events stay visible for a while after they happened, so people can see what they missed. */
 const PAST_EVENTS_MS = 7 * 24 * 60 * 60 * 1000;
 
+/** One account's private position in a published scoreboard, without exposing anybody else's score. */
+function personalEventScore(
+  key: string,
+  label: string,
+  rows: readonly { playerId: string; points: number }[],
+  playerId: string,
+) {
+  const ordered = [...rows].toSorted((a, b) => b.points - a.points || a.playerId.localeCompare(b.playerId));
+  const mine = ordered.find((row) => row.playerId === playerId);
+  if (!mine) return [];
+  return [{
+    key,
+    label,
+    points: mine.points,
+    // Equal scores share a place; the next distinct score keeps competition ranking.
+    place: ordered.findIndex((row) => row.points === mine.points) + 1,
+    scoredPlayers: ordered.length,
+  }];
+}
+
+/** A positive score always proves presence; a guarded officer-bot upload also confirms listed zero rows. */
+function scoreConfirmsAttendance(row: { points: number }, recordedBy: string): boolean {
+  return row.points > 0 || recordedBy.startsWith("agent:");
+}
+
 export interface AppDeps {
   repo: Repository;
   verifier: TokenVerifier;
@@ -155,7 +180,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     return undefined;
   };
 
-  /** Positive points prove presence. Zero and a missing scoreboard row prove nothing. */
+  /** Positive points prove presence; listed rows in an approved officer-bot result are trusted too. */
   const resultEvidence = async (events: readonly AllianceEvent[]) => {
     const byEvent = new Map<string, Set<string>>();
     const byPlayer = new Map<string, Set<string>>();
@@ -164,12 +189,14 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         repo.listResults(event.eventId),
         Promise.all(phasesForEvent(event.kind).map((phase) => repo.getEventPhaseScores(event.eventId, phase.key))),
       ]);
-      const players = new Set(
-        [
-          ...sessionResults.flatMap((result) => result.playerPoints),
-          ...phaseResults.flatMap((result) => result?.playerPoints ?? []),
-        ].filter((row) => row.points > 0).map((row) => row.playerId),
-      );
+      const players = new Set([
+        ...sessionResults.flatMap((result) => result.playerPoints
+          .filter((row) => scoreConfirmsAttendance(row, result.recordedBy))
+          .map((row) => row.playerId)),
+        ...phaseResults.flatMap((result) => (result?.playerPoints ?? [])
+          .filter((row) => scoreConfirmsAttendance(row, result?.recordedBy ?? ""))
+          .map((row) => row.playerId)),
+      ]);
       byEvent.set(event.eventId, players);
       for (const playerId of players) {
         const eventIds = byPlayer.get(playerId) ?? new Set<string>();
@@ -2133,14 +2160,20 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const acting = defaultActing(p);
     const mine = acting ? await repo.answersForAccount(acting, from) : [];
     const byEvent = new Map(mine.map((a) => [a.eventId, a]));
+    const attendanceByEvent = new Map(
+      acting ? (await repo.attendanceFor(acting, 100)).map((record) => [record.eventId, record] as const) : [],
+    );
     const officer = isOfficer(p);
     const orderedEvents = events.toSorted((a, b) => Date.parse(b.startsAt) - Date.parse(a.startsAt));
     const items = await Promise.all(orderedEvents.map(async (event) => {
       const history = Date.parse(event.startsAt) < at.getTime()
         ? await (async () => {
             const results = await repo.listResults(event.eventId);
-            const phases = (await Promise.all(phasesForEvent(event.kind).map(async (phase) => {
-              const record = await repo.getEventPhaseScores(event.eventId, phase.key);
+            const phaseRecords = await Promise.all(phasesForEvent(event.kind).map(async (phase) => ({
+              phase,
+              record: await repo.getEventPhaseScores(event.eventId, phase.key),
+            })));
+            const phases = phaseRecords.map(({ phase, record }) => {
               if (!record) return undefined;
               const visible = officer
                 ? record.playerPoints
@@ -2153,7 +2186,36 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
                 reportedPlayerSubtotal: scoreSubtotal(visible),
                 scope: officer ? "alliance" as const : "mine" as const,
               };
-            }))).filter((phase) => phase !== undefined);
+            }).filter((phase) => phase !== undefined);
+            const personalScores = acting ? [
+              ...results.flatMap((result) => personalEventScore(
+                `session:${result.sessionId}`,
+                event.sessions.find((session) => session.id === result.sessionId)?.label ?? result.sessionId,
+                result.playerPoints,
+                acting,
+              )),
+              ...phaseRecords.flatMap(({ phase, record }) => personalEventScore(
+                `phase:${phase.key}`,
+                phase.label,
+                record?.playerPoints ?? [],
+                acting,
+              )),
+            ] : [];
+            const recordedAttendance = attendanceByEvent.get(event.eventId)?.status;
+            const scoreProvesAttendance = acting ? results.some((result) => result.playerPoints.some(
+              (row) => row.playerId === acting && scoreConfirmsAttendance(row, result.recordedBy),
+            )) || phaseRecords.some(({ record }) => record?.playerPoints.some(
+              (row) => row.playerId === acting && scoreConfirmsAttendance(row, record.recordedBy),
+            )) === true : false;
+            const personalAttendance = scoreProvesAttendance
+              ? "attended" as const
+              : recordedAttendance === "present"
+                ? "attended" as const
+                : recordedAttendance === "absent"
+                  ? "did_not_attend" as const
+                  : recordedAttendance === "excused"
+                    ? "excused" as const
+                    : "not_reviewed" as const;
             return {
               results: results.map((result) => ({
                 sessionId: result.sessionId,
@@ -2161,9 +2223,16 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
                 outcome: result.outcome,
                 ourScore: result.ourScore,
                 opponentScore: result.opponentScore,
-                ...(officer ? { participants: result.playerPoints.filter((row) => row.points > 0).length } : {}),
+                ...(officer ? { participants: result.playerPoints.filter((row) => scoreConfirmsAttendance(row, result.recordedBy)).length } : {}),
               })),
               phases,
+              ...(acting ? {
+                mine: {
+                  attendance: personalAttendance,
+                  attendanceEvidence: scoreProvesAttendance ? "score" as const : recordedAttendance && recordedAttendance !== "unknown" ? "record" as const : null,
+                  scores: personalScores,
+                },
+              } : {}),
             };
           })()
         : undefined;
@@ -2200,12 +2269,14 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       phase.key,
       await repo.getEventPhaseScores(event.eventId, phase.key),
     ] as const)));
-    const scoredPlayers = new Set(
-      [
-        ...[...results.values()].flatMap((result) => result.playerPoints),
-        ...[...phaseScores.values()].flatMap((result) => result?.playerPoints ?? []),
-      ].filter((row) => row.points > 0).map((row) => row.playerId),
-    );
+    const scoredPlayers = new Set([
+      ...[...results.values()].flatMap((result) => result.playerPoints
+        .filter((row) => scoreConfirmsAttendance(row, result.recordedBy))
+        .map((row) => row.playerId)),
+      ...[...phaseScores.values()].flatMap((result) => (result?.playerPoints ?? [])
+        .filter((row) => scoreConfirmsAttendance(row, result?.recordedBy ?? ""))
+        .map((row) => row.playerId)),
+    ]);
     // People in a published lineup need their strength shown too, even if an officer put someone
     // there who never answered.
     const needStrength = [
@@ -2402,6 +2473,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           sessionId: byPlayer.get(account.playerId)?.sessionId ?? null,
           answeredAt: byPlayer.get(account.playerId)?.answeredAt ?? null,
           attended: scoredPlayers.has(account.playerId) ? "present" : (attendance.get(account.playerId)?.status ?? null),
+          attendedByScore: scoredPlayers.has(account.playerId),
           lineup: placeOf.get(account.playerId) ?? null,
           strengthTrend: monthlyValues(seriesOf(own, "foundry_strength"), now()),
           attendanceTrend: trailingAverage(monthlyAttendance(history.get(account.playerId) ?? [], now())),

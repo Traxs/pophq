@@ -4,6 +4,7 @@ import { createHarness, type Harness } from "./harness.js";
 
 const OFFICER = { as: "officer", groups: ["officer"] };
 const PLAYER = { as: "player", headers: { "x-account-id": "100000001" } };
+const ALT = { as: "player", headers: { "x-account-id": "100000002" } };
 
 describe("SvS and KOI scoreboards", () => {
   let h: Harness;
@@ -39,10 +40,11 @@ describe("SvS and KOI scoreboards", () => {
       playerPoints: [
         { playerId: "100000005", points: 900_000 },
         { playerId: "100000001", points: 450_000 },
+        { playerId: "100000002", points: 0 },
       ],
       source: { type: "fixture" },
       recordedAt: new Date().toISOString(),
-      recordedBy: "fixture",
+      recordedBy: "agent:fixture",
     }, { id: "fixture", via: "seed" });
   });
 
@@ -97,13 +99,19 @@ describe("SvS and KOI scoreboards", () => {
       .find((event) => event.eventId === pastEventId);
     expect(officerEvent?.history?.phases).toEqual([expect.objectContaining({
       phaseKey: "castle_battle",
-      scoredPlayers: 2,
+      scoredPlayers: 3,
       reportedPlayerSubtotal: 1_350_000,
       scope: "alliance",
     })]);
 
     const playerList = await h.call("GET", "/events", PLAYER);
-    const playerEvent = (playerList.body.items as { eventId: string; history?: { phases: unknown[] } }[])
+    const playerEvent = (playerList.body.items as {
+      eventId: string;
+      history?: {
+        phases: unknown[];
+        mine?: { attendance: string; attendanceEvidence: string | null; scores: { label: string; points: number; place: number; scoredPlayers: number }[] };
+      };
+    }[])
       .find((event) => event.eventId === pastEventId);
     expect(playerEvent?.history?.phases).toEqual([expect.objectContaining({
       phaseKey: "castle_battle",
@@ -111,12 +119,33 @@ describe("SvS and KOI scoreboards", () => {
       reportedPlayerSubtotal: 450_000,
       scope: "mine",
     })]);
+    expect(playerEvent?.history?.mine).toEqual({
+      attendance: "attended",
+      attendanceEvidence: "score",
+      scores: [{
+        key: "phase:castle_battle",
+        label: "Castle battle phase",
+        points: 450_000,
+        place: 2,
+        scoredPlayers: 3,
+      }],
+    });
     expect(JSON.stringify(playerEvent)).not.toContain("900000");
+
+    const altList = await h.call("GET", "/events", ALT);
+    const altEvent = (altList.body.items as { eventId: string; history?: { mine?: unknown } }[])
+      .find((event) => event.eventId === pastEventId);
+    expect(altEvent?.history?.mine).toMatchObject({
+      attendance: "attended",
+      attendanceEvidence: "score",
+      scores: [{ points: 0, place: 3, scoredPlayers: 3 }],
+    });
 
     const officerDetail = await h.call("GET", `/events/${pastEventId}`, OFFICER);
     expect(officerDetail.body.members).toEqual(expect.arrayContaining([
       expect.objectContaining({ playerId: "100000005", attended: "present" }),
       expect.objectContaining({ playerId: "100000001", attended: "present" }),
+      expect.objectContaining({ playerId: "100000002", attended: "present", attendedByScore: true }),
     ]));
   });
 });

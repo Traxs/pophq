@@ -35,10 +35,11 @@ export function completedEventRows(event: EventDetail): CompletedEventRow[] {
     const sessionScores = resultScores.get(member.playerId) ?? [];
     const preparationPoints = preparation.get(member.playerId) ?? null;
     const castleBattlePoints = battle.get(member.playerId) ?? null;
-    const positiveScore = sessionScores.some((score) => score.points > 0)
+    const scoreEvidence = member.attendedByScore === true
+      || sessionScores.some((score) => score.points > 0)
       || (preparationPoints ?? 0) > 0
       || (castleBattlePoints ?? 0) > 0;
-    const attendance = positiveScore ? "present" : attendanceOf(member.attended);
+    const attendance = scoreEvidence ? "present" : attendanceOf(member.attended);
     const answerLabel = member.answer === "yes"
       ? (sessionLabels.get(member.sessionId ?? "") ?? "Signed up")
       : member.answer === "no"
@@ -52,7 +53,7 @@ export function completedEventRows(event: EventDetail): CompletedEventRow[] {
     return {
       member,
       attendance,
-      attendanceEvidence: positiveScore ? "score" : attendance === "unrecorded" ? null : "record",
+      attendanceEvidence: scoreEvidence ? "score" : attendance === "unrecorded" ? null : "record",
       answerLabel,
       lineupLabel,
       sessionScores,

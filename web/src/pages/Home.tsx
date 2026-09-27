@@ -126,9 +126,9 @@ export function Home() {
             <span className="muted">
               {round.state === "collecting"
                 ? round.answered
-                  ? `Your buff times are in · you can change them, closes ${untilText(round.preferenceDeadline)}`
-                  : `Pick your buff times · closes ${untilText(round.preferenceDeadline)}`
-                : "Buff plan published"}
+                  ? `Your Ministry times are registered · you can change them, closes ${untilText(round.preferenceDeadline)}`
+                  : `Register your Ministry buff times · closes ${untilText(round.preferenceDeadline)}`
+                : "Ministry schedule published"}
             </span>
           </span>
           <span className="chevron" aria-hidden="true">
@@ -263,7 +263,7 @@ function NewRoundCard() {
   if (!open) {
     return (
       <button type="button" className="text-btn center-block" onClick={() => setOpen(true)}>
-        Start an SvS round
+        Register for Ministry
       </button>
     );
   }
@@ -285,15 +285,15 @@ function NewRoundCard() {
   return (
     <section className="card stack" aria-labelledby="new-round-title">
       <h2 id="new-round-title" className="section-label">
-        New SvS round
+        New Ministry registration
       </h2>
       <p className="muted small">
-        Construction, Research and Training fall on the Monday, Tuesday and Thursday of that week.
-        Times close as the first buff day begins.
+        Open registration for the SvS Construction, Research and Training Ministry buffs on
+        Monday, Tuesday and Thursday. Members then choose their preferred half-hour time slots.
       </p>
       <label className="field">
         <span>Name</span>
-        <input value={label} maxLength={60} placeholder="SvS week 41" onChange={(e) => setLabel(e.target.value)} />
+        <input value={label} maxLength={60} placeholder="Ministry · SvS week 41" onChange={(e) => setLabel(e.target.value)} />
       </label>
       <label className="field">
         <span>Monday of the SvS week</span>
@@ -311,7 +311,7 @@ function NewRoundCard() {
           disabled={busy || label.trim().length < 3 || !weekStart}
           onClick={() => void create()}
         >
-          {busy ? "Starting…" : "Start round"}
+          {busy ? "Opening…" : "Open registration"}
         </button>
         <button type="button" className="btn btn-quiet btn-small" disabled={busy} onClick={() => setOpen(false)}>
           Cancel

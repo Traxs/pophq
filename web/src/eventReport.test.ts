@@ -80,4 +80,15 @@ describe("completed event report", () => {
     expect(rows.find((row) => row.member.playerId === "2")).toMatchObject({ attendance: "present", castleBattlePoints: 80 });
     expect(rows.find((row) => row.member.playerId === "3")).toMatchObject({ attendance: "present", preparationPoints: 50 });
   });
+
+  it("trusts an approved officer-bot result row even when its individual score is zero", () => {
+    const detail = event();
+    detail.sessions[0]!.result!.playerPoints = [{ playerId: "2", name: "Two", points: 0 }];
+    detail.members![1] = member("2", { name: "Two", attendedByScore: true });
+    expect(completedEventRows(detail).find((row) => row.member.playerId === "2")).toMatchObject({
+      attendance: "present",
+      attendanceEvidence: "score",
+      sessionScores: [{ points: 0 }],
+    });
+  });
 });

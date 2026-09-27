@@ -97,10 +97,18 @@ describe("events", () => {
     const historyItems = history.body.items as {
       eventId: string;
       startsAt: string;
-      history?: { results: { outcome: string; ourScore: number; opponentScore: number; participants?: number }[] };
+      history?: {
+        results: { outcome: string; ourScore: number; opponentScore: number; participants?: number }[];
+        mine?: { attendance: string; attendanceEvidence: string | null; scores: { label: string; points: number; place: number; scoredPlayers: number }[] };
+      };
     }[];
     const historical = historyItems.find((event) => event.eventId === oldEventId);
     expect(historical?.history?.results).toEqual([{ sessionId: "L1", sessionLabel: "Legion 1", outcome: "win", ourScore: 340_778, opponentScore: 178_248 }]);
+    expect(historical?.history?.mine).toMatchObject({
+      attendance: "attended",
+      attendanceEvidence: "score",
+      scores: [{ label: "Legion 1", points: 20_000, place: 1, scoredPlayers: 1 }],
+    });
     expect(historyItems.map((event) => event.startsAt)).toEqual(historyItems.map((event) => event.startsAt).toSorted().reverse());
     expect((await h.call("GET", "/events?from=not-a-date", PLAYER)).status).toBe(400);
   });

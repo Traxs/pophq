@@ -29,11 +29,18 @@ python3 scripts/s26.py put-history /agent/history/reports/PLAYER_ID/IMPORT-SOURC
 
 Import lineups before tactics with assignments. Preserve actual attendance separately from signup, registration, selection, expected no-show and performance.
 
-When a reviewed scoreboard visibly identifies a player with a positive score, preview a
-`present` attendance record for the same event (and session when known). Do this even when the
-displayed score is rounded and therefore belongs only in preserved `performance` data rather
-than exact result points. Never infer `absent` from zero, an omitted row, an incomplete ranking,
-or an unreadable name.
+When a reviewed scoreboard visibly identifies a participant, preview a `present` attendance
+record for the same event (and session when known). A row deliberately included in an approved
+R4/R5 bot result is trusted even when its explicit score is zero. Do this when a displayed score
+is rounded and therefore belongs only in preserved `performance` data rather than exact result
+points. Never manufacture zero from a missing value or infer `absent` from an omitted row, an
+incomplete ranking, or an unreadable name.
+
+Coverage matters. Foundry and Canyon expose a complete participant list to R4/R5 officers, so a
+fully reconciled source can support explicit `present` and `absent` attendance records for every
+known alliance account. Do not call that review complete while any visible participant lacks an
+exact website ID. SvS, KOI and FDT expose only a statewide Top 100: import exact listed POP players
+as `present`, but leave every omitted POP member unknown.
 
 ## Preserved source facts
 
