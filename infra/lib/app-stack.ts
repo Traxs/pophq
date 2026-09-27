@@ -327,17 +327,22 @@ export class AppStack extends Stack {
     // Tokens are refreshed through the OAuth token endpoint instead, which rotation supports.
     (client.node.defaultChild as cognito.CfnUserPoolClient).addPropertyOverride("ExplicitAuthFlows", ["ALLOW_USER_AUTH"]);
 
-    // Managed login in the POP HQ style: colors from web/src/styles.css, light and dark mode,
-    // snowflake logo. settings.json started from Cognito's own default settings document.
+    // Managed login in the POP HQ style: colors from web/src/styles.css, light and dark mode, and
+    // the app's POP logo. settings.json started from Cognito's own default settings document.
+    // The images are inlined into the template (1 MB limit), so logo.png is the app logo cut to
+    // 240 px with rounded corners and a 256-color palette: about 28 KB, visually the same.
     const loginAsset = (file: string) => readFileSync(join(LOGIN_ASSETS, file)).toString("base64");
+    const logo = loginAsset("logo.png");
+    const favicon = loginAsset("favicon.ico");
     new cognito.CfnManagedLoginBranding(this, "LoginBranding", {
       userPoolId: users.userPoolId,
       clientId: client.userPoolClientId,
       settings: JSON.parse(readFileSync(join(LOGIN_ASSETS, "settings.json"), "utf8")) as unknown,
-      assets: (["LIGHT", "DARK"] as const).flatMap((colorMode) => {
-        const bytes = loginAsset(`logo-${colorMode.toLowerCase()}.svg`);
-        return ["FORM_LOGO", "FAVICON_SVG"].map((category) => ({ category, colorMode, extension: "SVG", bytes }));
-      }),
+      // The logo has its own background, so both color modes use the same images.
+      assets: (["LIGHT", "DARK"] as const).flatMap((colorMode) => [
+        { category: "FORM_LOGO", colorMode, extension: "PNG", bytes: logo },
+        { category: "FAVICON_ICO", colorMode, extension: "ICO", bytes: favicon },
+      ]),
     });
 
     // Hashed assets never change: cache for a year and keep old files (prune: false) so open
