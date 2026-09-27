@@ -88,7 +88,7 @@ The app answers on its CloudFront name until `SITE` in `infra/lib/config.ts` is 
 aws route53 list-hosted-zones --query "HostedZones[?Name=='pophq.fyi.']"
 ```
 
-4. Merge. The pipeline adds a `PopHqSiteCertificate` stack in us-east-1 (CloudFront only reads certificates from there), waits for DNS validation, then points the domain at CloudFront. The CloudFront name keeps working, and sign-in accepts both origins until the old one is removed.
+4. Merge. The pipeline adds a `PopHqSiteCertificate` stack in us-east-1 (CloudFront only reads certificates from there), waits for DNS validation, then points the domain at CloudFront. The CloudFront name keeps working, and sign-in accepts both origins until the old one is removed. `www.` redirects permanently to the bare domain (path and query kept), so sign-in only ever sees one origin on the domain.
 
 ## Roles and the first owner
 
