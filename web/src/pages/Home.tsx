@@ -146,19 +146,25 @@ export function Home() {
 
 function MemberKudos() {
   const { account, api, dataVersion } = useSession();
-  const [data, setData] = useState<{ summary: KudosSummary; eligibility: RewardEligibility } | null>(null);
+  const [data, setData] = useState<{ summary: KudosSummary; eligibility: RewardEligibility } | null | undefined>(undefined);
 
   useEffect(() => {
     if (!account) {
       setData(null);
       return;
     }
+    setData(undefined);
     Promise.all([api.kudos(account.playerId), api.myRewardEligibility()])
       .then(([summary, eligibility]) => setData({ summary, eligibility }))
       .catch(() => setData(null));
   }, [account, api, dataVersion]);
 
-  if (!data) return null;
+  if (data === undefined) return <section className="card kudos-card eligibility-loading" aria-label="Loading fortress reward eligibility" aria-busy="true">
+    <div><h2 className="section-label">Fortress reward eligibility</h2><span className="muted small">Loading your current place and calculation…</span></div>
+    <div className="skeleton eligibility-loading-place" />
+    <div className="skeleton eligibility-loading-calculation" />
+  </section>;
+  if (data === null) return null;
   return <MemberKudosCard summary={data.summary} eligibility={data.eligibility} />;
 }
 

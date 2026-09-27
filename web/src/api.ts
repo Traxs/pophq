@@ -195,6 +195,9 @@ export interface RewardEligibility {
   participationRate: number;
   /** Zero means missing attendance was scored neutrally rather than treated as failure. */
   participationSample?: number;
+  participationAttended?: number;
+  participationNoShows?: number;
+  participationUnregistered?: number;
   strength: number;
   strongestStrength: number;
   strengthShare: number;

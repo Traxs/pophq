@@ -106,6 +106,31 @@ describe("participationOf", () => {
     expect(result.unregistered).toBe(4);
   });
 
+  it("does not treat a missing player on a partial leaderboard as absence", () => {
+    const result = participationOf({
+      events,
+      answers: [],
+      attendance: [],
+      completeEvidence: [],
+      now,
+    });
+    expect(result.rate).toBeUndefined();
+    expect(result).toMatchObject({ attended: 0, unregistered: 0, sample: 0 });
+    expect(result.events.every((item) => item.outcome === "not_counted")).toBe(true);
+  });
+
+  it("counts silence and a missed signup only after the event review is complete", () => {
+    const reviewed = event(1, 1);
+    const silent = participationOf({
+      events: [reviewed], answers: [], attendance: [], completeEvidence: [reviewed.eventId], now,
+    });
+    const missed = participationOf({
+      events: [reviewed], answers: [yes(reviewed.eventId)], attendance: [], completeEvidence: [reviewed.eventId], now,
+    });
+    expect(silent).toMatchObject({ rate: 0, unregistered: 1, sample: 1 });
+    expect(missed).toMatchObject({ rate: 0, noShows: 1, sample: 1 });
+  });
+
   it("leaves excused absences out of the sum", () => {
     const result = participationOf({
       events: [event(1, 1), event(2, 5)],

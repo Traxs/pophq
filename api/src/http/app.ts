@@ -196,6 +196,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const byEvent = new Map<string, Set<string>>();
     const byPlayer = new Map<string, Set<string>>();
     const sessionByEventPlayer = new Map<string, string>();
+    const completeEvents = new Set<string>();
     await Promise.all(events.map(async (event) => {
       const [sessionResults, phaseResults] = await Promise.all([
         repo.listResults(event.eventId),
@@ -209,6 +210,17 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           .filter((row) => scoreConfirmsAttendance(row, result?.recordedBy ?? ""))
           .map((row) => row.playerId)),
       ]);
+      // Foundry and Canyon results are complete attendance sources: officers can see every
+      // participant in game. State-wide SVS/KOI leaderboards are only complete when every
+      // configured phase was explicitly imported with complete coverage.
+      if ((event.kind === "foundry" || event.kind === "canyon") && sessionResults.length > 0) {
+        completeEvents.add(event.eventId);
+      } else if (
+        phaseResults.length > 0
+        && phaseResults.every((result) => result?.coverage === "complete")
+      ) {
+        completeEvents.add(event.eventId);
+      }
       for (const result of sessionResults) {
         for (const row of result.playerPoints.filter((entry) => scoreConfirmsAttendance(entry, result.recordedBy))) {
           sessionByEventPlayer.set(`${event.eventId}#${row.playerId}`, result.sessionId);
@@ -221,7 +233,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         byPlayer.set(playerId, eventIds);
       }
     }));
-    return { byEvent, byPlayer, sessionByEventPlayer };
+    return { byEvent, byPlayer, sessionByEventPlayer, completeEvents };
   };
 
   /**
@@ -337,17 +349,13 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         ]);
         const strength = Math.max(0, ...reportGroups.map((reports) => currentOf(reports, "foundry_strength") ?? 0));
         const periods = await membershipPeriodsFor(personAccounts);
-        const knownSince = personAccounts
-          .map((item) => item.createdAt)
-          .filter((value): value is string => Boolean(value))
-          .toSorted()[0];
         const participation = participationOf({
           events,
           answers: personAnswers(rawAnswers),
           attendance: personAttendance(rawAttendance),
           scoreEvidence: [...new Set(personAccounts.flatMap((item) => [...(scores.byPlayer.get(item.playerId) ?? [])]))],
+          completeEvidence: [...scores.completeEvents],
           now: at,
-          ...(knownSince ? { knownSince } : {}),
           membershipPeriods: periods,
         });
         const kudos = kudosScore(
@@ -362,6 +370,9 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           strength,
           participationRate: participation.rate ?? 1,
           participationSample: participation.sample,
+          participationAttended: participation.attended,
+          participationNoShows: participation.noShows,
+          participationUnregistered: participation.unregistered,
           kudos,
         };
       }),
@@ -2124,6 +2135,9 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         score: candidate.score,
         participationRate: candidate.participationRate,
         participationSample: candidate.participationSample,
+        participationAttended: candidate.participationAttended,
+        participationNoShows: candidate.participationNoShows,
+        participationUnregistered: candidate.participationUnregistered,
         strength: candidate.strength,
         strongestStrength: strongest,
         strengthShare: strongest > 0 ? candidate.strength / strongest : 0,
@@ -2184,6 +2198,9 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       score: candidate.score,
       participationRate: candidate.participationRate,
       participationSample: candidate.participationSample,
+      participationAttended: candidate.participationAttended,
+      participationNoShows: candidate.participationNoShows,
+      participationUnregistered: candidate.participationUnregistered,
       strength: candidate.strength,
       strongestStrength: strongest,
       strengthShare: strongest > 0 ? candidate.strength / strongest : 0,

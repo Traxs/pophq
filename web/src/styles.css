@@ -2763,6 +2763,9 @@ td:nth-child(3) .inline-select {
 .reward-score-parts small { color: var(--muted); font-size: .7rem; line-height: 1.25; }
 .home-reward-legacy { padding: 2px 15px 13px; }
 .kudos-card { display: grid; gap: 14px; padding: 16px; }
+.eligibility-loading { min-height: 300px; align-content: start; }
+.eligibility-loading-place { min-height: 62px; border-radius: 11px; }
+.eligibility-loading-calculation { min-height: 150px; border-radius: 11px; }
 .eligibility-head { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
 .eligibility-head > span:first-child { display: grid; gap: 3px; }
 .eligibility-status {

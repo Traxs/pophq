@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { seedDemo } from "../../src/dev/demo.js";
+import { addDemoEvents, seedDemo } from "../../src/dev/demo.js";
 import { createHarness, type Harness } from "./harness.js";
 
 const R4 = { as: "officer", groups: ["officer"] };
@@ -14,7 +14,9 @@ describe("Fortress reward buffs", () => {
 
   beforeAll(async () => {
     h = await createHarness();
-    await seedDemo(h.repo, new Date());
+    const seededAt = new Date();
+    await seedDemo(h.repo, seededAt);
+    await addDemoEvents(h.repo, seededAt, { id: "test", via: "seed" });
     await h.repo.linkAccount("r3-officer", "100000003", { id: "test", via: "seed" });
   });
   afterAll(() => h.cleanup());
@@ -42,6 +44,18 @@ describe("Fortress reward buffs", () => {
     });
     // Poppy and Goatzilla share one person identity, so they cannot occupy two reward slots.
     expect(items.filter((item) => item.playerId === "100000001" || item.playerId === "100000002")).toHaveLength(1);
+    // Account rows were created after this historical Foundry. That database timestamp is not
+    // a join date: a complete result still counts the attendees and the unlisted active roster.
+    expect(items.find((item) => item.playerId === "100000001")).toMatchObject({
+      participationRate: 1,
+      participationSample: 1,
+      participationAttended: 1,
+    });
+    expect(items.find((item) => item.playerId === "100000003")).toMatchObject({
+      participationRate: 0,
+      participationSample: 1,
+      participationUnregistered: 1,
+    });
     expect((await h.call("GET", "/reward-eligibility", MEMBER)).status).toBe(403);
   });
 

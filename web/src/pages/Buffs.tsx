@@ -161,7 +161,7 @@ function OfficerEligibilityRanking({ ranking }: { ranking: RewardEligibilityRank
         <span className="member"><span className="avatar" aria-hidden="true">{initials(item.name)}</span><span className="member-text"><button type="button" className="member-link" onClick={() => navigate(`/members/${item.playerId}`)}>{item.name}</button><small className="muted">{item.eligible ? "Eligible now" : "Waiting list"}</small></span></span>
         <strong className="eligibility-score">{Math.round(item.score * 100)} pts</strong>
         <span className="eligibility-factors">
-          <span><small>Attendance</small><b>{Math.round(item.participationRate * 100)}%</b><small>{item.participationSample === 0 ? "neutral" : "60% weight"}</small></span>
+          <span><small>Attendance</small><b>{Math.round(item.participationRate * 100)}%</b><small>{item.participationSample === 0 ? "no complete event data" : `${item.participationSample} counted · 60% weight`}</small></span>
           <span><small>Strength</small><b>{full(item.strength)}</b><small>{Math.round(item.strengthShare * 100)}% · 20% weight</small></span>
           <span><small>Kudos</small><b>{item.kudosScore > 0 ? "+" : ""}{Math.round(item.kudosScore * 10) / 10}</b><small>{Math.round(item.kudosShare * 100)}% · 20% weight</small></span>
         </span>

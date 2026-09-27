@@ -76,7 +76,8 @@ export function MemberKudosCard({ summary, eligibility }: { summary: KudosSummar
           {eligibility.participationSample === 0
             ? <p>No attendance outcome has been recorded yet. Missing data uses a neutral <b>{percent(eligibility.participationRate)}</b> input, worth <strong>{participationPoints} points</strong>, so it cannot unfairly lower your place.</p>
             : <p><b>{percent(eligibility.participationRate)}</b> participation × <b>{eligibility.weights.participation * 100}</b> available points = <strong>{participationPoints} points</strong>.</p>}
-          <p className="muted small">This uses recent alliance events. Attendance earns full credit, a signed-up no-show counts twice against the rate, and not registering counts half. Excused or unchecked events do not count.</p>
+          {eligibility.participationSample !== 0 && <p className="muted small">Based on {eligibility.participationSample} counted event{eligibility.participationSample === 1 ? "" : "s"}: {eligibility.participationAttended ?? 0} attended, {eligibility.participationNoShows ?? 0} signed-up no-show{eligibility.participationNoShows === 1 ? "" : "s"}, and {eligibility.participationUnregistered ?? 0} not registered.</p>}
+          <p className="muted small">This uses up to the latest 10 alliance events from the past 180 days. Attendance earns full credit, a signed-up no-show counts twice against the rate, and not registering counts half. Excused, unchecked, or incomplete leaderboard events do not count.</p>
         </div>
       </details>
       <details className="eligibility-part">
