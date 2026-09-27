@@ -28,6 +28,7 @@ import { useSession } from "../session";
 import { assignmentsToPublish, StrategyText, strategyDraftFor, type StrategyDraftAssignment } from "../strategy";
 import { completedAttendanceLabel, completedEventRows, type CompletedAttendance } from "../eventReport";
 import { eventTimeline, type EventTimelinePoint } from "../eventTimeline";
+import { visibleEventSessions } from "../eventSessions";
 
 const ALL_EVENT_HISTORY = "1970-01-01T00:00:00.000Z";
 
@@ -128,6 +129,8 @@ export function EventPage({ eventId }: { eventId: string }) {
   if (error && !event) return <ErrorBanner message={error} onRetry={() => navigate("/events")} />;
   if (!event) return <div className="card skeleton" style={{ height: 200 }} />;
   const completed = Date.parse(event.startsAt) <= Date.now();
+  const visibleSessions = visibleEventSessions(event, completed);
+  const sessionsHaveResults = !event.scoreboards;
 
   return (
     <>
@@ -162,13 +165,14 @@ export function EventPage({ eventId }: { eventId: string }) {
         />
       )}
 
-      {event.sessions.length > 0 ? (
+      {visibleSessions.length > 0 ? (
         <ul className="stack">
-          {event.sessions.map((session) => (
+          {visibleSessions.map((session) => (
             <li key={session.id}>
               <SessionCard
                 session={session}
                 completed={completed}
+                expectsResult={sessionsHaveResults}
                 closed={event.closed && !isOfficer}
                 busy={busy}
                 canAnswer={!completed && account !== undefined}
@@ -176,7 +180,11 @@ export function EventPage({ eventId }: { eventId: string }) {
                 myPlayerId={account?.playerId}
                 strategyTemplate={event.strategyTemplate ?? ""}
                 onJoin={() => void choose("yes", session.id)}
-                {...(isOfficer ? { onPublish: publish, onPublishStrategy: publishStrategy, onRecordResult: recordResult } : {})}
+                {...(isOfficer ? {
+                  onPublish: publish,
+                  onPublishStrategy: publishStrategy,
+                  ...(sessionsHaveResults ? { onRecordResult: recordResult } : {}),
+                } : {})}
               />
             </li>
           ))}
@@ -217,6 +225,10 @@ export function EventPage({ eventId }: { eventId: string }) {
           onChanged={dataChanged}
           onError={setError}
         />
+      )}
+
+      {completed && isOfficer && event.members && (
+        <CompletedSignupHistory event={event} members={event.members} />
       )}
     </>
   );
@@ -496,6 +508,7 @@ function parseOfficialScorePaste(raw: string): { playerId: string; points: numbe
 function SessionCard({
   session,
   completed,
+  expectsResult,
   closed,
   busy,
   canAnswer,
@@ -509,6 +522,7 @@ function SessionCard({
 }: {
   session: SessionView;
   completed: boolean;
+  expectsResult: boolean;
   closed: boolean;
   busy: string | null;
   canAnswer: boolean;
@@ -618,7 +632,7 @@ function SessionCard({
       ))}
 
       {completed && session.result && <ResultView result={session.result} hidePlayerPoints={isOfficer} />}
-      {completed && !session.result && <p className="event-result-missing">No result has been recorded for this part.</p>}
+      {completed && expectsResult && !session.result && <p className="event-result-missing">No result has been recorded for this part.</p>}
 
       {completed ? (
         (session.lineup || session.strategy) && (
@@ -1228,8 +1242,6 @@ function CompletedEventReport({ event, members }: { event: EventDetail; members:
           <thead>
             <tr>
               <th scope="col">Member</th>
-              <th scope="col">Signup</th>
-              <th scope="col">Lineup</th>
               <th scope="col">Attendance</th>
               {hasPhaseScores ? <><th scope="col" className="num">Preparation</th><th scope="col" className="num">Battle</th></> : <th scope="col" className="num">Player score</th>}
             </tr>
@@ -1238,8 +1250,6 @@ function CompletedEventReport({ event, members }: { event: EventDetail; members:
             {visible.map((row) => (
               <tr key={row.member.playerId}>
                 <td><strong>{row.member.name}</strong>{row.member.rank && <span className="muted small"> · {row.member.rank}</span>}<small>{row.member.playerId}</small></td>
-                <td>{row.answerLabel}</td>
-                <td>{row.lineupLabel ?? "–"}</td>
                 <td>
                   <div className="completed-attendance-cell">
                     <span className={`pill ${statusClass(row.attendance)}`}>{completedAttendanceLabel(row.attendance)}</span>
@@ -1270,6 +1280,47 @@ function CompletedEventReport({ event, members }: { event: EventDetail; members:
         </table>
         {visible.length === 0 && <p className="muted center table-empty">No members match this view.</p>}
       </div>
+    </section>
+  );
+}
+
+/** Signup choices helped with planning, but after the event the evidence and scores matter more. */
+function CompletedSignupHistory({ event, members }: { event: EventDetail; members: EventMember[] }) {
+  const rows = completedEventRows({ ...event, members }).filter((row) =>
+    row.member.answer !== null || row.member.lineup !== null,
+  );
+  if (rows.length === 0) return null;
+
+  return (
+    <section className="card completed-signup-history" aria-labelledby="completed-signup-title">
+      <details>
+        <summary id="completed-signup-title">
+          Signup &amp; lineup history <span className="pill pill-flat">{rows.length}</span>
+        </summary>
+        <p className="muted small">
+          Planning record only. Recorded scores and officer attendance decisions determine who attended.
+        </p>
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th scope="col">Member</th>
+                <th scope="col">Signup</th>
+                <th scope="col">Published lineup</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.member.playerId}>
+                  <td><strong>{row.member.name}</strong><small>{row.member.playerId}</small></td>
+                  <td>{row.answerLabel}</td>
+                  <td>{row.lineupLabel ?? "–"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
     </section>
   );
 }

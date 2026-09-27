@@ -3169,6 +3169,28 @@ button.event-timeline-card:hover { border-color: color-mix(in srgb, var(--accent
   margin-top: 6px;
 }
 
+.completed-signup-history {
+  margin-top: 18px;
+}
+
+.completed-signup-history summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.completed-signup-history details > p {
+  margin: 12px 0;
+}
+
+.completed-signup-history td:first-child strong,
+.completed-signup-history td:first-child small {
+  display: block;
+}
+
 @media (max-width: 760px) {
   .completed-report-filters {
     grid-template-columns: repeat(6, 125px);
