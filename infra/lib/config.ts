@@ -17,7 +17,10 @@ export const REPO = { name: "Traxs/pophq", branch: "main" } as const;
  * The zone id is written out rather than looked up: a `fromLookup` needs credentials and a
  * context cache at synth time, which a pipeline build does not reliably have.
  */
-export const SITE: { domainName: string; hostedZoneId: string } | undefined = undefined;
+export const SITE: { domainName: string; hostedZoneId: string } | undefined = {
+  domainName: "pophq.fyi",
+  hostedZoneId: "Z024603319A9CK1ZSXZM4",
+};
 
 /**
  * CloudFront only accepts certificates from us-east-1, wherever the rest of the stack lives.
