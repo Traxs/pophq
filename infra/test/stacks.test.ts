@@ -198,6 +198,8 @@ describe("AppStack", () => {
             Action: [
               "cognito-idp:AdminCreateUser",
               "cognito-idp:AdminDeleteUser",
+              "cognito-idp:AdminDisableUser",
+              "cognito-idp:AdminEnableUser",
               "cognito-idp:AdminListGroupsForUser",
               "cognito-idp:AdminSetUserPassword",
               "cognito-idp:AdminUserGlobalSignOut",

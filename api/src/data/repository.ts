@@ -1183,6 +1183,59 @@ export class Repository {
     return items.map(toIdentityAudit);
   }
 
+  /** Moves every game account belonging to one person in or out of the active alliance atomically. */
+  async setPersonMembership(
+    anchorPlayerId: string,
+    playerIds: readonly string[],
+    active: boolean,
+    justification: string,
+    actor: Actor,
+    performedByName?: string,
+  ): Promise<IdentityAuditRecord> {
+    const uniqueIds = [...new Set(playerIds)];
+    if (uniqueIds.length === 0 || uniqueIds.length > 50) throw new ConflictError("Invalid number of linked accounts.");
+    const accounts = await Promise.all(uniqueIds.map((id) => this.getAccount(id)));
+    if (accounts.some((account) => !account)) throw new NotFoundError("One of the linked game accounts no longer exists.");
+    const now = this.clock();
+    const meta = newItemMeta(actor, now);
+    const status = active ? "active" : "transferred_out";
+    const audit: IdentityAuditRecord = {
+      auditId: meta.changeId,
+      action: active ? "membership_restored" : "membership_left",
+      subjectPlayerId: anchorPlayerId,
+      affectedPlayerIds: uniqueIds,
+      justification,
+      performedAt: now.toISOString(),
+      performedBy: actor.id,
+      ...(performedByName ? { performedByName } : {}),
+    };
+    try {
+      await this.db.send(new TransactWriteCommand({ TransactItems: [
+        ...accounts.map((account) => ({ Put: {
+          TableName: this.table,
+          Item: {
+            ...accountKey(account!.playerId),
+            ...allianceIndexKey(account!.alliance, searchKey(account!.name), account!.playerId),
+            type: "account",
+            ...account,
+            status,
+            ...meta,
+          },
+          ConditionExpression: "attribute_exists(PK) AND #status = :expected",
+          ExpressionAttributeNames: { "#status": "status" },
+          ExpressionAttributeValues: { ":expected": account!.status },
+        } })),
+        { Put: { TableName: this.table, Item: { ...identityAuditKey(anchorPlayerId, audit.auditId), type: "identity-audit", ...audit, ...meta } } },
+      ] }));
+    } catch (err) {
+      if (cancellationCodes(err)?.some((code) => code === "ConditionalCheckFailed")) {
+        throw new ConflictError("Membership changed while you were saving. Refresh and try again.");
+      }
+      throw err;
+    }
+    return audit;
+  }
+
   async addAlias(playerId: string, name: string, justification: string, actor: Actor, performedByName?: string): Promise<IdentityAuditRecord> {
     const account = await this.getAccount(playerId);
     if (!account) throw new NotFoundError(`Game account ${playerId} not found.`);
@@ -2289,6 +2342,7 @@ function toIdentityAudit(item: Record<string, unknown>): IdentityAuditRecord {
     subjectPlayerId: String(item.subjectPlayerId),
     ...(typeof item.relatedPlayerId === "string" ? { relatedPlayerId: item.relatedPlayerId } : {}),
     ...(typeof item.alias === "string" ? { alias: item.alias } : {}),
+    ...(Array.isArray(item.affectedPlayerIds) ? { affectedPlayerIds: item.affectedPlayerIds.filter((id): id is string => typeof id === "string") } : {}),
     justification: String(item.justification),
     performedAt: String(item.performedAt),
     performedBy: String(item.performedBy),

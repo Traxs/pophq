@@ -4,6 +4,8 @@ import { randomBytes } from "node:crypto";
 import {
   AdminCreateUserCommand,
   AdminDeleteUserCommand,
+  AdminDisableUserCommand,
+  AdminEnableUserCommand,
   AdminSetUserPasswordCommand,
   AdminUserGlobalSignOutCommand,
   ListUsersCommand,
@@ -84,6 +86,15 @@ export function cognitoLogins(client: CognitoIdentityProviderClient, userPoolId:
       // Password recovery must also cut off a stolen refresh/access-token session.
       await client.send(new AdminUserGlobalSignOutCommand({ UserPoolId: userPoolId, Username: sub }));
       return { password };
+    },
+
+    async disableLogin(sub) {
+      await client.send(new AdminDisableUserCommand({ UserPoolId: userPoolId, Username: sub }));
+      await client.send(new AdminUserGlobalSignOutCommand({ UserPoolId: userPoolId, Username: sub }));
+    },
+
+    async enableLogin(sub) {
+      await client.send(new AdminEnableUserCommand({ UserPoolId: userPoolId, Username: sub }));
     },
 
     async deleteLogin(sub) {

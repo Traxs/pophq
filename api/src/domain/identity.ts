@@ -42,7 +42,7 @@ export interface AccountAlias {
   addedBy: string;
 }
 
-export type IdentityAuditAction = "link_secondary" | "unlink_secondary" | "set_main" | "alias_add";
+export type IdentityAuditAction = "link_secondary" | "unlink_secondary" | "set_main" | "alias_add" | "membership_left" | "membership_restored";
 
 export interface IdentityAuditRecord {
   auditId: string;
@@ -50,6 +50,7 @@ export interface IdentityAuditRecord {
   subjectPlayerId: string;
   relatedPlayerId?: string;
   alias?: string;
+  affectedPlayerIds?: string[];
   justification: string;
   performedAt: string;
   performedBy: string;

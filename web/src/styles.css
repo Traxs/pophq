@@ -1226,9 +1226,11 @@ button.card {
   justify-content: flex-start;
 }
 
-.member-invite-btn {
+.member-invite-btn,
+.member-profile-actions {
   margin-left: auto;
 }
+.member-profile-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 
 .avatar-large {
   width: 56px;
@@ -3017,6 +3019,9 @@ td:nth-child(3) .inline-select {
   font-weight: 850;
 }
 .identity-reason textarea { min-height: 92px; }
+.identity-membership-impact { display: grid; gap: 8px; padding: 13px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+.identity-membership-impact ul { display: grid; gap: 5px; margin: 0; padding-left: 20px; }
+.identity-membership-impact p { margin: 0; }
 .identity-form .field-help { color: var(--muted); font-size: 0.8rem; line-height: 1.4; }
 .identity-form-actions {
   display: flex;

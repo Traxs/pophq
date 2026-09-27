@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import type { AccessAuditRecord, AccountIdentity, Reports, RosterRow } from "../api";
 import { AccountIdentityPanel } from "../components/AccountIdentity";
 import { ErrorBanner } from "../components/Chrome";
@@ -43,6 +43,7 @@ export function MemberPage({ playerId }: { playerId: string }) {
   const [attempt, setAttempt] = useState(0);
   const [inviting, setInviting] = useState(false);
   const [resettingPassword, setResettingPassword] = useState(false);
+  const [changingMembership, setChangingMembership] = useState(false);
 
   useEffect(() => {
     if (!isOfficer) return;
@@ -89,11 +90,16 @@ export function MemberPage({ playerId }: { playerId: string }) {
           <h1 className="page-title">{row.name}</h1>
           <p className="muted">{row.playerId} · {row.rank ?? "No rank"} · {STATUS_LABELS[row.status] ?? row.status}</p>
         </div>
-        {!row.hasLogin && (
-          <button type="button" className="btn btn-primary btn-small member-invite-btn" onClick={() => setInviting(true)}>
-            Invite
-          </button>
-        )}
+        <div className="member-profile-actions">
+          {!row.hasLogin && row.status !== "transferred_out" && (
+            <button type="button" className="btn btn-primary btn-small" onClick={() => setInviting(true)}>Invite</button>
+          )}
+          {canManageIdentity && <button
+            type="button"
+            className={`btn btn-small ${row.status === "transferred_out" ? "btn-primary" : "btn-danger"}`}
+            onClick={() => setChangingMembership(true)}
+          >{row.status === "transferred_out" ? "Welcome back" : "Mark as left"}</button>}
+        </div>
       </header>
 
       <Sheet open={inviting} title={`Invite ${row.name}`} onClose={() => setInviting(false)}>
@@ -111,6 +117,21 @@ export function MemberPage({ playerId }: { playerId: string }) {
           memberName={row.name}
           onCompleted={(audit) => setAccessAudit((items) => [audit, ...items.filter((item) => item.auditId !== audit.auditId)])}
           onClose={() => setResettingPassword(false)}
+        />
+      </Sheet>
+
+      <Sheet
+        open={changingMembership}
+        title={row.status === "transferred_out" ? `Welcome ${row.name} back` : `Mark ${row.name} as having left`}
+        onClose={() => setChangingMembership(false)}
+      >
+        <MembershipForm
+          playerId={row.playerId}
+          memberName={row.name}
+          active={row.status === "transferred_out"}
+          accounts={identity?.accounts ?? [row]}
+          onCompleted={(updated) => { setIdentity(updated); setChangingMembership(false); dataChanged(); }}
+          onClose={() => setChangingMembership(false)}
         />
       </Sheet>
 
@@ -213,4 +234,59 @@ export function MemberPage({ playerId }: { playerId: string }) {
       </div>
     </>
   );
+}
+
+function MembershipForm({
+  playerId,
+  memberName,
+  active,
+  accounts,
+  onCompleted,
+  onClose,
+}: {
+  playerId: string;
+  memberName: string;
+  active: boolean;
+  accounts: { playerId: string; name: string }[];
+  onCompleted: (identity: AccountIdentity) => void;
+  onClose: () => void;
+}) {
+  const { api } = useSession();
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      onCompleted(await api.setPersonMembership(playerId, active, reason));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not change alliance membership.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return <form className="form identity-form" onSubmit={submit}>
+    {error && <ErrorBanner message={error} />}
+    <p className="muted identity-form-intro">
+      {active
+        ? `Restore ${memberName}'s POP membership and sign-in access.`
+        : `Keep all history, but remove this person from the active roster, events, attendance and reward calculations.`}
+    </p>
+    <section className="identity-membership-impact" aria-label="Affected game accounts">
+      <strong>{accounts.length} game {accounts.length === 1 ? "account" : "accounts"} affected</strong>
+      <ul>{accounts.map((account) => <li key={account.playerId}>{account.name} <span className="muted">· {account.playerId}</span></li>)}</ul>
+      {!active && <p className="muted small">Their shared POP HQ login will be disabled. It can be restored later with Welcome back.</p>}
+    </section>
+    <div className="field identity-reason">
+      <label htmlFor="membership-reason">Reason for this change</label>
+      <textarea id="membership-reason" value={reason} onChange={(event) => setReason(event.target.value)} minLength={5} maxLength={200} rows={3} required placeholder={active ? "How was their return confirmed?" : "Why are they leaving the alliance?"} />
+      <span className="field-help">Saved permanently in the officer audit history.</span>
+    </div>
+    <div className="form-actions identity-form-actions">
+      <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+      <button type="submit" className={`btn ${active ? "btn-primary" : "btn-danger"}`} disabled={saving || reason.trim().length < 5}>{saving ? "Saving…" : active ? "Restore membership" : "Mark as left"}</button>
+    </div>
+  </form>;
 }

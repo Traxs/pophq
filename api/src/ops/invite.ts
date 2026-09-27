@@ -16,6 +16,9 @@ export interface LoginDirectory {
   createPasswordLogin(): Promise<{ sub: string; username: string; password: string }>;
   /** Replaces a password login's password with a new one-time password. */
   resetPassword(sub: string): Promise<{ password: string }>;
+  /** Suspends/restores an existing person's sign-in without deleting their identity. */
+  disableLogin(sub: string): Promise<void>;
+  enableLogin(sub: string): Promise<void>;
   /** Removes a login again; used only to undo a creation that could not be completed. */
   deleteLogin(sub: string): Promise<void>;
 }

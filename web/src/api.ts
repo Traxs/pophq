@@ -70,10 +70,11 @@ export interface AccountAlias {
 
 export interface IdentityAuditRecord {
   auditId: string;
-  action: "link_secondary" | "unlink_secondary" | "set_main" | "alias_add";
+  action: "link_secondary" | "unlink_secondary" | "set_main" | "alias_add" | "membership_left" | "membership_restored";
   subjectPlayerId: string;
   relatedPlayerId?: string;
   alias?: string;
+  affectedPlayerIds?: string[];
   justification: string;
   performedAt: string;
   performedBy: string;
@@ -755,6 +756,8 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
     updateAccount: (playerId: string, changes: AccountChanges) =>
       request<GameAccount>("PATCH", `/accounts/${playerId}`, changes),
     accountIdentity: (playerId: string) => request<AccountIdentity>("GET", `/accounts/${playerId}/identity`),
+    setPersonMembership: (playerId: string, active: boolean, justification: string) =>
+      request<AccountIdentity>("PUT", `/accounts/${playerId}/membership`, { active, justification }),
     linkSecondaryAccount: (playerId: string, secondaryPlayerId: string, justification: string) =>
       request<AccountIdentity>("POST", `/accounts/${playerId}/identity/accounts`, { secondaryPlayerId, justification }),
     setPrimaryAccount: (playerId: string, newPrimaryPlayerId: string, justification: string) =>

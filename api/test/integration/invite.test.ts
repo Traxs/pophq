@@ -32,6 +32,8 @@ function fakeLogins(): LoginDirectory & { subs: Map<string, string>; created: st
       if (![...subs.values()].includes(sub)) throw new Error("Login not found");
       return { password: "Reset-password-456" };
     },
+    disableLogin: async () => undefined,
+    enableLogin: async () => undefined,
     deleteLogin: async (sub) => {
       for (const [email, s] of subs) if (s === sub) subs.delete(email);
     },

@@ -1116,6 +1116,12 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       linked = new Set(await repo.linkedAccounts(token.sub));
       principal = { sub: token.sub, groups: await groupsFor(token.groups, linked), linkedAccounts: linked };
     }
+    if (linked.size > 0) {
+      const accounts = await Promise.all([...linked].map((id) => repo.getAccount(id)));
+      if (!accounts.some((account) => account && ["active", "guest", "unknown"].includes(account.status))) {
+        throw new ForbiddenError("Your POP HQ access is disabled because you are no longer an active alliance member.");
+      }
+    }
     const acting = resolveActingAccount(c.req.header("x-account-id"), linked);
     if (acting) principal.actingAs = acting;
     c.set("principal", principal);
@@ -1182,6 +1188,9 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const account = await repo.getAccount(pid);
     if (!account) throw new NotFoundError("Game account not found.");
     const updated = parseAccountChanges(account, await readJson(c.req.raw));
+    if (updated.status !== account.status && (updated.status === "transferred_out" || account.status === "transferred_out")) {
+      throw new ValidationError("Use the member profile to mark the whole person as left or welcome them back.");
+    }
     await repo.updateAccount(updated, { id: p.sub, via: "web", reason: "roster edit" });
     return c.json(updated);
   });
@@ -1222,6 +1231,49 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
   app.get("/accounts/:pid/identity", async (c) => {
     await requireR4(c.get("principal"));
     return c.json(await identityView(parsePlayerId(c.req.param("pid"))));
+  });
+
+  /** Reversibly remove or restore a person, including every linked secondary account and login. */
+  app.put("/accounts/:pid/membership", async (c) => {
+    const p = c.get("principal");
+    const officer = await requireR4(p);
+    const anchorPlayerId = parsePlayerId(c.req.param("pid"));
+    const body = (await readJson(c.req.raw)) as { active?: unknown; justification?: unknown };
+    if (typeof body.active !== "boolean") throw new ValidationError("Choose whether this person is an active member.");
+    const justification = parseIdentityJustification(body.justification);
+    const [group, sub] = await Promise.all([repo.identityGroup(anchorPlayerId), repo.linkedLogin(anchorPlayerId)]);
+    const playerIds = group?.playerIds ?? (sub ? await repo.linkedAccounts(sub) : [anchorPlayerId]);
+    const accounts = await Promise.all(playerIds.map((id) => repo.getAccount(id)));
+    if (accounts.some((account) => !account)) throw new NotFoundError("One of the linked game accounts no longer exists.");
+    const targetStatus = body.active ? "active" : "transferred_out";
+    if (accounts.every((account) => account?.status === targetStatus)) {
+      throw new ConflictError(body.active ? "This person is already an active member." : "This person has already left the alliance.");
+    }
+    if (sub && !logins) throw new ConflictError("Login management is not available.");
+
+    // Change Cognito first. Existing tokens still cannot write after the atomic status change;
+    // on a database conflict the compensating call restores the previous login state.
+    if (sub) {
+      if (body.active) await logins!.enableLogin(sub);
+      else await logins!.disableLogin(sub);
+    }
+    try {
+      await repo.setPersonMembership(
+        group?.primaryPlayerId ?? anchorPlayerId,
+        playerIds,
+        body.active,
+        justification,
+        { id: p.sub, via: "web", reason: body.active ? "member welcomed back" : "member left alliance" },
+        officer.name,
+      );
+    } catch (error) {
+      if (sub) {
+        if (body.active) await logins!.disableLogin(sub).catch(() => undefined);
+        else await logins!.enableLogin(sub).catch(() => undefined);
+      }
+      throw error;
+    }
+    return c.json(await identityView(anchorPlayerId));
   });
 
   app.post("/accounts/:pid/identity/accounts", async (c) => {

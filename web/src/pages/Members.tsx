@@ -225,7 +225,6 @@ const RANKS = ["R1", "R2", "R3", "R4", "R5"] as const;
 const MEMBERSHIP = [
   { value: "active", label: "Member" },
   { value: "unknown", label: "Unconfirmed" },
-  { value: "transferred_out", label: "Left" },
 ] as const;
 
 function StatusPicker({ row }: { row: RosterRow }) {
@@ -234,6 +233,8 @@ function StatusPicker({ row }: { row: RosterRow }) {
   const [saving, setSaving] = useState(false);
   // A guest's membership is bound up with their alliance, so it is shown but not changed here.
   if (row.status === "guest") return <span className="badge">Guest · {row.alliance}</span>;
+  // Departures affect every account and the shared login, so they are managed on the profile.
+  if (row.status === "transferred_out") return <span className="badge badge-none">Former member</span>;
 
   const change = async (status: string) => {
     setSaving(true);

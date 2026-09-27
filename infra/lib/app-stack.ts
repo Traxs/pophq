@@ -144,6 +144,8 @@ export class AppStack extends Stack {
           "cognito-idp:AdminCreateUser",
           "cognito-idp:AdminSetUserPassword",
           "cognito-idp:AdminUserGlobalSignOut",
+          "cognito-idp:AdminDisableUser",
+          "cognito-idp:AdminEnableUser",
           "cognito-idp:AdminDeleteUser",
           "cognito-idp:AdminListGroupsForUser",
         ],

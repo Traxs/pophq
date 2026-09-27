@@ -17,6 +17,8 @@ describe("guarded login-free account onboarding", () => {
     createLogin: async () => { loginCalls.email += 1; return "unexpected"; },
     createPasswordLogin: async () => { loginCalls.password += 1; return { sub: "unexpected", username: "unexpected", password: "unexpected" }; },
     resetPassword: async () => ({ password: "unexpected" }),
+    disableLogin: async () => undefined,
+    enableLogin: async () => undefined,
     deleteLogin: async () => { loginCalls.delete += 1; },
   };
   const actor = { id: "fixture", via: "seed" as const };

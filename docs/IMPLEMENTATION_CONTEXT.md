@@ -100,6 +100,7 @@ Not implemented yet: SvS buff scheduling, screenshot extraction, reminders/outbo
 - All gameplay records belong to the game account, so alts retain distinct reports, answers, attendance, and history.
 - Numeric Player ID is the external identity when known. Never use fuzzy name matching to invent an ID or merge accounts.
 - Account statuses are `active`, `transferred_out`, `archived`, `guest`, and `unknown`. Imported history stays `unknown` unless membership is explicitly evidenced.
+- R4/R5 users manage departures from the member profile. **Mark as left** atomically sets the person's main and every linked secondary account to `transferred_out`, excludes them from current events/metrics/rewards and suspends their retained Cognito login; **Welcome back** restores the whole group to `active` and re-enables that login. Both actions require a 5–200 character reason in the permanent identity audit. Reports, scores, attendance, aliases and account relationships are never deleted.
 - Membership is an account-level evidence stream, separate from signup, registration, selection, and attendance.
 
 ### Measurements

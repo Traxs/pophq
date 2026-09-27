@@ -1,6 +1,6 @@
 // Local stand-in for Cognito: remembers invited logins in DynamoDB Local so the invite flow
 // can be tried end to end without AWS. Never used on AWS.
-import { DeleteCommand, GetCommand, PutCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import { DeleteCommand, GetCommand, PutCommand, UpdateCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import type { LoginDirectory } from "../ops/invite.js";
 import { randomBytes } from "node:crypto";
 
@@ -29,6 +29,14 @@ export function devLogins(db: DynamoDBDocumentClient, table: string): LoginDirec
       const existing = await db.send(new GetCommand({ TableName: table, Key: key(username) }));
       if (!existing.Item || !username.endsWith("@members.pophq.invalid")) throw new Error("Password login not found");
       return { password: `${randomBytes(12).toString("base64url")}Aa1!` };
+    },
+    async disableLogin(sub) {
+      const email = sub.replace(/^local-/, "");
+      await db.send(new UpdateCommand({ TableName: table, Key: key(email), UpdateExpression: "SET disabled = :yes", ConditionExpression: "attribute_exists(PK)", ExpressionAttributeValues: { ":yes": true } }));
+    },
+    async enableLogin(sub) {
+      const email = sub.replace(/^local-/, "");
+      await db.send(new UpdateCommand({ TableName: table, Key: key(email), UpdateExpression: "REMOVE disabled", ConditionExpression: "attribute_exists(PK)" }));
     },
     async deleteLogin(sub) {
       const email = sub.replace(/^local-/, "");

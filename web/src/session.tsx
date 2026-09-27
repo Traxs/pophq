@@ -136,6 +136,7 @@ export function SessionProvider({
       resetPassword: guard(inner.resetPassword),
       updateAccount: guard(inner.updateAccount),
       accountIdentity: guard(inner.accountIdentity),
+      setPersonMembership: guard(inner.setPersonMembership),
       linkSecondaryAccount: guard(inner.linkSecondaryAccount),
       setPrimaryAccount: guard(inner.setPrimaryAccount),
       unlinkSecondaryAccount: guard(inner.unlinkSecondaryAccount),

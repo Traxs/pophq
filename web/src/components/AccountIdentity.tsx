@@ -16,6 +16,8 @@ const AUDIT_LABELS: Record<IdentityAuditRecord["action"], string> = {
   unlink_secondary: "Unlinked secondary account",
   set_main: "Changed main account",
   alias_add: "Added previous name",
+  membership_left: "Left the alliance",
+  membership_restored: "Returned to the alliance",
 };
 
 export function AccountIdentityPanel({

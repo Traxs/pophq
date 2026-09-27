@@ -61,7 +61,10 @@ describe("officers keep the roster right", () => {
       { playerId: "700000002", name: "Gone", alliance: "POP", status: "active" },
       { id: "t", via: "migration" },
     );
-    await h.call("PATCH", "/accounts/700000002", { ...OFFICER, body: { status: "transferred_out" } });
+    await h.call("PUT", "/accounts/700000002/membership", {
+      ...OFFICER,
+      body: { active: false, justification: "Confirmed departure from POP" },
+    });
     const report = await h.call("POST", "/accounts/700000002/reports", {
       ...OFFICER,
       body: { values: [{ metric: "city_power", value: 1_000_000 }] },
@@ -73,5 +76,6 @@ describe("officers keep the roster right", () => {
     expect((await h.call("PATCH", "/accounts/700000001", { ...PLAYER, body: { rank: "R5" } })).status).toBe(403);
     expect((await h.call("PATCH", "/accounts/999999999", { ...OFFICER, body: { rank: "R5" } })).status).toBe(404);
     expect((await h.call("PATCH", "/accounts/700000001", { ...OFFICER, body: {} })).status).toBe(400);
+    expect((await h.call("PATCH", "/accounts/700000001", { ...OFFICER, body: { status: "transferred_out" } })).status).toBe(400);
   });
 });

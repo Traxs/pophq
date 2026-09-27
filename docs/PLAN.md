@@ -70,7 +70,7 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 - [ ] P4.1b Access requests with profile screenshot, officer approval, bulk approve (ID-01, ID-02, FM-26, LCH-01) — for people who already have a login (alts, re-links); needs evidence uploads (P3.8)
 - [x] P4.2 Seat cap of 100 logins with a conditional counter (FM-08); shown on the Members page; `npm run admin -w api -- backfill-seats` counts logins created before seats existed
 - [ ] P4.3 Alt linking with verification and conflict handling (ID-12)
-- [ ] P4.4 Transfer out / welcome back; login disabled only when no active account remains; Cognito calls via outbox (ID-08, ID-09, FM-07)
+- [x] P4.4 Transfer out / welcome back from the member profile: one audited action atomically updates the main and every linked secondary account, suspends/restores the retained Cognito login, signs out existing sessions, and preserves all account history (ID-08, ID-09, FM-07)
 - [ ] P4.5 Archive after 12 months, owner erasure (ID-10, ID-11)
 - [x] P4.6a Roster edits: rank, membership, name, alliance and an officer's note, changed where officers already look (ROS-01..05). Ranks and membership are inline in the Members table, because almost every account arrived from an import without either
 - [ ] P4.6b Officer inbox with badges and Discord notes (OFC-01)
