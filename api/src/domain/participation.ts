@@ -56,6 +56,11 @@ export interface ParticipationEvent {
   title: string;
   startsAt: string;
   outcome: Outcome;
+  /** The linked game account whose answer, attendance or score proves this outcome. */
+  evidencePlayerId?: string;
+  evidenceAccountName?: string;
+  /** The event part that account joined, for example "Legion 1". */
+  evidenceSessionLabel?: string;
 }
 
 export interface Participation {

@@ -18,6 +18,7 @@ import {
   rankSignUps,
   standingFor,
   type AllianceEvent,
+  type EventAnswer,
   type EventKind,
 } from "../domain/events.js";
 import { parseEventType, STARTER_TYPES } from "../domain/eventTypes.js";
@@ -184,6 +185,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
   const resultEvidence = async (events: readonly AllianceEvent[]) => {
     const byEvent = new Map<string, Set<string>>();
     const byPlayer = new Map<string, Set<string>>();
+    const sessionByEventPlayer = new Map<string, string>();
     await Promise.all(events.map(async (event) => {
       const [sessionResults, phaseResults] = await Promise.all([
         repo.listResults(event.eventId),
@@ -197,6 +199,11 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           .filter((row) => scoreConfirmsAttendance(row, result?.recordedBy ?? ""))
           .map((row) => row.playerId)),
       ]);
+      for (const result of sessionResults) {
+        for (const row of result.playerPoints.filter((entry) => scoreConfirmsAttendance(entry, result.recordedBy))) {
+          sessionByEventPlayer.set(`${event.eventId}#${row.playerId}`, result.sessionId);
+        }
+      }
       byEvent.set(event.eventId, players);
       for (const playerId of players) {
         const eventIds = byPlayer.get(playerId) ?? new Set<string>();
@@ -204,7 +211,87 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         byPlayer.set(playerId, eventIds);
       }
     }));
-    return { byEvent, byPlayer };
+    return { byEvent, byPlayer, sessionByEventPlayer };
+  };
+
+  /**
+   * Explain which linked account supplied a person's event evidence. Participation remains one
+   * result per occurrence (including one shared Foundry result for L1/L2), while officers can
+   * still see the exact account and session behind it.
+   */
+  const explainPersonParticipation = (
+    participation: ReturnType<typeof participationOf>,
+    events: readonly AllianceEvent[],
+    accounts: readonly GameAccount[],
+    answers: readonly EventAnswer[],
+    attendance: Awaited<ReturnType<Repository["attendanceFor"]>>,
+    scores: Awaited<ReturnType<typeof resultEvidence>>,
+  ) => {
+    const accountById = new Map(accounts.map((account) => [account.playerId, account]));
+    const eventById = new Map(events.map((event) => [event.eventId, event]));
+    const occurrenceEvents = new Map<string, AllianceEvent[]>();
+    for (const event of events) {
+      const key = eventOccurrenceKey(event);
+      occurrenceEvents.set(key, [...(occurrenceEvents.get(key) ?? []), event]);
+    }
+    const sessionLabel = (event: AllianceEvent, sessionId?: string) =>
+      sessionId ? event.sessions.find((session) => session.id === sessionId)?.label : undefined;
+
+    return {
+      ...participation,
+      events: participation.events.map((item) => {
+        const representative = eventById.get(item.eventId);
+        if (!representative) return item;
+        const relatedIds = new Set((occurrenceEvents.get(eventOccurrenceKey(representative)) ?? [representative]).map((event) => event.eventId));
+        const present = attendance.find((record) => relatedIds.has(record.eventId) && record.status === "present");
+        const scored = [...relatedIds].flatMap((eventId) => accounts
+          .filter((account) => scores.byEvent.get(eventId)?.has(account.playerId))
+          .map((account) => ({
+            eventId,
+            playerId: account.playerId,
+            sessionId: scores.sessionByEventPlayer.get(`${eventId}#${account.playerId}`),
+          }))).at(0);
+        const selected = answers.find((answer) => relatedIds.has(answer.eventId) && answer.answer === "yes");
+        const answered = answers.find((answer) => relatedIds.has(answer.eventId));
+        const recorded = attendance.find((record) => relatedIds.has(record.eventId));
+        const evidence = present ?? scored ?? selected ?? answered ?? recorded;
+        if (!evidence) return item;
+        const playerId = evidence.playerId;
+        const evidenceEvent = eventById.get("eventId" in evidence ? evidence.eventId : item.eventId) ?? representative;
+        const explicitSessionId = "sessionId" in evidence ? evidence.sessionId : undefined;
+        const inferredSession = evidenceEvent.kind === "foundry"
+          ? evidenceEvent.title.match(/Legion\s+\d+/i)?.[0]
+          : undefined;
+        const evidenceAccountName = accountById.get(playerId)?.name;
+        const evidenceSessionLabel = sessionLabel(evidenceEvent, explicitSessionId) ?? inferredSession;
+        return {
+          ...item,
+          evidencePlayerId: playerId,
+          ...(evidenceAccountName ? { evidenceAccountName } : {}),
+          ...(evidenceSessionLabel ? { evidenceSessionLabel } : {}),
+        };
+      }),
+    };
+  };
+
+  const personAnswers = (answers: readonly EventAnswer[]) => {
+    const priority = { yes: 3, maybe: 2, no: 1 } as const;
+    const byEvent = new Map<string, EventAnswer>();
+    for (const answer of answers) {
+      const existing = byEvent.get(answer.eventId);
+      if (!existing || priority[answer.answer] > priority[existing.answer]) byEvent.set(answer.eventId, answer);
+    }
+    return [...byEvent.values()];
+  };
+
+  const personAttendance = (records: Awaited<ReturnType<Repository["attendanceFor"]>>) => {
+    const priority = { present: 4, absent: 3, excused: 2, unknown: 1 } as const;
+    const byEvent = new Map<string, (typeof records)[number]>();
+    for (const record of records) {
+      const existing = byEvent.get(record.eventId);
+      if (!existing || priority[record.status] > priority[existing.status]) byEvent.set(record.eventId, record);
+    }
+    return [...byEvent.values()];
   };
 
   const groupAttendanceOccurrences = <T extends { event: AllianceEvent }>(items: readonly T[]) => {
@@ -1335,6 +1422,35 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const participationFrom = new Date(at.getTime() - PARTICIPATION_DAYS * 24 * 60 * 60 * 1000).toISOString();
     const pastEvents = await repo.listEvents(alliance, participationFrom, 100);
     const scores = await resultEvidence(pastEvents);
+    const people = await attendancePeople(accounts);
+    const personParticipation = new Map<string, {
+      attendance: ReturnType<typeof participationOf>;
+      attendanceTrend: (number | null)[];
+    }>();
+    await Promise.all(people.map(async (personAccounts) => {
+      const [rawAnswers, rawAttendance] = await Promise.all([
+        Promise.all(personAccounts.map((account) => repo.answersForAccount(account.playerId, participationFrom))).then((items) => items.flat()),
+        Promise.all(personAccounts.map((account) => repo.attendanceFor(account.playerId))).then((items) => items.flat()),
+      ]);
+      const answers = personAnswers(rawAnswers);
+      const attendance = personAttendance(rawAttendance);
+      const scoreEvidence = new Set(personAccounts.flatMap((account) => [...(scores.byPlayer.get(account.playerId) ?? [])]));
+      const knownSince = personAccounts.map((account) => account.createdAt).filter((value): value is string => Boolean(value)).toSorted()[0];
+      const combined = participationOf({
+        events: pastEvents,
+        answers,
+        attendance,
+        scoreEvidence: [...scoreEvidence],
+        now: at,
+        ...(knownSince ? { knownSince } : {}),
+      });
+      const explained = explainPersonParticipation(combined, pastEvents, personAccounts, answers, attendance, scores);
+      const shared = {
+        attendance: explained,
+        attendanceTrend: trailingAverage(monthlyAttendance(attendance, at)),
+      };
+      for (const account of personAccounts) personParticipation.set(account.playerId, shared);
+    }));
     const items = await Promise.all(
       accounts.map(async (account) => {
         const [reports, linkedAccess, aliases] = await Promise.all([
@@ -1349,15 +1465,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           })
           .toSorted((a, b) => a.at.localeCompare(b.at));
         const cur = currentValues(reports);
-        const attendance = await repo.attendanceFor(account.playerId);
-        const participation = participationOf({
-          events: pastEvents,
-          answers: await repo.answersForAccount(account.playerId, participationFrom),
-          attendance,
-          scoreEvidence: [...(scores.byPlayer.get(account.playerId) ?? [])],
-          now: at,
-          ...(account.createdAt ? { knownSince: account.createdAt } : {}),
-        });
+        const participation = personParticipation.get(account.playerId)!;
         const foundrySeries = seriesOf(reports, "foundry_strength");
         return {
           ...account,
@@ -1371,11 +1479,11 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           ),
           strengthTrend: monthlyValues(foundrySeries, at),
           // Trailing three-month average, so one bad night does not look like a collapse.
-          attendanceTrend: trailingAverage(monthlyAttendance(attendance, at)),
+          attendanceTrend: participation.attendanceTrend,
           power: series.at(-1)?.power ?? null,
           previousPower: series.at(-2)?.power ?? null,
           foundryStrength: foundrySeries.at(-1)?.value ?? null,
-          attendance: participation,
+          attendance: participation.attendance,
           lastFoundryReportAt: foundrySeries.at(-1)?.at ?? null,
           lastReportAt: series.at(-1)?.at ?? null,
           furnace: cur.furnace_level?.value ?? null,

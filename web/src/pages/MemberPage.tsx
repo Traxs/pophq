@@ -194,7 +194,13 @@ export function MemberPage({ playerId }: { playerId: string }) {
             <ul className="detail-list">
               {participation.events.map((event) => (
                 <li key={event.eventId}>
-                  <span><strong>{event.title}</strong><span className="muted small">{shortDate(event.startsAt)}</span></span>
+                  <span>
+                    <strong>{event.title}</strong>
+                    <span className="muted small">{shortDate(event.startsAt)}</span>
+                    {event.evidenceAccountName && <span className="small participation-evidence">
+                      Via {event.evidenceAccountName}{event.evidenceSessionLabel ? ` · ${event.evidenceSessionLabel}` : ""}
+                    </span>}
+                  </span>
                   <span className={`badge ${event.outcome === "no_show" || event.outcome === "unregistered" ? "badge-none" : ""}`}>
                     {OUTCOME_LABELS[event.outcome] ?? event.outcome}
                   </span>

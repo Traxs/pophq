@@ -501,6 +501,9 @@ export interface ParticipationEvent {
   title: string;
   startsAt: string;
   outcome: Outcome;
+  evidencePlayerId?: string;
+  evidenceAccountName?: string;
+  evidenceSessionLabel?: string;
 }
 
 /**

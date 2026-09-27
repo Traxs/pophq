@@ -55,6 +55,45 @@ describe("roster and dev tools", () => {
     expect((me.body.accounts as { name: string }[]).map((a) => a.name).sort()).toEqual(["Goatzilla", "Poppy"]);
   });
 
+  it("shows linked accounts as one person's participation and explains the source account", async () => {
+    const startsAt = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    await h.repo.createEvent({
+      eventId: "LINKED-PERSON-FOUNDry",
+      alliance: "POP",
+      kind: "foundry",
+      title: "Foundry",
+      startsAt,
+      deadlineAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+      sessions: [{ id: "L1", label: "Legion 1", startsAt }],
+      createdBy: "officer",
+    }, { id: "officer", via: "web" });
+    expect((await h.call("PUT", "/events/LINKED-PERSON-FOUNDry/attendance/100000001", {
+      ...OFFICER,
+      body: { status: "present", sessionId: "L1" },
+    })).status).toBe(200);
+    // Conflicting alt evidence must not erase proof that the person participated.
+    expect((await h.call("PUT", "/events/LINKED-PERSON-FOUNDry/attendance/100000002", {
+      ...OFFICER,
+      body: { status: "absent", sessionId: "L1" },
+    })).status).toBe(200);
+
+    const roster = await h.call("GET", "/roster", OFFICER);
+    const rows = roster.body.items as {
+      playerId: string;
+      attendance: { rate?: number; sample: number; events: { eventId: string; outcome: string; evidencePlayerId?: string; evidenceAccountName?: string; evidenceSessionLabel?: string }[] };
+    }[];
+    const main = rows.find((row) => row.playerId === "100000001")!;
+    const secondary = rows.find((row) => row.playerId === "100000002")!;
+    expect(secondary.attendance.rate).toBe(main.attendance.rate);
+    expect(secondary.attendance.sample).toBe(main.attendance.sample);
+    expect(secondary.attendance.events.find((event) => event.eventId === "LINKED-PERSON-FOUNDry")).toMatchObject({
+      outcome: "attended",
+      evidencePlayerId: "100000001",
+      evidenceAccountName: "Poppy",
+      evidenceSessionLabel: "Legion 1",
+    });
+  });
+
   it("adds random members with history", async () => {
     const res = await h.call("POST", "/dev/members", { ...OFFICER, body: { count: 3 } });
     expect(res.status).toBe(200);

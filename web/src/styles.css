@@ -3491,3 +3491,8 @@ button.event-timeline-card:hover { border-color: color-mix(in srgb, var(--accent
     padding-inline: 12px;
   }
 }
+.participation-evidence {
+  color: var(--accent);
+  display: block;
+  margin-top: 0.2rem;
+}
