@@ -705,6 +705,141 @@ export class Repository {
     return { bodyHash: String(res.Item.bodyHash), response: res.Item.response };
   }
 
+  /**
+   * Atomically creates reviewed login-free account shells, their source-backed aliases/evidence,
+   * and the idempotency receipt. Existing exact-ID accounts are intentionally not rewritten.
+   */
+  async putAccountOnboardingIdempotent(
+    changes: {
+      accounts: GameAccount[];
+      expectedAccounts: GameAccount[];
+      aliases: { playerId: string; name: string; justification: string }[];
+      evidence: HistoricalRecord[];
+    },
+    actor: Actor,
+    tokenId: string,
+    key: string,
+    bodyHash: string,
+    response: unknown,
+  ): Promise<void> {
+    const now = this.clock();
+    const transactItems: NonNullable<ConstructorParameters<typeof TransactWriteCommand>[0]["TransactItems"]> = [];
+    for (const account of changes.expectedAccounts) {
+      const names: Record<string, string> = { "#name": "name", "#status": "status" };
+      const values: Record<string, unknown> = {
+        ":name": account.name,
+        ":alliance": account.alliance,
+        ":status": account.status,
+      };
+      const conditions = ["#name = :name", "alliance = :alliance", "#status = :status"];
+      for (const field of ["rank", "note", "createdAt"] as const) {
+        names[`#${field}`] = field;
+        if (account[field] === undefined) {
+          conditions.push(`attribute_not_exists(#${field})`);
+        } else {
+          values[`:${field}`] = account[field];
+          conditions.push(`#${field} = :${field}`);
+        }
+      }
+      transactItems.push({
+        ConditionCheck: {
+          TableName: this.table,
+          Key: accountKey(account.playerId),
+          ConditionExpression: conditions.join(" AND "),
+          ExpressionAttributeNames: names,
+          ExpressionAttributeValues: values,
+        },
+      });
+    }
+    for (const account of changes.accounts) {
+      transactItems.push({
+        Put: {
+          TableName: this.table,
+          Item: {
+            ...accountKey(account.playerId),
+            ...allianceIndexKey(account.alliance, searchKey(account.name), account.playerId),
+            type: "account",
+            ...account,
+            ...newItemMeta(actor, now),
+          },
+          ConditionExpression: "attribute_not_exists(PK)",
+        },
+      });
+    }
+    for (const alias of changes.aliases) {
+      const meta = newItemMeta(actor, now);
+      const audit: IdentityAuditRecord = {
+        auditId: meta.changeId,
+        action: "alias_add",
+        subjectPlayerId: alias.playerId,
+        alias: alias.name,
+        justification: alias.justification,
+        performedAt: now.toISOString(),
+        performedBy: actor.id,
+      };
+      transactItems.push(
+        {
+          Put: {
+            TableName: this.table,
+            Item: {
+              ...accountAliasKey(alias.playerId, searchKey(alias.name)),
+              type: "account-alias",
+              name: alias.name,
+              addedAt: now.toISOString(),
+              addedBy: actor.id,
+              ...meta,
+            },
+            ConditionExpression: "attribute_not_exists(PK)",
+          },
+        },
+        {
+          Put: {
+            TableName: this.table,
+            Item: { ...identityAuditKey(alias.playerId, audit.auditId), type: "identity-audit", ...audit, ...meta },
+            ConditionExpression: "attribute_not_exists(PK)",
+          },
+        },
+      );
+    }
+    for (const record of changes.evidence) {
+      transactItems.push({
+        Put: {
+          TableName: this.table,
+          Item: {
+            ...historicalRecordKey(record.category, record.recordId),
+            type: "historical-import",
+            ...record,
+            ...newItemMeta(actor, now),
+          },
+          ConditionExpression: "attribute_not_exists(PK)",
+        },
+      });
+    }
+    transactItems.push({
+      Put: {
+        TableName: this.table,
+        Item: {
+          ...idempotencyKey(tokenId, key),
+          type: "agent-idempotency",
+          bodyHash,
+          response,
+          createdAt: now.toISOString(),
+          expiresAtEpoch: Math.floor(now.getTime() / 1000) + 24 * 60 * 60,
+        },
+        ConditionExpression: "attribute_not_exists(PK)",
+      },
+    });
+    if (transactItems.length > 100) throw new ConflictError("This onboarding batch is too large for one atomic write.");
+    try {
+      await this.db.send(new TransactWriteCommand({ TransactItems: transactItems }));
+    } catch (err) {
+      if (err instanceof TransactionCanceledException) {
+        throw new ConflictError("Account reconciliation changed or this idempotency key was already used. Preview again before retrying.");
+      }
+      throw err;
+    }
+  }
+
   async createHistoricalRecord(record: HistoricalRecord, actor: Actor): Promise<void> {
     try {
       await this.db.send(new PutCommand({

@@ -46,13 +46,14 @@ The Members invite sheet supports the same email-code/password choices and roste
 
 ### Local Bot Token debugging
 
-Sign in locally as Aurora or Polaris, open Members, and issue a Bot Token. Enable only the write scopes being tested; historical imports are off by default. The local API resolves the token issuer against the same persona roles as the browser, so demotion/permission tests behave like production instead of failing for a missing Cognito directory.
+Sign in locally as Aurora or Polaris, open Members, and issue a Bot Token. Enable only the write scopes being tested; historical imports and login-free account onboarding are off by default. The local API resolves the token issuer against the same persona roles as the browser, so demotion/permission tests behave like production instead of failing for a missing Cognito directory.
 
 ```bash
 export POPHQ_URL=http://localhost:3000
 read -r -s POPHQ_BOT_TOKEN
 export POPHQ_BOT_TOKEN
 python3 agent/hermes-skill/state2612/scripts/s26.py doctor
+python3 agent/hermes-skill/state2612/scripts/s26.py reconcile-accounts agent/hermes-skill/state2612/references/POPHQ-seven-shell-accounts-fixture.json --batch-id local-seven-preview
 ```
 
 Do not put the token in shell history or `.env`. Local evidence uploads are stored privately under ignored `.local/evidence/`; set `EVIDENCE_DIR` to use another disposable directory. DynamoDB Local still stores the evidence metadata and all other imported records. Resetting the local database does not delete evidence files, so use fresh stable record IDs or move the disposable evidence directory when testing a new import.

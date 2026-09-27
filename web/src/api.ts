@@ -103,6 +103,15 @@ export interface Seats {
 export interface Roster {
   items: RosterRow[];
   seats: Seats;
+  unresolvedSources: UnresolvedAccountSource[];
+}
+
+export interface UnresolvedAccountSource {
+  recordId: string;
+  sourceId: string;
+  suppliedName: string;
+  eventId: string | null;
+  reviewStatus: string;
 }
 
 export interface InviteInput {
@@ -141,7 +150,7 @@ export interface PasswordResetResult {
   audit: AccessAuditRecord;
 }
 
-export type AgentScope = "all:read" | "results:read" | "results:write" | "events:write" | "history:write" | "rewards:write";
+export type AgentScope = "all:read" | "results:read" | "results:write" | "events:write" | "history:write" | "rewards:write" | "accounts:write";
 export interface AgentTokenInfo {
   tokenId: string;
   name: string;

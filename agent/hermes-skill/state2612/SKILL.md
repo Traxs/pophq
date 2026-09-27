@@ -1,6 +1,6 @@
 ---
 name: state2612
-description: Read POP HQ information available to the bot token's issuing user, and safely preview or apply event maintenance, results, Fortress rewards, historical backfills, and evidence. Use for POP HQ questions, screenshot reward registration, historical event setup, roster-history imports, corrections, and scoreboard data; undocumented writes remain forbidden.
+description: Read POP HQ information available to the bot token's issuing user, and safely preview or apply login-free account onboarding, event maintenance, results, Fortress rewards, historical backfills, and evidence. Use for POP HQ questions, exact-ID shell reconciliation, screenshot reward registration, historical event setup, roster-history imports, corrections, and scoreboard data; undocumented writes remain forbidden.
 ---
 
 # POP HQ bot access
@@ -10,7 +10,7 @@ Use `scripts/s26.py` for POP HQ API calls. It uses only Python's standard librar
 - `POPHQ_URL`: the POP HQ base URL, such as `https://example.cloudfront.net`.
 - `POPHQ_BOT_TOKEN`: the one-time `s26_...` credential issued by an officer.
 
-Never print, persist, or place the token in a command argument. Run `doctor` before work. Read [references/read-api.md](references/read-api.md) when retrieving general POP HQ data, [references/events-api.md](references/events-api.md) before creating or editing events, [references/results-api.md](references/results-api.md) before preparing a result or SvS/KOI phase scores, [references/rewards-api.md](references/rewards-api.md) before extracting or registering Fortress/Stronghold rewards, and [references/history-api.md](references/history-api.md) before importing historical records or evidence.
+Never print, persist, or place the token in a command argument. Run `doctor` before work. Read [references/read-api.md](references/read-api.md) when retrieving general POP HQ data, [references/accounts-api.md](references/accounts-api.md) before creating or reconciling login-free game-account shells, [references/events-api.md](references/events-api.md) before creating or editing events, [references/results-api.md](references/results-api.md) before preparing a result or SvS/KOI phase scores, [references/rewards-api.md](references/rewards-api.md) before extracting or registering Fortress/Stronghold rewards, and [references/history-api.md](references/history-api.md) before importing historical records or evidence.
 
 ## Reading POP HQ
 
@@ -42,6 +42,10 @@ python3 scripts/s26.py put-result EVENT_ID SESSION_ID result.json --apply --reas
 ```
 
 The API defaults guarded writes to dry-run even if the CLI is used incorrectly. `--apply` is intentionally separate from preview. Normal web write routes and every undocumented write family remain forbidden.
+
+## Login-free account onboarding
+
+With `accounts:write`, a bot issued by a current POP R4/R5 may reconcile exact numeric Player IDs, reuse existing game accounts, or create ordinary `unknown`-membership game-account shells. This never creates login access, invitations, email, passwords, or inferred main/alternate relationships. Preserve missing Player IDs as unresolved source records and stop on every identity conflict. Account onboarding and phase-score import are separate approvals: creating a shell never authorizes its held score. Follow [references/accounts-api.md](references/accounts-api.md) for the fixture format, exhaustive diff, preview hash, commands, and later exact-ID readback.
 
 SvS and King of Icefield player points belong to configured phases, not signup sessions. Use `preparation` or `castle_battle`; never invent a team outcome or opponent score for points-only evidence. Fetch `phase-score-context`, retain exact integer points and source names, and preview `put-phase-scores`. Partial upserts preserve omitted players. Apply only the exact officer-approved preview hash. A reported-player subtotal is not an official event total unless completeness was independently confirmed.
 

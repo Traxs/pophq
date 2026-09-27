@@ -180,7 +180,7 @@ npm run import:foundry -w api -- --bundle /path/to/foundry --apply --aws   # wri
 
 ## Bot result access
 
-Officers can issue a dedicated credential from **Members → Bot tokens**. The secret is shown once. A bot may read everything its issuing user can currently read; normal write routes remain forbidden. Optional scopes cover preview-first Foundry results, event maintenance, historical imports and Fortress reward registration. `rewards:write` is available only to a current POP R4/R5 and registers inventory without assigning recipients. Every request re-checks the issuing person's current Cognito groups and linked accounts, so demotion immediately reduces the bot's access and account removal disables it.
+Officers can issue a dedicated credential from **Members → Bot tokens**. The secret is shown once. A bot may read everything its issuing user can currently read; normal write routes remain forbidden. Optional scopes cover preview-first Foundry results, event maintenance, historical imports, Fortress reward registration, and exact-ID login-free account onboarding. `rewards:write` and `accounts:write` are available only to a current POP R4/R5. Account onboarding creates ordinary unknown-membership game records and evidence without invitations, credentials, or login links. Every request re-checks the issuing person's current Cognito groups and linked accounts, so demotion immediately reduces the bot's access and account removal disables it.
 
 The checked-in skill is [`agent/hermes-skill/state2612`](agent/hermes-skill/state2612/SKILL.md). Give that folder to the bot and set `POPHQ_URL` plus the issued `POPHQ_BOT_TOKEN` in its environment. From the repository root, the included standard-library client starts with:
 
@@ -191,6 +191,8 @@ python3 agent/hermes-skill/state2612/scripts/s26.py get /roster
 python3 agent/hermes-skill/state2612/scripts/s26.py list-events --kind foundry
 python3 agent/hermes-skill/state2612/scripts/s26.py result-context EVENT_ID SESSION_ID
 python3 agent/hermes-skill/state2612/scripts/s26.py put-result EVENT_ID SESSION_ID result.json
+python3 agent/hermes-skill/state2612/scripts/s26.py reconcile-accounts accounts.json --batch-id STABLE_BATCH_ID
+python3 agent/hermes-skill/state2612/scripts/s26.py account-reconciliation PLAYER_ID
 ```
 
 If your shell is in the directory above this repository (for example `~/workspace/WOS`), first run `cd pophq`, or prefix those paths with `pophq/`.

@@ -88,6 +88,15 @@ def main() -> None:
     phase_scores.add_argument("--reason")
     phase_scores.add_argument("--idempotency-key")
     phase_scores.add_argument("--expected-hash", help="expectedHash returned by the reviewed preview")
+    account = sub.add_parser("account-reconciliation", help="Read one exact Player ID and its onboarding evidence")
+    account.add_argument("player_id")
+    reconcile = sub.add_parser("reconcile-accounts", help="Preview or apply exact-ID login-free account onboarding")
+    reconcile.add_argument("json_file", help="JSON fixture file, or - for stdin")
+    reconcile.add_argument("--batch-id", required=True, help="Stable reconciliation batch identifier")
+    reconcile.add_argument("--apply", action="store_true")
+    reconcile.add_argument("--reason")
+    reconcile.add_argument("--idempotency-key")
+    reconcile.add_argument("--expected-hash", help="expectedHash returned by the reviewed preview")
     create_event = sub.add_parser("create-event")
     create_event.add_argument("json_file", help="JSON file, or - for stdin")
     create_event.add_argument("--apply", action="store_true")
@@ -156,6 +165,20 @@ def main() -> None:
         phase = urllib.parse.quote(args.phase_key, safe="")
         suffix = "?apply=true" if args.apply else ""
         result = request("PUT", f"/agent/events/{event}/phases/{phase}/scores{suffix}", payload, args.idempotency_key)
+    elif args.command == "account-reconciliation":
+        player_id = urllib.parse.quote(args.player_id, safe="")
+        result = request("GET", f"/agent/accounts/{player_id}/reconciliation")
+    elif args.command == "reconcile-accounts":
+        if args.apply and (not args.reason or not args.idempotency_key or not args.expected_hash):
+            raise SystemExit("--apply requires --reason, --idempotency-key and --expected-hash.")
+        payload = load_payload(args.json_file)
+        payload["batchId"] = args.batch_id
+        if args.apply:
+            payload["reason"] = args.reason
+            payload["expectedHash"] = args.expected_hash
+            payload["approved"] = True
+        suffix = "?apply=true" if args.apply else ""
+        result = request("POST", f"/agent/accounts/reconcile{suffix}", payload, args.idempotency_key)
     elif args.command == "create-event":
         if args.apply and (not args.reason or not args.idempotency_key):
             raise SystemExit("--apply requires --reason and --idempotency-key.")

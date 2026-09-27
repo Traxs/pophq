@@ -6,6 +6,7 @@ import {
   type RosterRow,
   type Seats,
   type StrengthMetric,
+  type UnresolvedAccountSource,
 } from "../api";
 import { ErrorBanner } from "../components/Chrome";
 import { InviteMemberForm } from "../components/InviteMember";
@@ -17,7 +18,7 @@ import { navigate } from "../router";
 import { useSession } from "../session";
 
 type SortKey = "name" | "rank" | "foundry";
-type Filter = "all" | "active" | "unknown" | "transferred_out" | "noFoundry";
+type Filter = "all" | "active" | "unknown" | "transferred_out" | "unlinked" | "noFoundry";
 
 const COMPARE: Record<SortKey, (a: RosterRow, b: RosterRow) => number> = {
   name: (a, b) => a.name.localeCompare(b.name),
@@ -29,6 +30,7 @@ export function Members() {
   const { api, isOfficer, dataVersion, dataChanged } = useSession();
   const [rows, setRows] = useState<RosterRow[] | null>(null);
   const [seats, setSeats] = useState<Seats | null>(null);
+  const [unresolvedSources, setUnresolvedSources] = useState<UnresolvedAccountSource[]>([]);
   const [inviting, setInviting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -43,6 +45,7 @@ export function Members() {
       .then((r) => {
         setRows(r.items);
         setSeats(r.seats);
+        setUnresolvedSources(r.unresolvedSources ?? []);
         setError(null);
       })
       .catch((e: Error) => setError(e.message));
@@ -55,6 +58,7 @@ export function Members() {
       .filter((r) => !q || r.name.toLowerCase().includes(q) || r.playerId.includes(q) || (r.aliases ?? []).some((alias) => alias.toLowerCase().includes(q)))
       .filter((r) => {
         if (filter === "noFoundry") return r.foundryStrength === null;
+        if (filter === "unlinked") return !r.hasLogin;
         if (filter !== "all") return r.status === filter;
         return true;
       })
@@ -75,8 +79,9 @@ export function Members() {
       ...result,
       [row.status]: (result[row.status] ?? 0) + 1,
       noFoundry: (result.noFoundry ?? 0) + (row.foundryStrength === null ? 1 : 0),
+      unlinked: (result.unlinked ?? 0) + (!row.hasLogin ? 1 : 0),
     }),
-    { active: 0, unknown: 0, transferred_out: 0, guest: 0, noFoundry: 0 } as Record<string, number>,
+    { active: 0, unknown: 0, transferred_out: 0, guest: 0, unlinked: 0, noFoundry: 0 } as Record<string, number>,
   );
 
   const header = (key: SortKey, label: string, className = "") => (
@@ -135,10 +140,31 @@ export function Members() {
               <option value="active">Confirmed members ({counts?.active ?? 0})</option>
               <option value="unknown">Unconfirmed ({counts?.unknown ?? 0})</option>
               <option value="transferred_out">Former members ({counts?.transferred_out ?? 0})</option>
+              <option value="unlinked">No login ({counts?.unlinked ?? 0})</option>
               <option value="noFoundry">Missing Foundry strength ({counts?.noFoundry ?? 0})</option>
             </select>
           </label>
         </div>
+
+        {unresolvedSources.length > 0 && (
+          <details className="card unresolved-account-sources">
+            <summary>
+              <span>Unresolved source records</span>
+              <span className="badge badge-warn">{unresolvedSources.length} need an exact Player ID</span>
+            </summary>
+            <p className="muted small">
+              These source rows are preserved, but are not accounts and have no login. Link them only after the exact Player ID is verified.
+            </p>
+            <ul className="unresolved-account-list">
+              {unresolvedSources.map((source) => (
+                <li key={source.recordId}>
+                  <strong>{source.suppliedName}</strong>
+                  <span className="muted small">Source: {source.sourceId}{source.eventId ? ` · Event ${source.eventId}` : ""}</span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
 
         {!rows && !error ? (
           <div className="card skeleton" style={{ height: 320 }} />
@@ -167,7 +193,7 @@ export function Members() {
                             <button type="button" className="member-link" onClick={() => navigate(`/members/${r.playerId}`)}>
                               {r.name}
                             </button>
-                            <span className="muted small">{r.playerId}</span>
+                            <span className="muted small roster-account-meta">{r.playerId}{!r.hasLogin && <span className="badge">No login</span>}</span>
                           </span>
                         </span>
                       </td>

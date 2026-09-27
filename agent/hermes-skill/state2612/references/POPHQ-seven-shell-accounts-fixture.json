@@ -1,0 +1,21 @@
+{
+  "purpose": "Account reconciliation preview only. Not score authorization.",
+  "eventId": "01M36PTMTPN3VRN4KX862NSGWC",
+  "phaseKey": "castle_battle",
+  "accountCount": 7,
+  "entries": [
+    { "playerId": "668923807", "name": "Koi", "sourceScoreName": "Koi", "pendingCastleBattlePoints": 61294142, "identityEvidence": "owner_supplied_id_and_name", "historicalSpreadsheetEvidence": null },
+    { "playerId": "400119800", "name": "LordGrim", "sourceScoreName": "LordGrim", "pendingCastleBattlePoints": 38267899, "identityEvidence": "owner_supplied_id_and_name", "historicalSpreadsheetEvidence": null },
+    { "playerId": "390464931", "name": "POPs Creature", "sourceScoreName": "POPs Creature", "pendingCastleBattlePoints": 27212207, "identityEvidence": "owner_supplied_id_and_name", "historicalSpreadsheetEvidence": { "row": 102, "name": "Shadow Creature", "status": "historical_source_claim" }, "sourceCorrections": [{ "observed": "POPs Creatire", "correctedTo": "POPs Creature", "status": "input_typo_not_alias" }] },
+    { "playerId": "401265045", "name": "cactusprick", "sourceScoreName": "cactusprick", "pendingCastleBattlePoints": 22422701, "identityEvidence": "owner_supplied_id_and_name", "historicalSpreadsheetEvidence": null },
+    { "playerId": "405715203", "name": "Nyasa", "sourceScoreName": "Nyasa", "pendingCastleBattlePoints": 18374984, "identityEvidence": "owner_supplied_id_and_name", "historicalSpreadsheetEvidence": { "row": 87, "name": "Nyasa", "status": "historical_source_claim" } },
+    { "playerId": "411751650", "name": "The Sting", "sourceScoreName": "The String", "pendingCastleBattlePoints": 12463103, "identityEvidence": "owner_supplied_id_and_name", "historicalSpreadsheetEvidence": { "row": 112, "name": "The Sting", "status": "historical_source_claim" }, "sourceCorrections": [{ "observed": "The String", "correctedTo": "The Sting", "status": "officer_corrected_transcription_not_alias" }] },
+    { "playerId": "524625066", "name": "Lady Whiplash", "sourceScoreName": "LadyWhiplash", "pendingCastleBattlePoints": 12138945, "identityEvidence": "owner_supplied_id_and_name", "historicalSpreadsheetEvidence": { "row": 64, "name": "Lady Whiplash", "status": "historical_source_claim" } }
+  ],
+  "pendingScoreSubtotal": 192173981,
+  "lastVerifiedExistingScoreCount": 32,
+  "lastVerifiedExistingScoreSubtotal": 1223593710,
+  "lastVerifiedPhaseVersion": 1,
+  "supplied39RowSubtotal": 1415767691,
+  "coverage": "partial_until_independently_proven_complete"
+}

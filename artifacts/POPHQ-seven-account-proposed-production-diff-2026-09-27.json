@@ -1,0 +1,71 @@
+{
+  "status": "proposed_only_not_applied",
+  "observedAt": "2026-09-27T13:48:43Z",
+  "productionStack": "PopHq",
+  "productionOrigin": "https://d37d5k4gjfzwry.cloudfront.net",
+  "readChecks": {
+    "exactAccountPartitionsFound": 0,
+    "matchingHistoricalRecordsFound": 0,
+    "matchingCanonicalNamesFound": 0,
+    "matchingAliasesFound": 0,
+    "pagination": "AWS CLI automatic pagination enabled"
+  },
+  "batchId": "koi-2026-09-26-seven",
+  "counts": {
+    "create": 7,
+    "reuse": 0,
+    "unresolved": 0,
+    "conflicts": 0,
+    "aliasesToAdd": 1,
+    "evidenceToAdd": 11
+  },
+  "accountsToCreate": [
+    { "playerId": "668923807", "name": "Koi", "alliance": "POP", "status": "unknown", "hasLogin": false },
+    { "playerId": "400119800", "name": "LordGrim", "alliance": "POP", "status": "unknown", "hasLogin": false },
+    { "playerId": "390464931", "name": "POPs Creature", "alliance": "POP", "status": "unknown", "hasLogin": false },
+    { "playerId": "401265045", "name": "cactusprick", "alliance": "POP", "status": "unknown", "hasLogin": false },
+    { "playerId": "405715203", "name": "Nyasa", "alliance": "POP", "status": "unknown", "hasLogin": false },
+    { "playerId": "411751650", "name": "The Sting", "alliance": "POP", "status": "unknown", "hasLogin": false },
+    { "playerId": "524625066", "name": "Lady Whiplash", "alliance": "POP", "status": "unknown", "hasLogin": false }
+  ],
+  "aliasesToAdd": [
+    { "playerId": "390464931", "name": "Shadow Creature", "basis": "spreadsheet row 102 historical_source_claim" }
+  ],
+  "identityEvidenceToAdd": [
+    { "recordId": "account-shell:koi-2026-09-26-seven:668923807:identity", "playerId": "668923807", "sourceId": "koi-2026-09-26-seven:row-1" },
+    { "recordId": "account-shell:koi-2026-09-26-seven:400119800:identity", "playerId": "400119800", "sourceId": "koi-2026-09-26-seven:row-2" },
+    { "recordId": "account-shell:koi-2026-09-26-seven:390464931:identity", "playerId": "390464931", "sourceId": "koi-2026-09-26-seven:row-3", "sourceCorrections": [{ "observed": "POPs Creatire", "correctedTo": "POPs Creature", "status": "input_typo_not_alias" }] },
+    { "recordId": "account-shell:koi-2026-09-26-seven:401265045:identity", "playerId": "401265045", "sourceId": "koi-2026-09-26-seven:row-4" },
+    { "recordId": "account-shell:koi-2026-09-26-seven:405715203:identity", "playerId": "405715203", "sourceId": "koi-2026-09-26-seven:row-5" },
+    { "recordId": "account-shell:koi-2026-09-26-seven:411751650:identity", "playerId": "411751650", "sourceId": "koi-2026-09-26-seven:row-6", "sourceCorrections": [{ "observed": "The String", "correctedTo": "The Sting", "status": "officer_corrected_transcription_not_alias" }] },
+    { "recordId": "account-shell:koi-2026-09-26-seven:524625066:identity", "playerId": "524625066", "sourceId": "koi-2026-09-26-seven:row-7" }
+  ],
+  "historicalNameEvidenceToAdd": [
+    { "recordId": "account-shell:koi-2026-09-26-seven:390464931:spreadsheet-row-102", "playerId": "390464931", "name": "Shadow Creature", "row": 102 },
+    { "recordId": "account-shell:koi-2026-09-26-seven:405715203:spreadsheet-row-87", "playerId": "405715203", "name": "Nyasa", "row": 87 },
+    { "recordId": "account-shell:koi-2026-09-26-seven:411751650:spreadsheet-row-112", "playerId": "411751650", "name": "The Sting", "row": 112 },
+    { "recordId": "account-shell:koi-2026-09-26-seven:524625066:spreadsheet-row-64", "playerId": "524625066", "name": "Lady Whiplash", "row": 64 }
+  ],
+  "effects": {
+    "createsLogin": false,
+    "sendsInvite": false,
+    "sendsEmail": false,
+    "createsCredentials": false,
+    "linksHumanOwner": false,
+    "infersMainAltOwnership": false,
+    "changesMembership": false,
+    "writesScores": false
+  },
+  "expectedHash": null,
+  "previewBlocker": "The guarded reconciliation endpoint exists only on this unmerged branch and is not deployed. A production-derived expectedHash must be generated after deployment and immediately re-reviewed before any separately authorized apply.",
+  "scoreOperation": {
+    "authorized": false,
+    "pendingRows": 7,
+    "pendingSubtotal": 192173981,
+    "expectedExistingRows": 32,
+    "expectedExistingSubtotal": 1223593710,
+    "proposedCombinedRows": 39,
+    "proposedCombinedSubtotal": 1415767691,
+    "instruction": "After separately approved account onboarding, generate a fresh score-only preview. Do not reuse an account approval or prior score hash."
+  }
+}

@@ -64,6 +64,7 @@ import type { Repository } from "../data/repository.js";
 import type { Actor } from "../data/meta.js";
 import { invite, type LoginDirectory } from "../ops/invite.js";
 import { resetMemberPassword } from "../ops/resetPassword.js";
+import { parseAccountOnboardingBatch, planAccountOnboarding } from "../ops/onboardAccounts.js";
 import { parseResetJustification } from "../domain/access.js";
 import type { TokenVerifier } from "./auth.js";
 import type { EvidenceStore } from "../ops/evidenceStore.js";
@@ -421,6 +422,62 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
   app.get("/agent/doctor", async (c) => {
     const { token } = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "all:read", now(), botIssuerGroups);
     return c.json({ status: "ok", tokenId: token.tokenId, scopes: effectiveBotScopes(token), expiresAt: token.expiresAt });
+  });
+
+  /** Officer-only exact-ID readback for shell reconciliation; login subjects stay private. */
+  app.get("/agent/accounts/:pid/reconciliation", async (c) => {
+    const { issuerGroups } = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "all:read", now(), botIssuerGroups);
+    requireAgentOfficer(issuerGroups);
+    const playerId = parsePlayerId(c.req.param("pid"));
+    const account = await repo.getAccount(playerId);
+    if (!account) throw new NotFoundError(`Game account ${playerId} not found.`);
+    const [aliases, access, evidence, historicalNames] = await Promise.all([
+      repo.listAliases(playerId),
+      repo.linkedLoginAccess(playerId),
+      repo.listHistoricalRecords("evidence"),
+      repo.listHistoricalRecords("alias"),
+    ]);
+    return c.json({
+      account,
+      hasLogin: Boolean(access),
+      aliases,
+      sourceRecords: [...evidence, ...historicalNames].filter((record) => record.playerId === playerId),
+    });
+  });
+
+  /** Preview or atomically apply exact-ID login-free shell onboarding and source evidence. */
+  app.post("/agent/accounts/reconcile", async (c) => {
+    const { token } = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "accounts:write", now(), botIssuerGroups);
+    await requireBotIssuerR4(token.issuedBy);
+    const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+    const write = agentWriteRequest(body, c.req.query("apply") === "true", c.req.header("idempotency-key"), "account onboarding");
+    if (write.apply) {
+      const replay = await repo.getIdempotentChange(token.tokenId, write.key);
+      if (replay) {
+        if (replay.bodyHash !== write.bodyHash) throw new ConflictError("That Idempotency-Key was already used for different data.");
+        return c.json({ ...(replay.response as Record<string, unknown>), dryRun: false, replayed: true });
+      }
+      if (body.approved !== true) throw new ValidationError("Applying account onboarding requires explicit approval of the reviewed preview.");
+    }
+    const batch = parseAccountOnboardingBatch(body);
+    const plan = await planAccountOnboarding(repo, batch);
+    const { writes, ...review } = plan;
+    const expectedHash = stateHash(review);
+    if (!write.apply) return c.json({ dryRun: true, expectedHash, ...review });
+    if (write.expectedHash !== expectedHash) throw new ConflictError("This is not the exact reviewed account preview. Preview again before applying.");
+    if (!plan.applicable) throw new ConflictError("Resolve every account identity conflict before applying.", { rows: review.rows.filter((row) => row.issues.length > 0) });
+    const response = { dryRun: false, replayed: false, expectedHash, ...review };
+    await repo.putAccountOnboardingIdempotent(
+      writes,
+      agentActor(token.tokenId, write.reason),
+      token.tokenId,
+      write.key,
+      write.bodyHash,
+      response,
+    );
+    c.header("x-change-id", write.key);
+    const changed = writes.accounts.length + writes.aliases.length + writes.evidence.length > 0;
+    return c.json(response, changed ? 201 : 200);
   });
 
   /** Registers one complete Fortress/Stronghold haul. Preview is the default. */
@@ -1051,7 +1108,9 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const active = (await repo.listAgentTokens(p.sub)).filter((token) => !token.revokedAt && Date.parse(token.expiresAt) > now().getTime());
     if (active.length >= 5) throw new ConflictError("You already have five active bot tokens. Revoke one first.");
     const issued = issueAgentToken(await readJson(c.req.raw), p.sub, now());
-    if (issued.record.scopes.includes("rewards:write")) await requireBotIssuerR4(p.sub);
+    if (issued.record.scopes.includes("rewards:write") || issued.record.scopes.includes("accounts:write")) {
+      await requireBotIssuerR4(p.sub);
+    }
     await repo.createAgentToken(issued.record);
     return c.json({ ...publicAgentToken(issued.record), token: issued.token }, 201);
   });
@@ -1184,7 +1243,10 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     requireOfficer(c.get("principal"));
     const alliance = (c.req.query("alliance") ?? "POP").toUpperCase();
     const at = now();
-    const accounts = await repo.listAccounts(alliance);
+    const [accounts, accountEvidence] = await Promise.all([
+      repo.listAccounts(alliance),
+      repo.listHistoricalRecords("evidence"),
+    ]);
     // One query per account is fine at alliance size (~100); a summary item replaces this later.
     const participationFrom = new Date(at.getTime() - PARTICIPATION_DAYS * 24 * 60 * 60 * 1000).toISOString();
     const pastEvents = await repo.listEvents(alliance, participationFrom, 100);
@@ -1237,7 +1299,21 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         };
       }),
     );
-    return c.json({ items, seats: await repo.seats() });
+    const unresolvedSources = accountEvidence
+      .filter((record) => record.reviewStatus === "unresolved" && !record.playerId)
+      .map((record) => {
+        const payload = typeof record.payload === "object" && record.payload !== null && !Array.isArray(record.payload)
+          ? record.payload as Record<string, unknown>
+          : {};
+        return {
+          recordId: record.recordId,
+          sourceId: record.sourceId,
+          suppliedName: typeof payload.suppliedName === "string" ? payload.suppliedName : "Unknown account",
+          eventId: record.eventId ?? null,
+          reviewStatus: record.reviewStatus,
+        };
+      });
+    return c.json({ items, seats: await repo.seats(), unresolvedSources });
   });
 
   /**
