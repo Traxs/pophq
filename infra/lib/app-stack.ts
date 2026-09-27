@@ -27,6 +27,7 @@ import { S3_GRANT_ACTIONS, acknowledge, acknowledgeEach } from "./nag.js";
 import { ALERT_EMAIL_PARAMETER, API_ENTRY, HISTORY_ENTRY, LOCK_FILE, LOGIN_ASSETS, REPO_ROOT } from "./config.js";
 import { CostGuard } from "./cost-guard.js";
 import { NODE_BUNDLING } from "./node-bundling.js";
+import { viewerRequestCode } from "./viewer-request.js";
 
 export interface AppStackProps extends StackProps {
   /** Built web app (web/dist). */
@@ -201,13 +202,20 @@ export class AppStack extends Stack {
       removalPolicy: RemovalPolicy.RETAIN,
     });
 
-    // Client-side routes (/power, /callback, …) serve index.html; files keep their path.
+    // Client-side routes serve index.html, and www.<domain> redirects to the domain itself so that
+    // sign-in only ever sees the one origin Cognito knows (see viewer-request.ts).
+    const canonicalHost = props.site?.domainName;
     const spaRewrite = new cloudfront.Function(this, "SpaRewrite", {
       runtime: cloudfront.FunctionRuntime.JS_2_0,
-      code: cloudfront.FunctionCode.fromInline(
-        "function handler(event) { var r = event.request; if (r.uri.indexOf('.') === -1) { r.uri = '/index.html'; } return r; }",
-      ),
+      code: cloudfront.FunctionCode.fromInline(viewerRequestCode({ canonicalHost, spa: true })),
     });
+    // The API behavior needs the redirect without the rewrite, which would turn /v1/… into index.html.
+    const apiWwwRedirect = canonicalHost
+      ? new cloudfront.Function(this, "ApiWwwRedirect", {
+          runtime: cloudfront.FunctionRuntime.JS_2_0,
+          code: cloudfront.FunctionCode.fromInline(viewerRequestCode({ canonicalHost, spa: false })),
+        })
+      : undefined;
 
     // Strict CSP: only our own scripts and styles run, which is what makes keeping the sign-in in
     // localStorage acceptable (decision in docs/PLAN.md). Sign-in talks to Cognito only.
@@ -245,7 +253,9 @@ export class AppStack extends Stack {
 
     const cdn = new cloudfront.Distribution(this, "Cdn", {
       comment: "POP HQ",
-      ...(props.site ? { domainNames: [props.site.domainName], certificate: props.site.certificate } : {}),
+      ...(props.site
+        ? { domainNames: [props.site.domainName, `www.${props.site.domainName}`], certificate: props.site.certificate }
+        : {}),
       defaultRootObject: "index.html",
       httpVersion: cloudfront.HttpVersion.HTTP2_AND_3,
       defaultBehavior: {
@@ -263,6 +273,9 @@ export class AppStack extends Stack {
           cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
           originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
           responseHeadersPolicy: headers,
+          ...(apiWwwRedirect
+            ? { functionAssociations: [{ function: apiWwwRedirect, eventType: cloudfront.FunctionEventType.VIEWER_REQUEST }] }
+            : {}),
         },
       },
     });
@@ -279,6 +292,10 @@ export class AppStack extends Stack {
       // answers on IPv6 by default.
       new route53.ARecord(this, "SiteA", { zone, target, recordName: props.site.domainName });
       new route53.AaaaRecord(this, "SiteAaaa", { zone, target, recordName: props.site.domainName });
+      // www only redirects (viewer-request function above), but it still has to resolve to get there.
+      const www = `www.${props.site.domainName}`;
+      new route53.ARecord(this, "WwwA", { zone, target, recordName: www });
+      new route53.AaaaRecord(this, "WwwAaaa", { zone, target, recordName: www });
     }
 
     const client = users.addClient("WebClient", {

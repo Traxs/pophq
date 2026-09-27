@@ -395,12 +395,25 @@ describe("custom domain (P2.1)", () => {
 
     template.hasResourceProperties("AWS::CloudFront::Distribution", {
       DistributionConfig: Match.objectLike({
-        Aliases: ["pophq.example"],
+        Aliases: ["pophq.example", "www.pophq.example"],
         ViewerCertificate: Match.objectLike({ SslSupportMethod: "sni-only" }),
       }),
     });
-    template.hasResourceProperties("AWS::Route53::RecordSet", { Name: "pophq.example.", Type: "A" });
-    template.hasResourceProperties("AWS::Route53::RecordSet", { Name: "pophq.example.", Type: "AAAA" });
+    for (const name of ["pophq.example.", "www.pophq.example."]) {
+      template.hasResourceProperties("AWS::Route53::RecordSet", { Name: name, Type: "A" });
+      template.hasResourceProperties("AWS::Route53::RecordSet", { Name: name, Type: "AAAA" });
+    }
+    // www has to redirect on every path, including the API behavior, which has no SPA rewrite.
+    const functions = Object.values(template.findResources("AWS::CloudFront::Function")) as {
+      Properties: { FunctionCode: string };
+    }[];
+    expect(functions).toHaveLength(2);
+    for (const fn of functions) expect(fn.Properties.FunctionCode).toContain('"www.pophq.example"');
+    const [distribution] = Object.values(template.findResources("AWS::CloudFront::Distribution")) as {
+      Properties: { DistributionConfig: { CacheBehaviors: { PathPattern: string; FunctionAssociations?: unknown[] }[] } };
+    }[];
+    const api = distribution?.Properties.DistributionConfig.CacheBehaviors.find((b) => b.PathPattern === "/v1/*");
+    expect(api?.FunctionAssociations).toHaveLength(1);
 
     const client = Object.values(template.findResources("AWS::Cognito::UserPoolClient"))[0] as {
       Properties: { CallbackURLs: unknown[]; LogoutURLs: unknown[] };
