@@ -128,6 +128,7 @@ export function Members() {
               {scope === "current" && seats && ` · ${seats.used} of ${seats.cap} sign-in seats used`}
             </p>
           </div>
+          <button type="button" className="text-btn" onClick={() => navigate("/buffs")}>View reward eligibility →</button>
         </div>
         <div className="segmented roster-scope" role="tablist" aria-label="Roster membership">
           <button type="button" role="tab" aria-selected={scope === "current"} className={scope === "current" ? "active" : ""} onClick={() => { setScope("current"); setFilter("all"); }}>

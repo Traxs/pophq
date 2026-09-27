@@ -324,33 +324,41 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       (account) => account.status === "active" || account.status === "unknown",
     );
     const people = await attendancePeople(accounts);
-    const periodsByPlayer = new Map<string, MembershipPeriod[]>();
-    await Promise.all(people.map(async (group) => {
-      const periods = await membershipPeriodsFor(group);
-      for (const account of group) periodsByPlayer.set(account.playerId, periods);
-    }));
     const details = await Promise.all(
-      accounts.map(async (account) => {
-        const reports = await repo.listReports(account.playerId);
-        const strength = currentOf(reports, "foundry_strength") ?? 0;
+      people.map(async (personAccounts) => {
+        // Explicit identity groups are ordered with their main account first. Ranking a
+        // person once prevents secondary accounts from consuming extra reward places.
+        const account = personAccounts[0]!;
+        const [rawAnswers, rawAttendance, reportGroups, kudosGroups] = await Promise.all([
+          Promise.all(personAccounts.map((item) => repo.answersForAccount(item.playerId, from))).then((items) => items.flat()),
+          Promise.all(personAccounts.map((item) => repo.attendanceFor(item.playerId))).then((items) => items.flat()),
+          Promise.all(personAccounts.map((item) => repo.listReports(item.playerId))),
+          Promise.all(personAccounts.map((item) => repo.listKudos(item.playerId))),
+        ]);
+        const strength = Math.max(0, ...reportGroups.map((reports) => currentOf(reports, "foundry_strength") ?? 0));
+        const periods = await membershipPeriodsFor(personAccounts);
+        const knownSince = personAccounts
+          .map((item) => item.createdAt)
+          .filter((value): value is string => Boolean(value))
+          .toSorted()[0];
         const participation = participationOf({
           events,
-          answers: await repo.answersForAccount(account.playerId, from),
-          attendance: await repo.attendanceFor(account.playerId),
-          scoreEvidence: [...(scores.byPlayer.get(account.playerId) ?? [])],
+          answers: personAnswers(rawAnswers),
+          attendance: personAttendance(rawAttendance),
+          scoreEvidence: [...new Set(personAccounts.flatMap((item) => [...(scores.byPlayer.get(item.playerId) ?? [])]))],
           now: at,
-          ...(account.createdAt ? { knownSince: account.createdAt } : {}),
-          membershipPeriods: periodsByPlayer.get(account.playerId) ?? [],
+          ...(knownSince ? { knownSince } : {}),
+          membershipPeriods: periods,
         });
-        const periods = periodsByPlayer.get(account.playerId) ?? [];
         const kudos = kudosScore(
-          (await repo.listKudos(account.playerId)).filter((award) => wasMemberAt(periods, award.awardedAt)),
+          kudosGroups.flat().filter((award) => wasMemberAt(periods, award.awardedAt)),
           at,
         );
         // Match the established scoring rule: unknown attendance is neutral (fully reliable),
         // never a silent penalty for a member whose history has not been recorded yet.
         return {
           account,
+          playerIds: personAccounts.map((item) => item.playerId),
           strength,
           participationRate: participation.rate ?? 1,
           participationSample: participation.sample,
@@ -474,7 +482,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         playerId: candidate.account.playerId,
         name: candidate.account.name,
         position,
-        eligible: position <= Math.min(REWARD_RECIPIENTS, accounts.length),
+        eligible: position <= Math.min(REWARD_RECIPIENTS, allRanked.length),
         cycleRewardValueMin: received.get(candidate.account.playerId)?.min ?? 0,
         cycleRewardValueMax: received.get(candidate.account.playerId)?.max ?? 0,
         cycleUnvaluedUnits: received.get(candidate.account.playerId)?.unvaluedUnits ?? 0,
@@ -2096,6 +2104,42 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     });
   });
 
+  /** Full live reward ranking for R4/R5 planning, even before rewards are registered. */
+  app.get("/reward-eligibility", async (c) => {
+    await requireR4(c.get("principal"));
+    const alliance = (c.req.query("alliance") ?? "POP").toUpperCase();
+    const { ranked, strongest, bestKudos } = await fortressRewardRanking(alliance);
+    const eligibleThrough = Math.min(REWARD_RECIPIENTS, ranked.length);
+    return c.json({
+      alliance,
+      generatedAt: now().toISOString(),
+      totalMembers: ranked.length,
+      eligibleThrough,
+      items: ranked.map((candidate, index) => ({
+        playerId: candidate.account.playerId,
+        name: candidate.account.name,
+        position: index + 1,
+        eligible: index < eligibleThrough,
+        eligibleThrough,
+        score: candidate.score,
+        participationRate: candidate.participationRate,
+        participationSample: candidate.participationSample,
+        strength: candidate.strength,
+        strongestStrength: strongest,
+        strengthShare: strongest > 0 ? candidate.strength / strongest : 0,
+        kudosScore: candidate.kudos,
+        bestKudosScore: bestKudos,
+        kudosShare: candidate.kudosShare,
+        weights: {
+          participation: BUFF_ATTENDANCE_WEIGHT,
+          strength: BUFF_STRENGTH_WEIGHT,
+          kudos: BUFF_KUDOS_WEIGHT,
+        },
+        allocation: null,
+      })),
+    });
+  });
+
   /** The acting account's live place in the same ranking used to assign Fortress rewards. */
   app.get("/reward-eligibility/mine", async (c) => {
     const playerId = defaultActing(c.get("principal"));
@@ -2103,7 +2147,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const account = await repo.getAccount(playerId);
     if (!account) throw new NotFoundError("Game account not found.");
     const { ranked, strongest, bestKudos } = await fortressRewardRanking(account.alliance);
-    const index = ranked.findIndex((candidate) => candidate.account.playerId === playerId);
+    const index = ranked.findIndex((candidate) => candidate.playerIds.includes(playerId));
     if (index < 0) throw new NotFoundError("This account is not in the active reward ranking.");
     const candidate = ranked[index]!;
     const eligibleThrough = Math.min(REWARD_RECIPIENTS, ranked.length);

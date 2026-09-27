@@ -212,6 +212,14 @@ export interface RewardEligibility {
   } | null;
 }
 
+export interface RewardEligibilityRanking {
+  alliance: string;
+  generatedAt: string;
+  totalMembers: number;
+  eligibleThrough: number;
+  items: (RewardEligibility & { name: string })[];
+}
+
 export type FortressBuff =
   | "allocatable"
   | "speedup"
@@ -778,6 +786,7 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
     myRewardAssignments: () => request<{ items: MemberRewardAssignment[]; currentCycle: CurrentRewardCycle | null }>("GET", "/reward-assignments/mine"),
     kudos: (playerId: string) => request<KudosSummary>("GET", `/accounts/${playerId}/kudos`),
     myRewardEligibility: () => request<RewardEligibility>("GET", "/reward-eligibility/mine"),
+    rewardEligibilityRanking: () => request<RewardEligibilityRanking>("GET", "/reward-eligibility"),
     registerFortressBuff: (input: { buff: FortressBuff; quantity: number; source: string; acquiredAt?: string }) =>
       request<FortressBuffPool>("POST", "/fortress-buffs", input),
     registerFortressBuffHaul: (input: {

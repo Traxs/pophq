@@ -149,6 +149,7 @@ export function SessionProvider({
       myRewardAssignments: guard(inner.myRewardAssignments),
       kudos: guard(inner.kudos),
       myRewardEligibility: guard(inner.myRewardEligibility),
+      rewardEligibilityRanking: guard(inner.rewardEligibilityRanking),
       registerFortressBuff: guard(inner.registerFortressBuff),
       registerFortressBuffHaul: guard(inner.registerFortressBuffHaul),
       buildFortressRewardPlan: guard(inner.buildFortressRewardPlan),

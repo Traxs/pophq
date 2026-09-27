@@ -2536,6 +2536,42 @@ td:nth-child(3) .inline-select {
   font-size: .82rem;
 }
 .weight-row b { color: var(--accent); }
+.officer-eligibility { padding: 0; overflow: hidden; margin-bottom: 14px; }
+.officer-eligibility .section-head { padding: 16px; }
+.eligibility-list-head,
+.officer-eligibility-list li {
+  display: grid;
+  grid-template-columns: 56px minmax(170px, 1fr) 85px 110px 145px 110px;
+  align-items: center;
+  gap: 10px;
+}
+.eligibility-list-head { padding: 8px 16px; border-top: 1px solid var(--line); background: var(--surface-2); color: var(--muted); font-size: .7rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+.officer-eligibility-list { list-style: none; margin: 0; padding: 0; }
+.officer-eligibility-list li { padding: 10px 16px; border-top: 1px solid var(--line); }
+.officer-eligibility-list li.eligible { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.officer-eligibility-list li.waiting { opacity: .78; }
+.eligibility-rank, .eligibility-score { color: var(--accent); font-variant-numeric: tabular-nums; }
+.eligibility-factors { display: contents; }
+.eligibility-factors > span { display: grid; gap: 2px; }
+.eligibility-factors > span > small:first-child { display: none; }
+.officer-eligibility-list small { display: block; color: var(--muted); font-size: .68rem; font-weight: 500; }
+@media (max-width: 760px) {
+  .officer-eligibility .section-head { align-items: flex-start; }
+  .eligibility-list-head { display: none; }
+  .officer-eligibility-list li {
+    grid-template-columns: 42px minmax(0, 1fr) auto;
+    gap: 9px;
+  }
+  .eligibility-factors {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--line);
+  }
+  .eligibility-factors > span > small:first-child { display: block; text-transform: uppercase; letter-spacing: .03em; }
+}
 .buff-pool-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));

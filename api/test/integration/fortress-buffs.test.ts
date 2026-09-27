@@ -19,6 +19,32 @@ describe("Fortress reward buffs", () => {
   });
   afterAll(() => h.cleanup());
 
+  it("gives officers a live person-level ranking before rewards are registered", async () => {
+    const res = await h.call("GET", "/reward-eligibility", R4);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      alliance: "POP",
+      totalMembers: 37,
+      eligibleThrough: 37,
+      generatedAt: expect.any(String),
+    });
+    const items = res.body.items as Record<string, unknown>[];
+    expect(items).toHaveLength(37);
+    expect(items[0]).toMatchObject({
+      position: 1,
+      eligible: true,
+      score: expect.any(Number),
+      participationRate: expect.any(Number),
+      strength: expect.any(Number),
+      kudosScore: expect.any(Number),
+      weights: { participation: 0.6, strength: 0.2, kudos: 0.2 },
+      allocation: null,
+    });
+    // Poppy and Goatzilla share one person identity, so they cannot occupy two reward slots.
+    expect(items.filter((item) => item.playerId === "100000001" || item.playerId === "100000002")).toHaveLength(1);
+    expect((await h.call("GET", "/reward-eligibility", MEMBER)).status).toBe(403);
+  });
+
   it("only lets an R4 or R5 register a valid reward batch", async () => {
     expect((await h.call("POST", "/fortress-buffs", { ...MEMBER, body: { buff: "health", quantity: 2, source: "Fort 4" } })).status).toBe(403);
     expect((await h.call("POST", "/fortress-buffs", { ...R3, body: { buff: "health", quantity: 2, source: "Fort 4" } })).status).toBe(403);
@@ -114,6 +140,9 @@ describe("Fortress reward buffs", () => {
         + (res.body.kudosShare as number) * 0.2,
       8,
     );
+    const alt = await h.call("GET", "/reward-eligibility/mine", OTHER_MEMBER);
+    expect(alt.status).toBe(200);
+    expect(alt.body).toMatchObject({ position: res.body.position, totalMembers: 37 });
   });
 
   it("shows officers the weighted inputs and assigns only eligible members", async () => {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { ApiError, type FortressBuff, type FortressBuffDetail, type FortressBuffPool } from "../api";
+import { ApiError, type FortressBuff, type FortressBuffDetail, type FortressBuffPool, type RewardEligibilityRanking } from "../api";
 import { ErrorBanner } from "../components/Chrome";
 import { Sheet } from "../components/Sheet";
 import { useToast } from "../components/Toast";
@@ -43,6 +43,7 @@ function valuationMidpoint(pool: Pick<FortressBuffPool, "gemValuation">) {
 export function Buffs() {
   const { api, account, dataVersion, dataChanged } = useSession();
   const [items, setItems] = useState<FortressBuffPool[] | null>(null);
+  const [ranking, setRanking] = useState<RewardEligibilityRanking | null>(null);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -72,11 +73,15 @@ export function Buffs() {
   };
 
   useEffect(() => {
-    api.fortressBuffs().then(({ items: result }) => {
-      setItems(result);
+    Promise.all([
+      api.fortressBuffs(),
+      canManage ? api.rewardEligibilityRanking() : Promise.resolve(null),
+    ]).then(([pools, eligibility]) => {
+      setItems(pools.items);
+      setRanking(eligibility);
       setError(null);
     }).catch((e: Error) => setError(e.message));
-  }, [api, dataVersion, attempt]);
+  }, [api, canManage, dataVersion, attempt]);
 
   return (
     <>
@@ -95,6 +100,8 @@ export function Buffs() {
           <span><b>60%</b> attendance</span><span><b>20%</b> strength</span><span><b>20%</b> kudos</span>
         </div>
       </section>
+
+      {canManage && ranking && <OfficerEligibilityRanking ranking={ranking} />}
 
       {canManage && (items?.length ?? 0) > 0 && <div className="segmented reward-view-tabs" role="radiogroup" aria-label="Reward view">
         <button type="button" role="radio" aria-checked={view === "inventory"} onClick={() => setView("inventory")}>Available inventory <span>{activeItems.length}</span></button>
@@ -132,6 +139,35 @@ export function Buffs() {
       </Sheet>
     </>
   );
+}
+
+function OfficerEligibilityRanking({ ranking }: { ranking: RewardEligibilityRanking }) {
+  const [showWaiting, setShowWaiting] = useState(false);
+  const visible = showWaiting ? ranking.items : ranking.items.filter((item) => item.eligible);
+  return <section className="card officer-eligibility" aria-labelledby="officer-eligibility-title">
+    <div className="section-head">
+      <div>
+        <h2 id="officer-eligibility-title">Eligible members</h2>
+        <p className="muted small">Top {ranking.eligibleThrough} of {ranking.totalMembers} active members. This live ranking is available before rewards are registered.</p>
+      </div>
+      {ranking.totalMembers > ranking.eligibleThrough && <button type="button" className="btn btn-quiet btn-small" onClick={() => setShowWaiting((current) => !current)}>
+        {showWaiting ? "Hide waiting list" : `Show waiting list (${ranking.totalMembers - ranking.eligibleThrough})`}
+      </button>}
+    </div>
+    <div className="eligibility-list-head" aria-hidden="true"><span>Place</span><span>Member</span><span>Overall</span><span>Attendance</span><span>Strength</span><span>Kudos</span></div>
+    <ol className="officer-eligibility-list">
+      {visible.map((item) => <li key={item.playerId} className={item.eligible ? "eligible" : "waiting"}>
+        <span className="eligibility-rank">#{item.position}</span>
+        <span className="member"><span className="avatar" aria-hidden="true">{initials(item.name)}</span><span className="member-text"><button type="button" className="member-link" onClick={() => navigate(`/members/${item.playerId}`)}>{item.name}</button><small className="muted">{item.eligible ? "Eligible now" : "Waiting list"}</small></span></span>
+        <strong className="eligibility-score">{Math.round(item.score * 100)} pts</strong>
+        <span className="eligibility-factors">
+          <span><small>Attendance</small><b>{Math.round(item.participationRate * 100)}%</b><small>{item.participationSample === 0 ? "neutral" : "60% weight"}</small></span>
+          <span><small>Strength</small><b>{full(item.strength)}</b><small>{Math.round(item.strengthShare * 100)}% · 20% weight</small></span>
+          <span><small>Kudos</small><b>{item.kudosScore > 0 ? "+" : ""}{Math.round(item.kudosScore * 10) / 10}</b><small>{Math.round(item.kudosShare * 100)}% · 20% weight</small></span>
+        </span>
+      </li>)}
+    </ol>
+  </section>;
 }
 
 function CycleValueSummary({ cycle }: { cycle: RewardCycle }) {
