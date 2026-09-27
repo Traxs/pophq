@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { ApiError, type AgentScope, type AgentTokenInfo } from "../api";
+import { type AgentScope, type AgentTokenInfo } from "../api";
+import { missingIssuedScopes, requestedAgentScopes } from "../agentTokenScopes";
 import { shortDate } from "../format";
 import { useSession } from "../session";
 import { useToast } from "./Toast";
@@ -25,19 +26,21 @@ export function AgentTokens() {
     setBusy(true);
     setError(null);
     try {
-      const scopes: AgentScope[] = [
-        "all:read",
-        ...(write ? ["results:write" as const] : []),
-        ...(eventsWrite ? ["events:write" as const] : []),
-        ...(historyWrite ? ["history:write" as const] : []),
-        ...(rewardsWrite ? ["rewards:write" as const] : []),
-        ...(accountsWrite ? ["accounts:write" as const] : []),
-      ];
+      const scopes = requestedAgentScopes({ results: write, events: eventsWrite, history: historyWrite, rewards: rewardsWrite, accounts: accountsWrite });
       const issued = await api.issueAgentToken({ name, scopes, expiresInDays: days });
+      const missing = missingIssuedScopes(scopes, issued.scopes);
+      if (missing.length > 0) {
+        const revoked = await api.revokeAgentToken(issued.tokenId).then(() => true).catch(() => false);
+        await load();
+        throw new Error(
+          `The server did not retain the selected ${missing.join(", ")} permission. `
+          + (revoked ? "The incomplete token was revoked automatically." : "Revoke the incomplete token before trying again."),
+        );
+      }
       setSecret(issued.token);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Couldn't issue the token.");
+      setError(e instanceof Error ? e.message : "Couldn't issue the token.");
     } finally { setBusy(false); }
   };
 

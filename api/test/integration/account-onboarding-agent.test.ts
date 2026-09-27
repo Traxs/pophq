@@ -8,6 +8,7 @@ import { createHarness, type Harness } from "./harness.js";
 describe("guarded login-free account onboarding", () => {
   let h: Harness;
   let token: string;
+  let tokenId: string;
   let readOnlyToken: string;
   let issuerGroups = new Set<Group>(["player", "officer"]);
   const loginCalls = { email: 0, password: 0, delete: 0 };
@@ -33,6 +34,7 @@ describe("guarded login-free account onboarding", () => {
       body: { name: "Account onboarding bot", scopes: ["all:read", "accounts:write", "results:write"], expiresInDays: 30 },
     });
     token = issued.body.token as string;
+    tokenId = issued.body.tokenId as string;
     const readOnly = await h.call("POST", "/agent-tokens", {
       as: "officer",
       groups: ["officer"],
@@ -51,6 +53,23 @@ describe("guarded login-free account onboarding", () => {
     ...sevenFixture,
     batchId,
     entries,
+  });
+
+  it("retains accounts:write through issuance, storage, doctor and a dry-run preview", async () => {
+    expect(await h.repo.getAgentToken(tokenId)).toMatchObject({
+      tokenId,
+      scopes: ["all:read", "accounts:write", "results:write"],
+    });
+    expect(await h.call("GET", "/agent/doctor", agent())).toMatchObject({
+      status: 200,
+      body: { tokenId, scopes: ["all:read", "results:write", "accounts:write"] },
+    });
+    const preview = await h.call("POST", "/agent/accounts/reconcile", agent(batch("issuance-preview", [sevenFixture.entries[0]])));
+    expect(preview).toMatchObject({
+      status: 200,
+      body: { dryRun: true, applicable: true, counts: { create: 1, conflicts: 0 } },
+    });
+    expect(await h.repo.getAccount(sevenFixture.entries[0]!.playerId)).toBeUndefined();
   });
 
   it("previews and atomically applies the exact seven shells without login side effects", async () => {
