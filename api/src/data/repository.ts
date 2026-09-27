@@ -13,6 +13,7 @@ import type { AccessAuditRecord, LoginMethod, PasswordResetStatus } from "../dom
 import type { AttendanceRecord } from "../domain/attendance.js";
 import type { AllianceEvent, Answer, EventAnswer } from "../domain/events.js";
 import type { EventType } from "../domain/eventTypes.js";
+import type { EventPhaseScores, EventScorePhaseKey } from "../domain/eventScores.js";
 import type { KudosAward } from "../domain/kudos.js";
 import { DEFAULT_REWARD_VALUATIONS, type FortressBuffAssignment, type FortressBuffPool } from "../domain/fortressBuffs.js";
 import type { Checklist } from "../domain/checklists.js";
@@ -41,6 +42,7 @@ import {
   allianceIndexKey,
   eventIndexKey,
   eventKey,
+  eventScoreKey,
   eventTypeKey,
   fortressBuffAssignmentKey,
   fortressBuffPoolIndexKey,
@@ -380,6 +382,55 @@ export class Repository {
   async getEvent(eventId: string): Promise<AllianceEvent | undefined> {
     const res = await this.db.send(new GetCommand({ TableName: this.table, Key: eventKey(eventId) }));
     return res.Item ? toEvent(res.Item) : undefined;
+  }
+
+  async getEventPhaseScores(eventId: string, phase: EventScorePhaseKey): Promise<EventPhaseScores | undefined> {
+    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: eventScoreKey(eventId, phase) }));
+    return res.Item ? toEventPhaseScores(res.Item) : undefined;
+  }
+
+  async putEventPhaseScores(scores: EventPhaseScores, actor: Actor): Promise<void> {
+    try {
+      await this.db.send(new PutCommand({
+        TableName: this.table,
+        Item: { ...eventScoreKey(scores.eventId, scores.phaseKey), type: "event-phase-scores", ...newItemMeta(actor, this.clock()), ...scores },
+        ConditionExpression: "attribute_not_exists(SK) OR version = :previous",
+        ExpressionAttributeValues: { ":previous": scores.version - 1 },
+      }));
+    } catch (err) {
+      if (err instanceof ConditionalCheckFailedException) throw new ConflictError("These phase scores changed. Reload and try again.");
+      throw err;
+    }
+  }
+
+  async listEventPhaseScores(eventId: string): Promise<EventPhaseScores[]> {
+    const items = await this.queryAll({
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+      ExpressionAttributeValues: { ":pk": `EVENT#${eventId}`, ":sk": "PHASE_SCORE#" },
+    });
+    return items.map(toEventPhaseScores);
+  }
+
+  async putEventPhaseScoresIdempotent(scores: EventPhaseScores, actor: Actor, tokenId: string, key: string, bodyHash: string, response: unknown): Promise<void> {
+    const meta = newItemMeta(actor, this.clock());
+    try {
+      await this.db.send(new TransactWriteCommand({ TransactItems: [
+        { Put: {
+          TableName: this.table,
+          Item: { ...eventScoreKey(scores.eventId, scores.phaseKey), type: "event-phase-scores", ...meta, ...scores },
+          ConditionExpression: "attribute_not_exists(SK) OR version = :previous",
+          ExpressionAttributeValues: { ":previous": scores.version - 1 },
+        } },
+        { Put: {
+          TableName: this.table,
+          Item: { ...idempotencyKey(tokenId, key), type: "agent-idempotency", bodyHash, response, createdAt: meta.createdAt, expiresAtEpoch: Math.floor(this.clock().getTime() / 1000) + 24 * 60 * 60 },
+          ConditionExpression: "attribute_not_exists(PK)",
+        } },
+      ] }));
+    } catch (err) {
+      if (err instanceof TransactionCanceledException) throw new ConflictError("The phase scores changed or this idempotency key was already used. Preview again.");
+      throw err;
+    }
   }
 
   /** Events of an alliance that start at or after `from`, earliest first. */
@@ -2024,6 +2075,20 @@ function toEvent(item: Record<string, unknown>): AllianceEvent {
   // The item's own audit stamp doubles as "when members could first answer".
   if (item.createdAt) event.createdAt = String(item.createdAt);
   return event;
+}
+
+function toEventPhaseScores(item: Record<string, unknown>): EventPhaseScores {
+  return {
+    eventId: String(item.eventId),
+    phaseKey: item.phaseKey as EventPhaseScores["phaseKey"],
+    phaseLabel: String(item.phaseLabel),
+    version: Number(item.version),
+    coverage: item.coverage as EventPhaseScores["coverage"],
+    playerPoints: Array.isArray(item.playerPoints) ? item.playerPoints as EventPhaseScores["playerPoints"] : [],
+    source: item.source as EventPhaseScores["source"],
+    recordedAt: String(item.recordedAt),
+    recordedBy: String(item.recordedBy),
+  };
 }
 
 function toAnswer(item: Record<string, unknown>): EventAnswer {

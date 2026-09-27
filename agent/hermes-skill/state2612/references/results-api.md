@@ -58,3 +58,50 @@ Rules:
 - The same key and exact payload replay the first success. The same key with different data returns a conflict.
 
 Individual points are returned to officers and the affected player in the web app, not to other members.
+
+## SvS and King of Icefield phase scores
+
+Signup sessions (`full`, `first`, `last`) describe attendance windows and are never scoring phases. Phase-specific points use `preparation` or `castle_battle`.
+
+Read context:
+
+```bash
+python3 scripts/s26.py phase-score-context EVENT_ID castle_battle
+```
+
+An officer-issued reader receives the exact Player ID registry and current leaderboard. A non-officer reader receives only scores belonging to the issuer's linked accounts.
+
+Preview payload:
+
+```json
+{
+  "expectedVersion": 0,
+  "coverage": "partial",
+  "playerPoints": [
+    {
+      "playerId": "401250554",
+      "points": 91473892,
+      "provenance": { "sourceName": "Wenzy", "displayName": "Wenzy" }
+    }
+  ],
+  "source": {
+    "type": "owner_report",
+    "reference": "KOI-castle-battle-scores-fixture.json"
+  }
+}
+```
+
+```bash
+python3 scripts/s26.py put-phase-scores EVENT_ID castle_battle scores.json
+```
+
+The preview returns exact before/after rows, added/changed/unchanged counts, before/after reported-player subtotals, the next version, and `expectedHash`. It has no write effect. Omitted players remain unchanged; unknown and duplicate Player IDs reject the entire batch. Preserve raw names and confirmed corrections in `provenance`. Never turn missing scores into zero or call a partial subtotal an alliance total.
+
+After an officer approves that exact preview:
+
+```bash
+python3 scripts/s26.py put-phase-scores EVENT_ID castle_battle scores.json --apply --expected-hash HASH_FROM_PREVIEW --reason "Officer approved exact castle-battle scores" --idempotency-key koi-EVENT_ID-castle-v1
+python3 scripts/s26.py phase-score-context EVENT_ID castle_battle
+```
+
+Apply requires `results:write`, a current officer/owner issuer, the reviewed hash, explicit approval added by the CLI, a meaningful reason, and a unique idempotency key. Retry only the identical request with the same key. Account creation is deliberately outside `results:write`; quarantine unresolved identities until an officer onboards them separately.

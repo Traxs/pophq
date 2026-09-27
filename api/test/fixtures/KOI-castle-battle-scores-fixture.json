@@ -1,0 +1,298 @@
+{
+  "purpose": "Development fixture and owner-provided evidence; NOT authorization to apply",
+  "eventId": "01M36PTMTPN3VRN4KX862NSGWC",
+  "eventTitle": "King of Icefield",
+  "eventKind": "koi",
+  "eventStartsAt": "2026-09-26T10:00:00.000Z",
+  "phaseLabel": "Castle battle phase",
+  "proposedPhaseKey": "castle_battle",
+  "eventTotalStatus": "sum_of_supplied_rows_only_not_verified_complete_alliance_total",
+  "suppliedRowCount": 39,
+  "suppliedPointsTotal": 1415767691,
+  "verifiedRegistryRows": 32,
+  "ownerSuppliedIdsAbsentFromRegistry": 6,
+  "missingIds": [
+    "LordGrim"
+  ],
+  "entries": [
+    {
+      "sourceName": "Wenzy",
+      "displayName": "Wenzy",
+      "playerId": "401250554",
+      "points": 91473892,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "Aoife",
+      "displayName": "Aoife",
+      "playerId": "413494890",
+      "points": 77119108,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "AutoStone",
+      "displayName": "AutoStone",
+      "playerId": "411740996",
+      "points": 76310652,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "Voodie",
+      "displayName": "Voodie",
+      "playerId": "401329947",
+      "points": 70007583,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "Koi",
+      "displayName": "Koi",
+      "playerId": "668923807",
+      "points": 61294142,
+      "identityStatus": "owner_id_not_in_result_registry",
+      "suppliedLabel": "Koi"
+    },
+    {
+      "sourceName": "Karro",
+      "displayName": "Karro",
+      "playerId": "408577385",
+      "points": 60853334,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "ShadowTinker",
+      "displayName": "ShadowTinker",
+      "playerId": "337794512",
+      "points": 53515124,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "Lyuts",
+      "displayName": "Lyuts",
+      "playerId": "410224164",
+      "points": 53199224,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "eevv",
+      "displayName": "eevv",
+      "playerId": "401821715",
+      "points": 49763207,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "Junmoxi",
+      "displayName": "JunMoxiao",
+      "playerId": "398544949",
+      "points": 48587862,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "Doggy",
+      "displayName": "Doggy",
+      "playerId": "402574597",
+      "points": 48265149,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "Tarkan",
+      "displayName": "Tarkan",
+      "playerId": "399744278",
+      "points": 47353667,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "Magneto",
+      "displayName": "Magneto",
+      "playerId": "406271513",
+      "points": 47304309,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "Dream",
+      "displayName": "Dream",
+      "playerId": "401297791",
+      "points": 46227365,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "Arcura",
+      "displayName": "Arcura",
+      "playerId": "401543496",
+      "points": 40426493,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "PhoenixOnFire",
+      "displayName": "Phoenix",
+      "playerId": "323475910",
+      "points": 39194877,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "LordGrim",
+      "displayName": "LordGrim",
+      "playerId": null,
+      "points": 38267899,
+      "identityStatus": "missing_id"
+    },
+    {
+      "sourceName": "Burbanks",
+      "displayName": "Burbanks",
+      "playerId": "399232318",
+      "points": 37194969,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "Arya Stark",
+      "displayName": "Arya Stark",
+      "playerId": "405338501",
+      "points": 33833773,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "HaNa",
+      "displayName": "HaNa",
+      "playerId": "400576769",
+      "points": 30225147,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "Expo Fusion",
+      "displayName": "Expo",
+      "playerId": "401821764",
+      "points": 29880144,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "TARS",
+      "displayName": "TARS",
+      "playerId": "399921027",
+      "points": 28767939,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "POPs Creature",
+      "displayName": "POPs Creature",
+      "playerId": "390464931",
+      "points": 27212207,
+      "identityStatus": "owner_id_not_in_result_registry",
+      "suppliedLabel": "POPs Creatire"
+    },
+    {
+      "sourceName": "Traxes",
+      "displayName": "Traxes",
+      "playerId": "410691488",
+      "points": 26746693,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "Lungorthin",
+      "displayName": "Lungorthin",
+      "playerId": "362270971",
+      "points": 26013807,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "Cade",
+      "displayName": "Cade",
+      "playerId": "401330277",
+      "points": 24140645,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "cactusprick",
+      "displayName": "cactusprick",
+      "playerId": "401265045",
+      "points": 22422701,
+      "identityStatus": "owner_id_not_in_result_registry",
+      "suppliedLabel": "Cactusprick"
+    },
+    {
+      "sourceName": "Mouse",
+      "displayName": "Mouse",
+      "playerId": "365372182",
+      "points": 21464375,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "CommanderC",
+      "displayName": "Commander C",
+      "playerId": "416876116",
+      "points": 18869155,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "Nyasa",
+      "displayName": "Nyasa",
+      "playerId": "405715203",
+      "points": 18374984,
+      "identityStatus": "owner_id_not_in_result_registry",
+      "suppliedLabel": "Nyasa"
+    },
+    {
+      "sourceName": "Chief_D",
+      "displayName": "Chief_D",
+      "playerId": "407643654",
+      "points": 18139606,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "Baron81",
+      "displayName": "Baron",
+      "playerId": "411988099",
+      "points": 17067324,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "Goatzilla",
+      "displayName": "Goatzilla",
+      "playerId": "398544630",
+      "points": 12872703,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "Heroes",
+      "displayName": "Heroes",
+      "playerId": "579649289",
+      "points": 12622894,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "The String",
+      "displayName": "The Sting",
+      "playerId": "411751650",
+      "points": 12463103,
+      "identityStatus": "owner_id_not_in_result_registry",
+      "suppliedLabel": "The Sting (Sorry typo before"
+    },
+    {
+      "sourceName": "Midas",
+      "displayName": "Midas",
+      "playerId": "399952273",
+      "points": 12433500,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "LadyWhiplash",
+      "displayName": "Lady Whiplash",
+      "playerId": "524625066",
+      "points": 12138945,
+      "identityStatus": "owner_id_not_in_result_registry",
+      "suppliedLabel": "Lady Whiplash"
+    },
+    {
+      "sourceName": "Bitcoin",
+      "displayName": "Bitcoin",
+      "playerId": "384747110",
+      "points": 11946691,
+      "identityStatus": "verified_registry"
+    },
+    {
+      "sourceName": "EvolutionOnoo99",
+      "displayName": "EvolutionOnoo99",
+      "playerId": "248033270",
+      "points": 11772499,
+      "identityStatus": "verified_registry"
+    }
+  ]
+}

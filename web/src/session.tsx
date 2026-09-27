@@ -161,6 +161,8 @@ export function SessionProvider({
       createEvent: guard(inner.createEvent),
       updateEvent: guard(inner.updateEvent),
       configureEventSession: guard(inner.configureEventSession),
+      setEventScore: guard(inner.setEventScore),
+      importEventScores: guard(inner.importEventScores),
       answer: guard(inner.answer),
       attendance: guard(inner.attendance),
       reliability: guard(inner.reliability),
