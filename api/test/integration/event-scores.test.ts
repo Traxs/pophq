@@ -112,5 +112,11 @@ describe("SvS and KOI scoreboards", () => {
       scope: "mine",
     })]);
     expect(JSON.stringify(playerEvent)).not.toContain("900000");
+
+    const officerDetail = await h.call("GET", `/events/${pastEventId}`, OFFICER);
+    expect(officerDetail.body.members).toEqual(expect.arrayContaining([
+      expect.objectContaining({ playerId: "100000005", attended: "present" }),
+      expect.objectContaining({ playerId: "100000001", attended: "present" }),
+    ]));
   });
 });

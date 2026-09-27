@@ -160,10 +160,15 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const byEvent = new Map<string, Set<string>>();
     const byPlayer = new Map<string, Set<string>>();
     await Promise.all(events.map(async (event) => {
+      const [sessionResults, phaseResults] = await Promise.all([
+        repo.listResults(event.eventId),
+        Promise.all(phasesForEvent(event.kind).map((phase) => repo.getEventPhaseScores(event.eventId, phase.key))),
+      ]);
       const players = new Set(
-        (await repo.listResults(event.eventId)).flatMap((result) =>
-          result.playerPoints.filter((row) => row.points > 0).map((row) => row.playerId),
-        ),
+        [
+          ...sessionResults.flatMap((result) => result.playerPoints),
+          ...phaseResults.flatMap((result) => result?.playerPoints ?? []),
+        ].filter((row) => row.points > 0).map((row) => row.playerId),
       );
       byEvent.set(event.eventId, players);
       for (const playerId of players) {
@@ -2191,8 +2196,15 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const lineups = new Map((await repo.listLineups(event.eventId)).map((l) => [l.sessionId, l]));
     const strategies = new Map((await repo.listStrategies(event.eventId)).map((strategy) => [strategy.sessionId, strategy]));
     const results = new Map((await repo.listResults(event.eventId)).map((result) => [result.sessionId, result]));
+    const phaseScores = new Map(await Promise.all(phasesForEvent(event.kind).map(async (phase) => [
+      phase.key,
+      await repo.getEventPhaseScores(event.eventId, phase.key),
+    ] as const)));
     const scoredPlayers = new Set(
-      [...results.values()].flatMap((result) => result.playerPoints.filter((row) => row.points > 0).map((row) => row.playerId)),
+      [
+        ...[...results.values()].flatMap((result) => result.playerPoints),
+        ...[...phaseScores.values()].flatMap((result) => result?.playerPoints ?? []),
+      ].filter((row) => row.points > 0).map((row) => row.playerId),
     );
     // People in a published lineup need their strength shown too, even if an officer put someone
     // there who never answered.
@@ -2327,7 +2339,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
 
     const scoreboards = phasesForEvent(event.kind).length > 0
       ? Object.fromEntries(await Promise.all(phasesForEvent(event.kind).map(async (phase) => {
-          const record = await repo.getEventPhaseScores(event.eventId, phase.key);
+          const record = phaseScores.get(phase.key);
           const visible = isOfficer(p) ? (record?.playerPoints ?? []) : (record?.playerPoints ?? []).filter((row) => row.playerId === acting);
           const entries = visible.map((row, index) => ({ ...row, rank: isOfficer(p) ? index + 1 : undefined, name: byName.get(row.playerId) ?? row.playerId, mine: row.playerId === acting }));
           return [phase.key, {

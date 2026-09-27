@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ApiError,
   type Answer,
   type AttendanceStatus,
   type EventDetail,
   type EventOutcome,
+  type EventListItem,
   type EventMember,
   type EventScorePhase,
   type EventScoreboard,
@@ -17,18 +18,25 @@ import {
   type StrategyRole,
 } from "../api";
 import { ErrorBanner } from "../components/Chrome";
+import { LineChart } from "../components/LineChart";
 import { useToast } from "../components/Toast";
 import { MiniChart } from "../components/MiniChart";
-import { compact, dayTime, full, relativeDay, shortTime, untilText } from "../format";
+import { compact, dayTime, full, relativeDay, shortDate, shortTime, untilText } from "../format";
 import { countDraft, draftFor, entriesToPublish, type LineupDraftRow } from "../lineup";
 import { navigate } from "../router";
 import { useSession } from "../session";
 import { assignmentsToPublish, StrategyText, strategyDraftFor, type StrategyDraftAssignment } from "../strategy";
+import { completedAttendanceLabel, completedEventRows, type CompletedAttendance } from "../eventReport";
+import { eventTimeline, type EventTimelinePoint } from "../eventTimeline";
+
+const ALL_EVENT_HISTORY = "1970-01-01T00:00:00.000Z";
 
 /** One event in full: the parts you can join, who signed up, and the officer table. */
 export function EventPage({ eventId }: { eventId: string }) {
   const { api, account, isOfficer, dataVersion, dataChanged } = useSession();
   const [event, setEvent] = useState<EventDetail | null>(null);
+  const [history, setHistory] = useState<EventListItem[] | null>(null);
+  const [historyError, setHistoryError] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const toast = useToast();
@@ -42,6 +50,13 @@ export function EventPage({ eventId }: { eventId: string }) {
       })
       .catch((e: Error) => setError(e.message));
   }, [api, eventId, dataVersion]);
+
+  useEffect(() => {
+    setHistoryError(false);
+    api.events(ALL_EVENT_HISTORY)
+      .then((result) => setHistory(result.items))
+      .catch(() => setHistoryError(true));
+  }, [api, dataVersion, eventId]);
 
   const choose = async (answer: Answer, sessionId?: string) => {
     if (!account) return;
@@ -136,7 +151,7 @@ export function EventPage({ eventId }: { eventId: string }) {
 
       {error && <p className="banner banner-error" role="alert">{error}</p>}
 
-      {event.scoreboards && (
+      {!completed && event.scoreboards && (
         <EventScoreboards
           eventId={event.eventId}
           scoreboards={event.scoreboards}
@@ -153,6 +168,7 @@ export function EventPage({ eventId }: { eventId: string }) {
             <li key={session.id}>
               <SessionCard
                 session={session}
+                completed={completed}
                 closed={event.closed && !isOfficer}
                 busy={busy}
                 canAnswer={!completed && account !== undefined}
@@ -169,6 +185,9 @@ export function EventPage({ eventId }: { eventId: string }) {
         <p className="muted">This event has no parts to choose between.</p>
       ) : null}
 
+      {completed && history && <EventProgression current={event} items={history} />}
+      {completed && historyError && <p className="banner banner-error">Couldn't load the event comparison.</p>}
+
       {completed ? null : account && event.myAnswer === "yes" ? (
         <button
           type="button"
@@ -184,14 +203,133 @@ export function EventPage({ eventId }: { eventId: string }) {
 
       {isOfficer && event.checklist && <EventChecklist event={event} />}
 
-      {isOfficer && event.members && <OfficerTable event={event} members={event.members} />}
+      {isOfficer && event.members && (completed
+        ? <CompletedEventReport event={event} members={event.members} />
+        : <OfficerTable event={event} members={event.members} />)}
+
+      {completed && event.scoreboards && (
+        <EventScoreboards
+          eventId={event.eventId}
+          scoreboards={event.scoreboards}
+          completed
+          {...(account ? { playerId: account.playerId } : {})}
+          isOfficer={isOfficer}
+          onChanged={dataChanged}
+          onError={setError}
+        />
+      )}
     </>
+  );
+}
+
+function outcomeSummary(point: EventTimelinePoint): string {
+  const parts = [
+    point.wins > 0 ? `${point.wins}W` : "",
+    point.losses > 0 ? `${point.losses}L` : "",
+    point.draws > 0 ? `${point.draws}D` : "",
+  ].filter(Boolean);
+  return parts.join(" · ");
+}
+
+/** Oldest-to-newest comparison, with the event being viewed anchored in the timeline. */
+function EventProgression({ current, items }: { current: EventDetail; items: EventListItem[] }) {
+  const points = eventTimeline(items, current.kind, current.eventId);
+  if (points.length === 0) return null;
+  const resultPoints = points.filter((point): point is EventTimelinePoint & { performance: number } => point.performance !== null);
+  const preparationPoints = points.filter((point): point is EventTimelinePoint & { preparation: number } => point.preparation !== null);
+  const battlePoints = points.filter((point): point is EventTimelinePoint & { battle: number } => point.battle !== null);
+  const memberScope = points.some((point) => point.phaseScope === "mine");
+
+  return (
+    <section className="card event-progression" aria-labelledby="event-progression-title">
+      <div className="event-progression-head">
+        <div>
+          <p className="section-label">Progress over time</p>
+          <h2 id="event-progression-title">How this event compares</h2>
+          <p className="muted small">
+            Oldest to newest · the event you are viewing is highlighted
+            {memberScope ? " · phase totals are your recorded scores" : ""}.
+          </p>
+        </div>
+        <span className="pill pill-flat">{points.length} recorded event{points.length === 1 ? "" : "s"}</span>
+      </div>
+
+      {points.length === 1 && <p className="event-progression-first">This is the first recorded {current.title} result. The next one will appear here for comparison.</p>}
+
+      <div className="event-timeline" aria-label={`${current.title} event timeline`}>
+        {points.map((point, index) => {
+          const previous = points[index - 1];
+          const performanceChange = point.performance !== null && previous?.performance !== null && previous?.performance !== undefined
+            ? point.performance - previous.performance
+            : null;
+          const card = (
+            <>
+              <div className="event-timeline-card-head">
+                <span>{shortDate(point.startsAt)}</span>
+                {point.current && <strong>Viewing</strong>}
+              </div>
+              <b>{point.title}</b>
+              {point.results > 0 && (
+                <>
+                  <span className="event-timeline-outcome">{outcomeSummary(point)}</span>
+                  <strong>{full(point.ourScore ?? 0)} – {full(point.opponentScore ?? 0)}</strong>
+                  <small>
+                    {point.performance?.toFixed(1)}% score share
+                    {performanceChange !== null && ` · ${performanceChange >= 0 ? "+" : ""}${performanceChange.toFixed(1)} pts`}
+                  </small>
+                </>
+              )}
+              {(point.preparation !== null || point.battle !== null) && (
+                <div className="event-timeline-phases">
+                  <span><small>Preparation</small><strong>{point.preparation === null ? "–" : compact(point.preparation)}</strong></span>
+                  <span><small>Battle</small><strong>{point.battle === null ? "–" : compact(point.battle)}</strong></span>
+                  {point.phaseCoverage && <em>{point.phaseCoverage === "complete" ? "Complete" : "Partial data"}</em>}
+                </div>
+              )}
+            </>
+          );
+          return point.current
+            ? <div key={point.eventId} className="event-timeline-card current" aria-current="true">{card}</div>
+            : <button key={point.eventId} type="button" className="event-timeline-card" onClick={() => navigate(`/events/${point.eventId}`)}>{card}</button>;
+        })}
+      </div>
+
+      {(resultPoints.length > 1 || preparationPoints.length > 1 || battlePoints.length > 1) && (
+        <div className="event-progression-charts">
+          {resultPoints.length > 1 && (
+            <div className="event-progression-chart">
+              <span className="section-label">Team performance</span>
+              <LineChart
+                points={resultPoints.map((point) => ({ at: point.startsAt, value: point.performance }))}
+                height={145}
+                label={`${current.title} score share over time`}
+                format={(value) => `${value.toFixed(0)}%`}
+                detailFormat={(value) => `${value.toFixed(1)}% score share`}
+              />
+            </div>
+          )}
+          {preparationPoints.length > 1 && (
+            <div className="event-progression-chart">
+              <span className="section-label">Preparation points</span>
+              <LineChart points={preparationPoints.map((point) => ({ at: point.startsAt, value: point.preparation }))} height={145} label={`${current.title} preparation points over time`} />
+            </div>
+          )}
+          {battlePoints.length > 1 && (
+            <div className="event-progression-chart">
+              <span className="section-label">Battle points</span>
+              <LineChart points={battlePoints.map((point) => ({ at: point.startsAt, value: point.battle }))} height={145} label={`${current.title} battle points over time`} />
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
 function EventScoreboards({
   eventId,
   scoreboards,
+  completed = false,
   playerId,
   isOfficer,
   onChanged,
@@ -199,6 +337,7 @@ function EventScoreboards({
 }: {
   eventId: string;
   scoreboards: Record<EventScorePhase, EventScoreboard>;
+  completed?: boolean;
   playerId?: string;
   isOfficer: boolean;
   onChanged: () => void;
@@ -219,6 +358,7 @@ function EventScoreboards({
   const [saving, setSaving] = useState(false);
   const board = scoreboards[active];
   const mine = board.entries.find((entry) => entry.playerId === playerId);
+  const compactHistory = completed && isOfficer;
 
   useEffect(() => setScore(mine ? String(mine.points) : ""), [active, mine?.points]);
 
@@ -280,7 +420,7 @@ function EventScoreboards({
         ))}
       </div>
 
-      {playerId && (
+      {!compactHistory && playerId && (
         <div className="my-event-score">
           <div>
             <strong>Your {board.phaseLabel.toLowerCase()} score</strong>
@@ -295,7 +435,9 @@ function EventScoreboards({
 
       {isOfficer && <div className="score-summary"><span><strong>{board.scoredPlayers}</strong> scored players</span><span><strong>{full(board.reportedPlayerSubtotal)}</strong> reported-player subtotal</span><span className="pill pill-flat">{board.coverage === "complete" ? "Complete" : "Partial data"}</span></div>}
 
-      {board.entries.length > 0 ? (
+      {compactHistory ? (
+        <p className="muted small score-history-note">Individual scores and attendance evidence are shown in the completed-event report above.</p>
+      ) : board.entries.length > 0 ? (
         <div className="table-wrap score-table-wrap">
           <table className="table score-table">
             <thead><tr>{isOfficer && <th>Rank</th>}<th>Member</th><th>Exact score</th></tr></thead>
@@ -312,7 +454,19 @@ function EventScoreboards({
 
       {isOfficer && (
         <details className="score-import">
-          <summary>Import player scores</summary>
+          <summary>{compactHistory ? "Correct or import score data" : "Import player scores"}</summary>
+          {compactHistory && playerId && (
+            <div className="my-event-score">
+              <div>
+                <strong>Your {board.phaseLabel.toLowerCase()} score</strong>
+                <small>{mine ? "Recorded — you can correct it" : "Not in the visible top 100? Add your exact score here."}</small>
+              </div>
+              <input aria-label={`Your ${board.phaseLabel.toLowerCase()} score`} inputMode="numeric" placeholder="0" value={score} onChange={(event) => setScore(event.target.value)} />
+              <button type="button" className="btn btn-primary btn-small" disabled={saving} onClick={() => void saveMine()}>
+                {saving ? "…" : mine ? "Update" : "Add score"}
+              </button>
+            </div>
+          )}
           <p className="muted small">One row per player: Player ID, exact score. Omitted players remain unchanged.</p>
           <label>Data completeness<select value={coverage} onChange={(event) => setCoverage(event.target.value as "partial" | "complete")}><option value="partial">Partial — more scores may be missing</option><option value="complete">Complete — all scores confirmed</option></select></label>
           <textarea value={paste} onChange={(event) => setPaste(event.target.value)} placeholder={"401234567, 987654321\n409876543, 876543210"} />
@@ -341,6 +495,7 @@ function parseOfficialScorePaste(raw: string): { playerId: string; points: numbe
 
 function SessionCard({
   session,
+  completed,
   closed,
   busy,
   canAnswer,
@@ -353,6 +508,7 @@ function SessionCard({
   onRecordResult,
 }: {
   session: SessionView;
+  completed: boolean;
   closed: boolean;
   busy: string | null;
   canAnswer: boolean;
@@ -409,7 +565,7 @@ function SessionCard({
         )}
       </div>
 
-      {capacity !== null ? (
+      {!completed && capacity !== null ? (
         <>
           <p className="muted small">
             {startersFilled} of {starters} starting
@@ -435,12 +591,12 @@ function SessionCard({
             )}
           </div>
         </>
-      ) : (
+      ) : !completed ? (
         <p className="muted small">{session.signedUp} signed up</p>
-      )}
+      ) : null}
 
       {/* Once a lineup is published it answers "am I playing?", so the estimate steps aside. */}
-      {session.lineup ? (
+      {!completed && (session.lineup ? (
         session.yourPlace ? (
           <p className={session.yourPlace.role === "starter" ? "pill pill-up" : "pill pill-warn"}>
             {session.yourPlace.role === "starter"
@@ -459,22 +615,37 @@ function SessionCard({
             {session.yourStanding.signedUp} by Foundry strength — estimate, officers pick the lineup
           </p>
         )
+      ))}
+
+      {completed && session.result && <ResultView result={session.result} hidePlayerPoints={isOfficer} />}
+      {completed && !session.result && <p className="event-result-missing">No result has been recorded for this part.</p>}
+
+      {completed ? (
+        (session.lineup || session.strategy) && (
+          <details className="completed-planning-record">
+            <summary>Lineup &amp; strategy record</summary>
+            {session.lineup && <LineupList lineup={session.lineup} myPlayerId={myPlayerId} />}
+            {session.strategy && <StrategyView strategy={session.strategy} myPlayerId={myPlayerId} />}
+            {session.yourAssignment && <p className="pill pill-flat">Your assignment: {session.yourAssignment.role}{session.yourAssignment.duty ? ` · ${session.yourAssignment.duty}` : ""}</p>}
+          </details>
+        )
+      ) : (
+        <>
+          {session.lineup && <LineupList lineup={session.lineup} myPlayerId={myPlayerId} />}
+          {session.strategy && <StrategyView strategy={session.strategy} myPlayerId={myPlayerId} />}
+        </>
       )}
 
-      {session.lineup && <LineupList lineup={session.lineup} myPlayerId={myPlayerId} />}
+      {!completed && session.result && <ResultView result={session.result} />}
 
-      {session.strategy && <StrategyView strategy={session.strategy} myPlayerId={myPlayerId} />}
-
-      {session.result && <ResultView result={session.result} />}
-
-      {session.yourAssignment && (
+      {!completed && session.yourAssignment && (
         <p className="pill pill-flat">
           Your assignment: {session.yourAssignment.role}
           {session.yourAssignment.duty ? ` · ${session.yourAssignment.duty}` : ""}
         </p>
       )}
 
-      {session.signedUpList.length > 0 && (
+      {!completed && session.signedUpList.length > 0 && (
         <details className="signups">
           <summary className="text-btn">Who signed up ({session.signedUpList.length})</summary>
           <div className="table-wrap">
@@ -523,20 +694,26 @@ function SessionCard({
         </details>
       )}
 
-      {isOfficer && onPublish && (
-        <LineupEditor session={session} onPublish={onPublish} />
-      )}
-      {isOfficer && onPublishStrategy && (
-        <StrategyEditor session={session} template={strategyTemplate} onPublish={onPublishStrategy} />
-      )}
-      {isOfficer && onRecordResult && Date.parse(session.startsAt) <= Date.now() && (
-        <ResultEditor session={session} onSave={onRecordResult} />
+      {completed && isOfficer ? (
+        <details className="completed-event-tools">
+          <summary>Officer corrections</summary>
+          <p className="muted small">Historical signup, lineup, strategy and result corrections.</p>
+          {onPublish && <LineupEditor session={session} onPublish={onPublish} />}
+          {onPublishStrategy && <StrategyEditor session={session} template={strategyTemplate} onPublish={onPublishStrategy} />}
+          {onRecordResult && <ResultEditor session={session} onSave={onRecordResult} />}
+        </details>
+      ) : (
+        <>
+          {isOfficer && onPublish && <LineupEditor session={session} onPublish={onPublish} />}
+          {isOfficer && onPublishStrategy && <StrategyEditor session={session} template={strategyTemplate} onPublish={onPublishStrategy} />}
+          {isOfficer && onRecordResult && Date.parse(session.startsAt) <= Date.now() && <ResultEditor session={session} onSave={onRecordResult} />}
+        </>
       )}
     </article>
   );
 }
 
-function ResultView({ result }: { result: PublishedResult }) {
+function ResultView({ result, hidePlayerPoints = false }: { result: PublishedResult; hidePlayerPoints?: boolean }) {
   const outcome = result.outcome === "win" ? "Victory" : result.outcome === "loss" ? "Defeat" : "Draw";
   return (
     <section className="strategy stack" aria-label="Event result">
@@ -552,7 +729,10 @@ function ResultView({ result }: { result: PublishedResult }) {
         </p>
       )}
       {result.notes && <p className="event-notes">{result.notes}</p>}
-      {result.playerPoints.map((row) => (
+      {hidePlayerPoints && result.playerPoints.length > 0 && (
+        <p className="muted small">{result.playerPoints.length} individual score{result.playerPoints.length === 1 ? "" : "s"} recorded · shown in the attendance report below</p>
+      )}
+      {!hidePlayerPoints && result.playerPoints.map((row) => (
         <p key={row.playerId} className="pill pill-up">{row.name}: {full(row.points)} points</p>
       ))}
     </section>
@@ -962,7 +1142,139 @@ function EventChecklist({ event }: { event: EventDetail }) {
   );
 }
 
-/** Officer view: every member with the numbers needed to balance the legions (EVT-04). */
+type CompletedReportFilter = "records" | "all" | CompletedAttendance;
+
+/** Completed events lead with evidence and results, not the pre-event planning controls. */
+function CompletedEventReport({ event, members }: { event: EventDetail; members: EventMember[] }) {
+  const { api, dataChanged } = useSession();
+  const toast = useToast();
+  const [filter, setFilter] = useState<CompletedReportFilter>("records");
+  const [query, setQuery] = useState("");
+  const [saving, setSaving] = useState<string | null>(null);
+  const rows = useMemo(() => completedEventRows({ ...event, members }), [event, members]);
+  const counts = rows.reduce<Record<CompletedAttendance, number>>((result, row) => {
+    result[row.attendance] += 1;
+    return result;
+  }, { present: 0, absent: 0, excused: 0, unrecorded: 0 });
+  const recordCount = rows.filter((row) => row.hasEventRecord).length;
+  const hasPhaseScores = Boolean(event.scoreboards);
+  const phaseSummaries = event.scoreboards
+    ? (["preparation", "castle_battle"] as const).map((phase) => event.scoreboards![phase])
+    : [];
+  const visible = rows.filter((row) => {
+    if (filter === "records" && !row.hasEventRecord) return false;
+    if (filter !== "records" && filter !== "all" && row.attendance !== filter) return false;
+    const normalized = query.trim().toLowerCase();
+    return !normalized || row.member.name.toLowerCase().includes(normalized) || row.member.playerId.includes(normalized);
+  });
+
+  const mark = async (member: EventMember, status: AttendanceStatus) => {
+    setSaving(member.playerId);
+    try {
+      await api.attendance(event.eventId, member.playerId, status, member.sessionId ?? undefined);
+      toast(`${member.name}: ${status === "present" ? "attended" : status === "absent" ? "did not attend" : status}`);
+      dataChanged();
+    } catch (error) {
+      toast(error instanceof ApiError ? error.message : "Couldn't save attendance");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const statusClass = (status: CompletedAttendance) => status === "present"
+    ? "pill-up"
+    : status === "absent"
+      ? "pill-down"
+      : status === "excused"
+        ? "pill-warn"
+        : "pill-flat";
+
+  return (
+    <section className="card completed-event-report" aria-labelledby="completed-report-title">
+      <div className="completed-report-head">
+        <div>
+          <p className="section-label">Completed event</p>
+          <h2 id="completed-report-title">Attendance &amp; individual scores</h2>
+          <p className="muted small">A positive recorded score counts as attendance evidence. Missing evidence stays “Not reviewed”—it is never silently changed to absent.</p>
+        </div>
+        <span className="pill pill-flat">{recordCount} event records</span>
+      </div>
+
+      {phaseSummaries.length > 0 && (
+        <div className="completed-score-summaries" aria-label="Event score overview">
+          {phaseSummaries.map((board) => (
+            <div key={board.phaseLabel}>
+              <span>{board.phaseLabel}</span>
+              <strong>{board.scoredPlayers} scored</strong>
+              <small>{full(board.reportedPlayerSubtotal)} reported points · {board.coverage === "complete" ? "complete" : "partial data"}</small>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="completed-report-filters" role="group" aria-label="Filter completed event report">
+        <button type="button" className={filter === "records" ? "active" : ""} onClick={() => setFilter("records")}><strong>{recordCount}</strong><span>Event records</span></button>
+        <button type="button" className={filter === "present" ? "active" : ""} onClick={() => setFilter("present")}><strong>{counts.present}</strong><span>Attended</span></button>
+        <button type="button" className={filter === "absent" ? "active" : ""} onClick={() => setFilter("absent")}><strong>{counts.absent}</strong><span>Did not attend</span></button>
+        <button type="button" className={filter === "excused" ? "active" : ""} onClick={() => setFilter("excused")}><strong>{counts.excused}</strong><span>Excused</span></button>
+        <button type="button" className={filter === "unrecorded" ? "active" : ""} onClick={() => setFilter("unrecorded")}><strong>{counts.unrecorded}</strong><span>Not reviewed</span></button>
+        <button type="button" className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}><strong>{rows.length}</strong><span>All members</span></button>
+      </div>
+
+      <input className="search" type="search" placeholder="Search member or Player ID" aria-label="Search completed event report" value={query} onChange={(change) => setQuery(change.target.value)} />
+
+      <div className="table-wrap completed-report-table-wrap">
+        <table className="table completed-report-table">
+          <thead>
+            <tr>
+              <th scope="col">Member</th>
+              <th scope="col">Signup</th>
+              <th scope="col">Lineup</th>
+              <th scope="col">Attendance</th>
+              {hasPhaseScores ? <><th scope="col" className="num">Preparation</th><th scope="col" className="num">Battle</th></> : <th scope="col" className="num">Player score</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map((row) => (
+              <tr key={row.member.playerId}>
+                <td><strong>{row.member.name}</strong>{row.member.rank && <span className="muted small"> · {row.member.rank}</span>}<small>{row.member.playerId}</small></td>
+                <td>{row.answerLabel}</td>
+                <td>{row.lineupLabel ?? "–"}</td>
+                <td>
+                  <div className="completed-attendance-cell">
+                    <span className={`pill ${statusClass(row.attendance)}`}>{completedAttendanceLabel(row.attendance)}</span>
+                    {row.attendanceEvidence === "score" && <small>Score evidence</small>}
+                    <select aria-label={`Attendance for ${row.member.name}`} disabled={saving === row.member.playerId} value={row.attendance === "unrecorded" ? "unknown" : row.attendance} onChange={(change) => void mark(row.member, change.target.value as AttendanceStatus)}>
+                      <option value="unknown">Not reviewed</option>
+                      <option value="present">Attended</option>
+                      <option value="absent">Did not attend</option>
+                      <option value="excused">Excused</option>
+                    </select>
+                  </div>
+                </td>
+                {hasPhaseScores ? (
+                  <>
+                    <td className="num">{row.preparationPoints === null ? "–" : full(row.preparationPoints)}</td>
+                    <td className="num">{row.castleBattlePoints === null ? "–" : full(row.castleBattlePoints)}</td>
+                  </>
+                ) : (
+                  <td className="num completed-score-cell">
+                    {row.sessionScores.length === 0 ? "–" : row.sessionScores.map((score) => (
+                      <span key={score.sessionId}><small>{score.label}</small><strong>{full(score.points)}</strong></span>
+                    ))}
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {visible.length === 0 && <p className="muted center table-empty">No members match this view.</p>}
+      </div>
+    </section>
+  );
+}
+
+/** Officer view: every member with the numbers needed to balance upcoming legions (EVT-04). */
 function OfficerTable({ event, members }: { event: EventDetail; members: EventMember[] }) {
   const { api, dataChanged } = useSession();
   const toast = useToast();
