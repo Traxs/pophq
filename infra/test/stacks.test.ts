@@ -233,6 +233,7 @@ describe("AppStack", () => {
       Assets: Match.arrayWith([
         Match.objectLike({ Category: "FORM_LOGO", ColorMode: "LIGHT", Extension: "PNG" }),
         Match.objectLike({ Category: "FAVICON_ICO", ColorMode: "DARK", Extension: "ICO" }),
+        Match.objectLike({ Category: "FAVICON_SVG", ColorMode: "DARK", Extension: "SVG" }),
       ]),
     });
     // Branding images are inlined into the template, which CloudFormation caps at 1 MB.
