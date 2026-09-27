@@ -3496,3 +3496,8 @@ button.event-timeline-card:hover { border-color: color-mix(in srgb, var(--accent
   display: block;
   margin-top: 0.2rem;
 }
+
+.roster-scope { margin: 14px 0 10px; }
+.roster-scope button { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.roster-scope button span { min-width: 24px; padding: 2px 7px; border-radius: 999px; background: var(--surface-2); color: var(--muted); font-size: 0.78em; }
+.roster-scope button.active span { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }

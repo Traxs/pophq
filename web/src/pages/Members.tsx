@@ -18,7 +18,8 @@ import { navigate } from "../router";
 import { useSession } from "../session";
 
 type SortKey = "name" | "rank" | "foundry";
-type Filter = "all" | "active" | "unknown" | "transferred_out" | "unlinked" | "noFoundry";
+type Filter = "all" | "active" | "unknown" | "unlinked" | "noFoundry";
+type RosterScope = "current" | "former";
 
 const COMPARE: Record<SortKey, (a: RosterRow, b: RosterRow) => number> = {
   name: (a, b) => a.name.localeCompare(b.name),
@@ -35,6 +36,7 @@ export function Members() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
+  const [scope, setScope] = useState<RosterScope>("current");
   const [sort, setSort] = useState<SortKey>("foundry");
   const [attempt, setAttempt] = useState(0);
 
@@ -55,15 +57,16 @@ export function Members() {
     if (!rows) return [];
     const q = query.trim().toLowerCase();
     return rows
+      .filter((r) => scope === "former" ? r.status === "transferred_out" : r.status !== "transferred_out" && r.status !== "archived")
       .filter((r) => !q || r.name.toLowerCase().includes(q) || r.playerId.includes(q) || (r.aliases ?? []).some((alias) => alias.toLowerCase().includes(q)))
       .filter((r) => {
         if (filter === "noFoundry") return r.foundryStrength === null;
         if (filter === "unlinked") return !r.hasLogin;
-        if (filter !== "all") return r.status === filter;
+        if (scope === "current" && filter !== "all") return r.status === filter;
         return true;
       })
       .toSorted(COMPARE[sort]);
-  }, [rows, query, filter, sort]);
+  }, [rows, query, filter, scope, sort]);
 
   if (!isOfficer) {
     return (
@@ -83,6 +86,8 @@ export function Members() {
     }),
     { active: 0, unknown: 0, transferred_out: 0, guest: 0, unlinked: 0, noFoundry: 0 } as Record<string, number>,
   );
+  const currentCount = rows?.filter((row) => row.status !== "transferred_out" && row.status !== "archived").length ?? 0;
+  const formerCount = counts?.transferred_out ?? 0;
 
   const header = (key: SortKey, label: string, className = "") => (
     <th scope="col" className={className} aria-sort={sort === key ? (key === "name" ? "ascending" : "descending") : "none"}>
@@ -108,7 +113,7 @@ export function Members() {
 
       <Sheet open={inviting} title="Invite a member" onClose={() => setInviting(false)}>
         <InviteMemberForm
-          candidates={rows ?? []}
+          candidates={(rows ?? []).filter((row) => row.status !== "transferred_out" && row.status !== "archived")}
           onChanged={dataChanged}
           onClose={() => setInviting(false)}
         />
@@ -117,12 +122,20 @@ export function Members() {
       <section className="roster-section" aria-labelledby="roster-title">
         <div className="roster-head">
           <div>
-            <h2 id="roster-title">Roster</h2>
+            <h2 id="roster-title">{scope === "current" ? "Active roster" : "Former members"}</h2>
             <p className="muted small">
-              {rows ? `${rows.length} alliance accounts` : "Loading accounts…"}
-              {seats && ` · ${seats.used} of ${seats.cap} sign-in seats used`}
+              {rows ? scope === "current" ? `${currentCount} current alliance accounts` : `${formerCount} former alliance accounts` : "Loading accounts…"}
+              {scope === "current" && seats && ` · ${seats.used} of ${seats.cap} sign-in seats used`}
             </p>
           </div>
+        </div>
+        <div className="segmented roster-scope" role="tablist" aria-label="Roster membership">
+          <button type="button" role="tab" aria-selected={scope === "current"} className={scope === "current" ? "active" : ""} onClick={() => { setScope("current"); setFilter("all"); }}>
+            Active roster <span>{currentCount}</span>
+          </button>
+          <button type="button" role="tab" aria-selected={scope === "former"} className={scope === "former" ? "active" : ""} onClick={() => { setScope("former"); setFilter("all"); }}>
+            Former members <span>{formerCount}</span>
+          </button>
         </div>
         <div className="roster-toolbar">
           <input
@@ -133,17 +146,16 @@ export function Members() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          <label className="filter-select">
+          {scope === "current" && <label className="filter-select">
             <span className="visually-hidden">Filter roster</span>
             <select value={filter} onChange={(e) => setFilter(e.target.value as Filter)}>
-              <option value="all">All accounts ({rows?.length ?? 0})</option>
+              <option value="all">All current accounts ({currentCount})</option>
               <option value="active">Confirmed members ({counts?.active ?? 0})</option>
               <option value="unknown">Unconfirmed ({counts?.unknown ?? 0})</option>
-              <option value="transferred_out">Former members ({counts?.transferred_out ?? 0})</option>
               <option value="unlinked">No login ({counts?.unlinked ?? 0})</option>
               <option value="noFoundry">Missing Foundry strength ({counts?.noFoundry ?? 0})</option>
             </select>
-          </label>
+          </label>}
         </div>
 
         {unresolvedSources.length > 0 && (
@@ -208,7 +220,7 @@ export function Members() {
               </tbody>
               </table>
             </div>
-            {visible.length === 0 && <p className="muted center table-empty">No members match.</p>}
+            {visible.length === 0 && <p className="muted center table-empty">{scope === "former" ? "No former members match." : "No members match."}</p>}
           </div>
         )}
       </section>

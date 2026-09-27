@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseGameName, parsePlayerId, searchKey } from "./identity.js";
+import { membershipPeriods, parseGameName, parsePlayerId, searchKey, wasMemberAt, type IdentityAuditRecord } from "./identity.js";
 import { ValidationError } from "./errors.js";
 
 describe("parsePlayerId", () => {
@@ -37,5 +37,39 @@ describe("parseGameName", () => {
 describe("searchKey", () => {
   it("case-folds and collapses whitespace", () => {
     expect(searchKey("  Ice   QUEEN ")).toBe("ice queen");
+  });
+});
+
+describe("membership periods", () => {
+  const change = (action: "membership_left" | "membership_restored", performedAt: string, auditId: string): IdentityAuditRecord => ({
+    auditId,
+    action,
+    subjectPlayerId: "10001",
+    affectedPlayerIds: ["10001"],
+    justification: "test membership change",
+    performedAt,
+    performedBy: "officer",
+  });
+
+  it("leaves the history of legacy accounts unrestricted", () => {
+    const periods = membershipPeriods(["2026-01-01T00:00:00.000Z"], [], true);
+    expect(periods).toEqual([]);
+    expect(wasMemberAt(periods, "2025-01-01T00:00:00.000Z")).toBe(true);
+  });
+
+  it("closes the departure gap and opens a fresh period on return", () => {
+    const periods = membershipPeriods([
+      "2026-01-01T00:00:00.000Z",
+    ], [
+      change("membership_left", "2026-03-01T00:00:00.000Z", "left"),
+      change("membership_restored", "2026-05-01T00:00:00.000Z", "back"),
+    ], true);
+    expect(periods).toEqual([
+      { from: "2026-01-01T00:00:00.000Z", to: "2026-03-01T00:00:00.000Z" },
+      { from: "2026-05-01T00:00:00.000Z" },
+    ]);
+    expect(wasMemberAt(periods, "2026-02-01T00:00:00.000Z")).toBe(true);
+    expect(wasMemberAt(periods, "2026-04-01T00:00:00.000Z")).toBe(false);
+    expect(wasMemberAt(periods, "2026-06-01T00:00:00.000Z")).toBe(true);
   });
 });

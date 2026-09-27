@@ -45,7 +45,7 @@ import { canonicalJson, issueAgentToken } from "../domain/agentTokens.js";
 import { HISTORICAL_CATEGORIES, parseHistoricalRecord, type HistoricalCategory } from "../domain/historicalRecords.js";
 import { authenticateAgent, effectiveBotScopes, publicAgentToken, type BotIssuerGroups } from "./agentAuth.js";
 import { listEventTypes } from "../ops/eventTypes.js";
-import { parseGameName, parseIdentityJustification, parsePlayerId } from "../domain/identity.js";
+import { membershipPeriods, parseGameName, parseIdentityJustification, parsePlayerId, wasMemberAt, type MembershipPeriod } from "../domain/identity.js";
 import { allianceAttendance, allianceGrowth, buckets, currentOf, seriesOf } from "../domain/metrics.js";
 import { monthlyAttendance, monthlyValues, trailingAverage } from "../domain/trends.js";
 import { activeReports, currentValues, parseImportedReport, parseReport } from "../domain/measurements.js";
@@ -167,6 +167,16 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       ...linked.map((ids) => ids.flatMap((id) => byId.get(id) ?? [])),
       ...accounts.filter((account) => !groupedIds.has(account.playerId)).map((account) => [account]),
     ].filter((group) => group.length > 0);
+  };
+
+  const membershipPeriodsFor = async (accounts: readonly GameAccount[]): Promise<MembershipPeriod[]> => {
+    const audits = (await Promise.all(accounts.map((account) => repo.listIdentityAudit(account.playerId)))).flat();
+    const currentlyIncluded = accounts.some((account) => account.status === "active" || account.status === "unknown" || account.status === "guest");
+    return membershipPeriods(
+      accounts.map((account) => account.createdAt).filter((value): value is string => Boolean(value)),
+      audits,
+      currentlyIncluded,
+    );
   };
 
   const attendanceForPerson = (
@@ -313,6 +323,12 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const accounts = (await repo.listAccounts(alliance)).filter(
       (account) => account.status === "active" || account.status === "unknown",
     );
+    const people = await attendancePeople(accounts);
+    const periodsByPlayer = new Map<string, MembershipPeriod[]>();
+    await Promise.all(people.map(async (group) => {
+      const periods = await membershipPeriodsFor(group);
+      for (const account of group) periodsByPlayer.set(account.playerId, periods);
+    }));
     const details = await Promise.all(
       accounts.map(async (account) => {
         const reports = await repo.listReports(account.playerId);
@@ -324,8 +340,13 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           scoreEvidence: [...(scores.byPlayer.get(account.playerId) ?? [])],
           now: at,
           ...(account.createdAt ? { knownSince: account.createdAt } : {}),
+          membershipPeriods: periodsByPlayer.get(account.playerId) ?? [],
         });
-        const kudos = kudosScore(await repo.listKudos(account.playerId), at);
+        const periods = periodsByPlayer.get(account.playerId) ?? [];
+        const kudos = kudosScore(
+          (await repo.listKudos(account.playerId)).filter((award) => wasMemberAt(periods, award.awardedAt)),
+          at,
+        );
         // Match the established scoring rule: unknown attendance is neutral (fully reliable),
         // never a silent penalty for a member whose history has not been recorded yet.
         return {
@@ -1436,18 +1457,25 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       const attendance = personAttendance(rawAttendance);
       const scoreEvidence = new Set(personAccounts.flatMap((account) => [...(scores.byPlayer.get(account.playerId) ?? [])]));
       const knownSince = personAccounts.map((account) => account.createdAt).filter((value): value is string => Boolean(value)).toSorted()[0];
+      const periods = await membershipPeriodsFor(personAccounts);
+      const eventStarts = new Map(pastEvents.map((event) => [event.eventId, event.startsAt]));
+      const eligibleAttendance = attendance.filter((record) => {
+        const startsAt = eventStarts.get(record.eventId);
+        return startsAt === undefined || wasMemberAt(periods, startsAt);
+      });
       const combined = participationOf({
         events: pastEvents,
         answers,
-        attendance,
+        attendance: eligibleAttendance,
         scoreEvidence: [...scoreEvidence],
         now: at,
         ...(knownSince ? { knownSince } : {}),
+        membershipPeriods: periods,
       });
-      const explained = explainPersonParticipation(combined, pastEvents, personAccounts, answers, attendance, scores);
+      const explained = explainPersonParticipation(combined, pastEvents, personAccounts, answers, eligibleAttendance, scores);
       const shared = {
         attendance: explained,
-        attendanceTrend: trailingAverage(monthlyAttendance(attendance, at)),
+        attendanceTrend: trailingAverage(monthlyAttendance(eligibleAttendance, at)),
       };
       for (const account of personAccounts) personParticipation.set(account.playerId, shared);
     }));
@@ -1595,11 +1623,18 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const counted = all.filter((a) => a.status === "active" || a.status === "guest");
     const unknown = all.filter((a) => a.status === "unknown");
     const accounts = cohort === "all" ? [...counted, ...unknown] : counted;
+    const people = await attendancePeople(accounts);
+    const periodsByPlayer = new Map<string, MembershipPeriod[]>();
+    await Promise.all(people.map(async (group) => {
+      const periods = await membershipPeriodsFor(group);
+      for (const account of group) periodsByPlayer.set(account.playerId, periods);
+    }));
     const series = await Promise.all(
       accounts.map(async (account) => ({
         playerId: account.playerId,
         name: account.name,
         points: seriesOf(await repo.listReports(account.playerId), metric),
+        membershipPeriods: periodsByPlayer.get(account.playerId) ?? [],
       })),
     );
     return c.json({
@@ -1623,6 +1658,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       (account) => account.status === "active" || account.status === "unknown",
     );
     const people = await attendancePeople(accounts);
+    const periods = await Promise.all(people.map((group) => membershipPeriodsFor(group)));
     const scores = await resultEvidence(events);
     const eventData = await Promise.all(events.map(async (event) => ({
       event,
@@ -1635,8 +1671,11 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const samples = reviewed.map((occurrence) => {
       const attendance = occurrence.flatMap((item) => item.attendance);
       const scored = new Set(occurrence.flatMap((item) => [...item.scored]));
-      const statuses = people.map((group) => attendanceForPerson(attendance, new Set(group.map((account) => account.playerId)), scored));
       const latest = occurrence.map((item) => item.event).toSorted((a, b) => b.startsAt.localeCompare(a.startsAt))[0]!;
+      const statuses = people.flatMap((group, index) =>
+        wasMemberAt(periods[index] ?? [], latest.startsAt)
+          ? [attendanceForPerson(attendance, new Set(group.map((account) => account.playerId)), scored)]
+          : []);
       return {
         eventId: latest.eventId,
         at: latest.startsAt,
@@ -1673,7 +1712,8 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       (account) => account.status === "active" || account.status === "unknown",
     );
     const people = await attendancePeople(accounts);
-    const members = people.map((group) => {
+    const periods = await Promise.all(people.map((group) => membershipPeriodsFor(group)));
+    const members = people.map((group, personIndex) => {
       const account = group[0]!;
       const ids = new Set(group.map((item) => item.playerId));
       let attended = 0;
@@ -1683,6 +1723,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         const attendance = occurrence.flatMap((item) => item.attendance);
         const scored = new Set(occurrence.flatMap((item) => [...item.scored]));
         const event = occurrence.map((item) => item.event).toSorted((a, b) => b.startsAt.localeCompare(a.startsAt))[0]!;
+        if (!wasMemberAt(periods[personIndex] ?? [], event.startsAt)) continue;
         const status = attendanceForPerson(attendance, ids, scored);
         if (status === "excused") continue;
         considered += 1;
@@ -1709,7 +1750,10 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       const attendance = occurrence.flatMap((item) => item.attendance);
       const scored = new Set(occurrence.flatMap((item) => [...item.scored]));
       const event = occurrence.map((item) => item.event).toSorted((a, b) => b.startsAt.localeCompare(a.startsAt))[0]!;
-      const statuses = people.map((group) => attendanceForPerson(attendance, new Set(group.map((account) => account.playerId)), scored));
+      const statuses = people.flatMap((group, index) =>
+        wasMemberAt(periods[index] ?? [], event.startsAt)
+          ? [attendanceForPerson(attendance, new Set(group.map((account) => account.playerId)), scored)]
+          : []);
       return {
         eventId: event.eventId,
         at: event.startsAt,
@@ -1869,14 +1913,21 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const account = await repo.getAccount(pid);
     const events = await repo.listEvents(account?.alliance ?? "POP", from, 100);
     const scores = await resultEvidence(events);
+    const identityGroup = await repo.identityGroup(pid);
+    const linkedSub = identityGroup ? undefined : await repo.linkedLogin(pid);
+    const playerIds = identityGroup?.playerIds ?? (linkedSub ? await repo.linkedAccounts(linkedSub) : [pid]);
+    const personAccounts = (await Promise.all(playerIds.map((playerId) => repo.getAccount(playerId))))
+      .filter((item): item is GameAccount => Boolean(item));
+    const periods = await membershipPeriodsFor(personAccounts);
     return c.json(
       participationOf({
         events,
-        answers: await repo.answersForAccount(pid, from),
-        attendance: await repo.attendanceFor(pid),
-        scoreEvidence: [...(scores.byPlayer.get(pid) ?? [])],
+        answers: personAnswers((await Promise.all(playerIds.map((playerId) => repo.answersForAccount(playerId, from)))).flat()),
+        attendance: personAttendance((await Promise.all(playerIds.map((playerId) => repo.attendanceFor(playerId)))).flat()),
+        scoreEvidence: [...new Set(playerIds.flatMap((playerId) => [...(scores.byPlayer.get(playerId) ?? [])]))],
         now: at,
         ...(account?.createdAt ? { knownSince: account.createdAt } : {}),
+        membershipPeriods: periods,
       }),
     );
   });
@@ -2451,6 +2502,12 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const pastEvents = await repo.listEvents(event.alliance, participationFrom, 100);
     const pastScores = await resultEvidence(pastEvents);
     const knownSince = new Map(accounts.map((a) => [a.playerId, a.createdAt]));
+    const eventPeople = await attendancePeople(accounts);
+    const membershipByPlayer = new Map<string, MembershipPeriod[]>();
+    await Promise.all(eventPeople.map(async (group) => {
+      const periods = await membershipPeriodsFor(group);
+      for (const account of group) membershipByPlayer.set(account.playerId, periods);
+    }));
     const participationOfPlayer = new Map(
       await Promise.all(
         yesAnswers.map(
@@ -2464,6 +2521,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
                 scoreEvidence: [...(pastScores.byPlayer.get(a.playerId) ?? [])],
                 now: now(),
                 ...(knownSince.get(a.playerId) ? { knownSince: knownSince.get(a.playerId)! } : {}),
+                membershipPeriods: membershipByPlayer.get(a.playerId) ?? [],
               }),
             ] as const,
         ),

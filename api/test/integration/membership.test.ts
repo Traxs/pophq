@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { seedDemo } from "../../src/dev/demo.js";
+import { Repository } from "../../src/data/repository.js";
 import type { LoginDirectory } from "../../src/ops/invite.js";
 import { createHarness, type Harness } from "./harness.js";
 
@@ -44,6 +45,10 @@ describe("reversible person membership", () => {
       }),
     ]));
     expect((await h.call("GET", "/me", { as: "player" })).status).toBe(403);
+    const participation = await h.call("GET", "/metrics/event-participation?kind=foundry", { as: "officer", groups: ["officer"] });
+    expect((participation.body.members as { playerId: string }[]).map((member) => member.playerId)).not.toEqual(
+      expect.arrayContaining(["100000001", "100000002"]),
+    );
   });
 
   it("welcomes the person and all linked accounts back without losing history", async () => {
@@ -73,5 +78,41 @@ describe("reversible person membership", () => {
       groups: ["officer"],
       body: { active: false, justification: "no" },
     })).status).toBe(400);
+  });
+
+  it("does not turn events during a departure into missed participation after a return", async () => {
+    const playerId = "700009001";
+    const at = (iso: string) => new Repository(h.db, h.tableName, () => new Date(iso));
+    await at("2026-07-01T12:00:00.000Z").createAccount(
+      { playerId, name: "Returning Member", alliance: "POP", status: "active" },
+      { id: "seed", via: "seed" },
+    );
+    await at("2026-08-01T12:00:00.000Z").setPersonMembership(
+      playerId, [playerId], false, "Moved to another alliance", { id: "officer", via: "web" }, "Officer",
+    );
+    await at("2026-09-01T12:00:00.000Z").setPersonMembership(
+      playerId, [playerId], true, "Returned to POP alliance", { id: "officer", via: "web" }, "Officer",
+    );
+    for (const [eventId, startsAt] of [
+      ["MEMBER-BEFORE", "2026-07-20T12:00:00.000Z"],
+      ["MEMBER-GAP", "2026-08-10T12:00:00.000Z"],
+      ["MEMBER-AFTER", "2026-09-10T12:00:00.000Z"],
+    ] as const) {
+      await h.repo.createEvent({
+        eventId,
+        alliance: "POP",
+        kind: "other",
+        title: eventId,
+        startsAt,
+        deadlineAt: startsAt,
+        sessions: [],
+        createdBy: "officer",
+      }, { id: "officer", via: "web" });
+    }
+
+    const result = await h.call("GET", `/accounts/${playerId}/reliability`, { as: "officer", groups: ["officer"] });
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({ unregistered: 2, sample: 2, rate: 0 });
+    expect((result.body.events as { eventId: string }[]).map((event) => event.eventId)).toEqual(["MEMBER-AFTER", "MEMBER-BEFORE"]);
   });
 });

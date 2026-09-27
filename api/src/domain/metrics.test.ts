@@ -63,6 +63,21 @@ describe("allianceGrowth", () => {
     ]);
     expect(empty.gainers).toEqual([]);
   });
+
+  it("removes a returning member's power during their membership gap", () => {
+    const returning: AccountSeries = {
+      playerId: "5",
+      name: "Returning",
+      points: [{ at: day(1), value: 500 }],
+      membershipPeriods: [
+        { from: day(1), to: day(12) },
+        { from: day(18) },
+      ],
+    };
+    const result = allianceGrowth("city_power", [returning], [day(10), day(15), day(20)]);
+    expect(result.points.map((point) => point.total)).toEqual([500, 0, 500]);
+    expect(result.points.map((point) => point.members)).toEqual([1, 0, 1]);
+  });
 });
 
 describe("seriesOf", () => {

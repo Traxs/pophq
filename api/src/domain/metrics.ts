@@ -1,12 +1,14 @@
 // Alliance metrics for the officer charts (MET-01). Pure functions: the routes fetch the
 // reports, these decide what the numbers mean, so the rules are testable and explicit.
 import { activeReports, currentValues, type MetricName, type Report } from "./measurements.js";
+import { wasMemberAt, type MembershipPeriod } from "./identity.js";
 
 export interface AccountSeries {
   playerId: string;
   name: string;
   /** Effective time and value of every non-superseded report of one metric, any order. */
   points: { at: string; value: number }[];
+  membershipPeriods?: MembershipPeriod[];
 }
 
 export interface GrowthPoint {
@@ -98,9 +100,11 @@ export function buckets(now: Date, count = 12, stepDays = 7): string[] {
 }
 
 export function allianceGrowth(metric: MetricName, series: readonly AccountSeries[], ends: readonly string[]): AllianceGrowth {
+  const valueFor = (account: AccountSeries, at: string) =>
+    account.membershipPeriods && !wasMemberAt(account.membershipPeriods, at) ? undefined : valueAt(account.points, at);
   const points: GrowthPoint[] = ends.map((at) => {
     const values = series.flatMap((s) => {
-      const v = valueAt(s.points, at);
+      const v = valueFor(s, at);
       return v === undefined ? [] : [v];
     });
     const total = values.reduce((sum, v) => sum + v, 0);
@@ -112,7 +116,7 @@ export function allianceGrowth(metric: MetricName, series: readonly AccountSerie
   const movers: Mover[] = [];
   const missing: { playerId: string; name: string }[] = [];
   for (const s of series) {
-    const to = last === undefined ? undefined : valueAt(s.points, last);
+    const to = last === undefined ? undefined : valueFor(s, last);
     if (to === undefined) {
       missing.push({ playerId: s.playerId, name: s.name });
       continue;
@@ -120,7 +124,7 @@ export function allianceGrowth(metric: MetricName, series: readonly AccountSerie
     // Without a value at the start, compare against this member's first known value instead,
     // so someone who joined mid-window still shows their growth.
     const from =
-      (first === undefined ? undefined : valueAt(s.points, first)) ??
+      (first === undefined ? undefined : valueFor(s, first)) ??
       s.points.toSorted((a, b) => a.at.localeCompare(b.at))[0]?.value;
     if (from === undefined) continue;
     const change = to - from;

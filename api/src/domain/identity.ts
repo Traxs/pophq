@@ -57,6 +57,55 @@ export interface IdentityAuditRecord {
   performedByName?: string;
 }
 
+export interface MembershipPeriod {
+  /** Inclusive moment this person belonged to POP. */
+  from: string;
+  /** Exclusive moment they left. Missing while membership is current. */
+  to?: string;
+}
+
+/**
+ * Reconstructs the periods in which a person belonged to POP. Membership changes are already
+ * permanent audit records, so a return opens a new period instead of making the time away look
+ * like missed events. Older accounts without membership audit retain their original createdAt.
+ */
+export function membershipPeriods(
+  createdAts: readonly string[],
+  audits: readonly IdentityAuditRecord[],
+  currentlyIncluded: boolean,
+): MembershipPeriod[] {
+  const firstKnown = createdAts.filter(Boolean).toSorted()[0];
+  const changes = audits
+    .filter((audit) => audit.action === "membership_left" || audit.action === "membership_restored")
+    .filter((audit, index, all) => all.findIndex((item) => item.auditId === audit.auditId) === index)
+    .toSorted((a, b) => a.performedAt.localeCompare(b.performedAt));
+  // Legacy accounts have no membership-change audit. An empty list deliberately means
+  // "unrestricted legacy history" so imported evidence from before account creation survives.
+  if (changes.length === 0) return [];
+  // Older membership writes accidentally replaced account.createdAt. When the first durable
+  // fact is a departure and createdAt is no earlier, the person necessarily belonged before
+  // that departure; keep their earlier imported history instead of discarding it.
+  let open = changes[0]?.action === "membership_left" && (!firstKnown || firstKnown >= changes[0].performedAt)
+    ? "1970-01-01T00:00:00.000Z"
+    : firstKnown;
+  const periods: MembershipPeriod[] = [];
+  for (const change of changes) {
+    if (change.action === "membership_left") {
+      if (open && change.performedAt > open) periods.push({ from: open, to: change.performedAt });
+      open = undefined;
+    } else if (!open) {
+      open = change.performedAt;
+    }
+  }
+  if (currentlyIncluded && open) periods.push({ from: open });
+  return periods;
+}
+
+export function wasMemberAt(periods: readonly MembershipPeriod[], at: string): boolean {
+  if (periods.length === 0) return true;
+  return periods.some((period) => at >= period.from && (period.to === undefined || at < period.to));
+}
+
 export function parseIdentityJustification(raw: unknown): string {
   if (typeof raw !== "string") throw new ValidationError("A reason is required.");
   const value = raw.normalize("NFKC").trim();

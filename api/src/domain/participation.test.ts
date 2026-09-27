@@ -249,4 +249,19 @@ describe("participationOf", () => {
     expect(result.events[0]!.eventId).toBe("E1");
     expect(result.events.at(-1)!.eventId).toBe("E10");
   });
+
+  it("does not penalize events that happened while the person was outside POP", () => {
+    const result = participationOf({
+      events,
+      answers: [],
+      attendance: [],
+      now,
+      membershipPeriods: [
+        { from: "2026-01-01T00:00:00.000Z", to: new Date(now.getTime() - 18 * 24 * 60 * 60 * 1000).toISOString() },
+        { from: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString() },
+      ],
+    });
+    expect(result.events.map((item) => item.eventId)).toEqual(["E1", "E2"]);
+    expect(result.unregistered).toBe(2);
+  });
 });

@@ -16,6 +16,8 @@
  */
 import type { AttendanceRecord } from "./attendance.js";
 import type { AllianceEvent, EventAnswer } from "./events.js";
+import type { MembershipPeriod } from "./identity.js";
+import { wasMemberAt } from "./identity.js";
 
 export const OUTCOMES = ["attended", "no_show", "unregistered", "excused", "not_counted"] as const;
 export type Outcome = (typeof OUTCOMES)[number];
@@ -87,6 +89,8 @@ export interface ParticipationInput {
   window?: number;
   /** When the account first appeared here; earlier events are not theirs to answer for. */
   knownSince?: string;
+  /** Only events during active membership periods may affect the person. */
+  membershipPeriods?: readonly MembershipPeriod[];
 }
 
 interface ParticipationOccurrence {
@@ -171,12 +175,15 @@ export function participationOf({
   now,
   window = 10,
   knownSince,
+  membershipPeriods,
 }: ParticipationInput): Participation {
   const answerFor = new Map(answers.map((a) => [a.eventId, a]));
   const attendanceFor = new Map(attendance.map((a) => [a.eventId, a]));
   const scoredAt = new Set(scoreEvidence);
 
-  const considered = occurrences(events.filter((event) => Date.parse(event.startsAt) <= now.getTime()))
+  const considered = occurrences(events.filter((event) =>
+    Date.parse(event.startsAt) <= now.getTime()
+    && (!membershipPeriods || wasMemberAt(membershipPeriods, event.startsAt))))
     .filter(
       (occurrence) =>
         !knownSince ||

@@ -1220,6 +1220,9 @@ export class Repository {
             ...account,
             status,
             ...meta,
+            // Membership updates are not account creation. Preserve the original boundary used
+            // by historical participation and strength calculations.
+            createdAt: account!.createdAt ?? meta.createdAt,
           },
           ConditionExpression: "attribute_exists(PK) AND #status = :expected",
           ExpressionAttributeNames: { "#status": "status" },
