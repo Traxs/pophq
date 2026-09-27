@@ -13,6 +13,13 @@ import urllib.request
 from pathlib import Path
 
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Never forward a bearer token through an HTTP redirect."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+        return None
+
+
 def request(
     method: str,
     path: str,
@@ -36,7 +43,7 @@ def request(
         headers["X-Account-Id"] = account_id
     req = urllib.request.Request(f"{base}/v1{path}", data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=30) as response:
+        with urllib.request.build_opener(NoRedirect).open(req, timeout=30) as response:
             return json.load(response)
     except urllib.error.HTTPError as error:
         try:
@@ -90,6 +97,9 @@ def main() -> None:
     phase_scores.add_argument("--expected-hash", help="expectedHash returned by the reviewed preview")
     account = sub.add_parser("account-reconciliation", help="Read one exact Player ID and its onboarding evidence")
     account.add_argument("player_id")
+    resolve_name = sub.add_parser("resolve-account-name", help="Resolve one exact canonical name or recorded alias")
+    resolve_name.add_argument("name")
+    resolve_name.add_argument("--alliance", default="POP")
     reconcile = sub.add_parser("reconcile-accounts", help="Preview or apply exact-ID login-free account onboarding")
     reconcile.add_argument("json_file", help="JSON fixture file, or - for stdin")
     reconcile.add_argument("--batch-id", required=True, help="Stable reconciliation batch identifier")
@@ -168,6 +178,9 @@ def main() -> None:
     elif args.command == "account-reconciliation":
         player_id = urllib.parse.quote(args.player_id, safe="")
         result = request("GET", f"/agent/accounts/{player_id}/reconciliation")
+    elif args.command == "resolve-account-name":
+        query = urllib.parse.urlencode({"name": args.name, "alliance": args.alliance})
+        result = request("GET", f"/agent/accounts/resolve-name?{query}")
     elif args.command == "reconcile-accounts":
         if args.apply and (not args.reason or not args.idempotency_key or not args.expected_hash):
             raise SystemExit("--apply requires --reason, --idempotency-key and --expected-hash.")

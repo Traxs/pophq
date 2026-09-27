@@ -113,6 +113,7 @@ describe("AppStack", () => {
     template.hasResourceProperties("AWS::Cognito::UserPool", {
       AdminCreateUserConfig: { AllowAdminCreateUserOnly: true },
       DeletionProtection: "ACTIVE",
+      Policies: { PasswordPolicy: Match.objectLike({ MinimumLength: 14 }) },
     });
     template.hasResourceProperties("AWS::Cognito::UserPoolClient", {
       GenerateSecret: false,

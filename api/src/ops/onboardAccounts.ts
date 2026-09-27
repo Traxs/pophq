@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { Repository } from "../data/repository.js";
 import type { GameAccount } from "../domain/accounts.js";
@@ -18,15 +19,30 @@ const SourceCorrection = z.object({
   correctedTo: z.unknown(),
   status: z.string().trim().min(1).max(60),
 });
+const AliasSource = z.object({
+  kind: z.enum(["owner_confirmation", "verified_screenshot", "historical_spreadsheet", "imported_name_history"]),
+  reference: z.string().trim().min(1).max(200),
+  note: z.string().trim().min(1).max(500).optional(),
+  observedAt: z.string().datetime({ offset: true }).optional(),
+}).strict();
+const ConfirmedAlias = z.object({
+  name: z.unknown(),
+  source: AliasSource,
+}).strict();
 const Entry = z.object({
   sourceId: SourceText.optional(),
   playerId: z.union([z.string(), z.number()]).nullable().optional(),
   name: z.unknown(),
   sourceScoreName: z.unknown().optional(),
   pendingCastleBattlePoints: z.number().int().nonnegative().optional(),
-  identityEvidence: z.string().trim().min(1).max(80),
+  identityEvidence: z.string().trim().min(1).max(80).optional(),
   historicalSpreadsheetEvidence: HistoricalSpreadsheetEvidence.nullable().optional(),
   sourceCorrections: z.array(SourceCorrection).max(5).optional(),
+  aliases: z.array(ConfirmedAlias).max(10).optional(),
+}).superRefine((entry, ctx) => {
+  if (!entry.identityEvidence && !(entry.aliases?.length)) {
+    ctx.addIssue({ code: "custom", path: ["identityEvidence"], message: "identityEvidence is required unless aliases are supplied." });
+  }
 });
 const Batch = z.object({
   batchId: BatchId,
@@ -44,9 +60,32 @@ export interface AccountOnboardingEntry {
   name: string;
   sourceScoreName?: string;
   pendingCastleBattlePoints?: number;
-  identityEvidence: string;
+  identityEvidence?: string;
   historicalSpreadsheetEvidence?: { row: number; name: string; status: string };
   sourceCorrections?: { observed: string; correctedTo: string; status: string }[];
+  aliases?: ConfirmedAccountAlias[];
+}
+
+export interface ConfirmedAccountAlias {
+  name: string;
+  source: {
+    kind: "owner_confirmation" | "verified_screenshot" | "historical_spreadsheet" | "imported_name_history";
+    reference: string;
+    note?: string;
+    observedAt?: string;
+  };
+}
+
+export type AccountAliasDecision = "add_alias" | "already_present" | "already_resolves_cosmetically" | "conflict" | "invalid_source";
+
+export interface AccountAliasReview {
+  name: string;
+  normalizedName: string;
+  decision: AccountAliasDecision;
+  source: ConfirmedAccountAlias["source"];
+  evidenceRecordId?: string;
+  conflictingPlayerIds: string[];
+  issue?: string;
 }
 
 export interface AccountOnboardingBatch {
@@ -67,6 +106,8 @@ export interface AccountOnboardingRow {
   before: GameAccount | null;
   after: GameAccount | null;
   hasLogin: boolean;
+  existingAliases: string[];
+  aliasReviews: AccountAliasReview[];
   aliasAdditions: string[];
   evidenceAdditions: HistoricalRecord[];
   unchangedEvidence: string[];
@@ -83,8 +124,13 @@ export interface AccountOnboardingPlan {
     unresolved: number;
     conflicts: number;
     aliasesToAdd: number;
+    aliasesAlreadyPresent: number;
+    cosmeticAliasNoops: number;
+    aliasConflicts: number;
     evidenceToAdd: number;
   };
+  batchIssues: string[];
+  transactionOperations: number;
   effects: {
     createsLogin: false;
     sendsInvite: false;
@@ -99,14 +145,19 @@ export interface AccountOnboardingPlan {
   writes: {
     accounts: GameAccount[];
     expectedAccounts: GameAccount[];
-    aliases: { playerId: string; name: string; justification: string }[];
+    aliases: { playerId: string; alliance: string; name: string; justification: string }[];
     evidence: HistoricalRecord[];
   };
 }
 
 export function parseAccountOnboardingBatch(input: unknown): AccountOnboardingBatch {
   const parsed = Batch.safeParse(input);
-  if (!parsed.success) throw new ValidationError("Invalid account-onboarding batch.", z.flattenError(parsed.error).fieldErrors);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid account-onboarding batch.", {
+      fields: z.flattenError(parsed.error).fieldErrors,
+      tree: z.treeifyError(parsed.error),
+    });
+  }
   const entries = parsed.data.entries.map((entry, index): AccountOnboardingEntry => {
     const playerId = entry.playerId === null || entry.playerId === undefined ? null : parsePlayerId(entry.playerId);
     const name = parseGameName(entry.name);
@@ -129,9 +180,18 @@ export function parseAccountOnboardingBatch(input: unknown): AccountOnboardingBa
       name,
       ...(sourceScoreName ? { sourceScoreName } : {}),
       ...(entry.pendingCastleBattlePoints !== undefined ? { pendingCastleBattlePoints: entry.pendingCastleBattlePoints } : {}),
-      identityEvidence: entry.identityEvidence,
+      ...(entry.identityEvidence ? { identityEvidence: entry.identityEvidence } : {}),
       ...(historical ? { historicalSpreadsheetEvidence: historical } : {}),
       ...(sourceCorrections?.length ? { sourceCorrections } : {}),
+      ...(entry.aliases?.length ? { aliases: entry.aliases.map((alias) => ({
+        name: parseGameName(alias.name),
+        source: {
+          kind: alias.source.kind,
+          reference: alias.source.reference,
+          ...(alias.source.note ? { note: alias.source.note } : {}),
+          ...(alias.source.observedAt ? { observedAt: new Date(alias.source.observedAt).toISOString() } : {}),
+        },
+      })) } : {}),
     };
   });
   return {
@@ -146,7 +206,8 @@ export function parseAccountOnboardingBatch(input: unknown): AccountOnboardingBa
 const recordId = (batchId: string, playerId: string | null, sourceId: string, suffix: string) =>
   `account-shell:${batchId}:${playerId ?? `unresolved-${sourceId.replaceAll(/[^A-Za-z0-9._-]/g, "-")}`}:${suffix}`.slice(0, 200);
 
-function identityRecord(batch: AccountOnboardingBatch, entry: AccountOnboardingEntry): HistoricalRecord {
+function identityRecord(batch: AccountOnboardingBatch, entry: AccountOnboardingEntry): HistoricalRecord | undefined {
+  if (!entry.identityEvidence) return undefined;
   return {
     recordId: recordId(batch.batchId, entry.playerId, entry.sourceId, "identity"),
     category: "evidence",
@@ -166,6 +227,22 @@ function identityRecord(batch: AccountOnboardingBatch, entry: AccountOnboardingE
     ...(entry.playerId ? { playerId: entry.playerId } : {}),
     ...(batch.eventId ? { eventId: batch.eventId } : {}),
     reviewStatus: entry.playerId ? "approved_exact_id" : "unresolved",
+  };
+}
+
+function aliasEvidenceRecord(batch: AccountOnboardingBatch, entry: AccountOnboardingEntry, alias: ConfirmedAccountAlias): HistoricalRecord | undefined {
+  if (!entry.playerId) return undefined;
+  const fingerprint = createHash("sha256")
+    .update(canonicalJson({ sourceId: entry.sourceId, name: alias.name, source: alias.source }))
+    .digest("hex")
+    .slice(0, 32);
+  return {
+    recordId: `account-alias:${entry.playerId}:${fingerprint}`,
+    category: "alias",
+    sourceId: entry.sourceId,
+    playerId: entry.playerId,
+    payload: { kind: "confirmed_account_alias", name: alias.name, source: alias.source },
+    reviewStatus: "approved_exact_id",
   };
 }
 
@@ -227,7 +304,49 @@ export async function planAccountOnboarding(repo: Repository, batch: AccountOnbo
       }
     }
 
-    const desiredRecords = [identityRecord(batch, entry), historicalNameRecord(batch, entry)].filter((record): record is HistoricalRecord => Boolean(record));
+    const aliasReviews: AccountAliasReview[] = [];
+    const plannedAliasKeys = new Set(aliasKeys);
+    for (const alias of entry.aliases ?? []) {
+      const normalizedName = searchKey(alias.name);
+      const otherClaims = [...(claims.get(normalizedName) ?? [])].filter((id) => id !== entry.playerId);
+      let decision: AccountAliasDecision;
+      let issue: string | undefined;
+      if (!entry.playerId || !existing) {
+        decision = "invalid_source";
+        issue = "Alias repair requires an existing exact Player ID; no shell account is created for an alias request.";
+      } else if (otherClaims.length > 0) {
+        decision = "conflict";
+        issue = `Alias ${alias.name} is already attached to another Player ID.`;
+      } else if (normalizedName === searchKey(existing.name)) {
+        decision = "already_resolves_cosmetically";
+      } else if (plannedAliasKeys.has(normalizedName)) {
+        decision = "already_present";
+      } else {
+        decision = "add_alias";
+        plannedAliasKeys.add(normalizedName);
+        const plannedClaims = claims.get(normalizedName) ?? new Set<string>();
+        plannedClaims.add(entry.playerId);
+        claims.set(normalizedName, plannedClaims);
+      }
+      const evidence = aliasEvidenceRecord(batch, entry, alias);
+      aliasReviews.push({
+        name: alias.name,
+        normalizedName,
+        decision,
+        source: alias.source,
+        ...(evidence ? { evidenceRecordId: evidence.recordId } : {}),
+        conflictingPlayerIds: otherClaims,
+        ...(issue ? { issue } : {}),
+      });
+      if (issue) issues.push(issue);
+    }
+
+    const desiredRecords = [
+      identityRecord(batch, entry),
+      historicalNameRecord(batch, entry),
+      ...(entry.aliases ?? []).map((alias) => aliasEvidenceRecord(batch, entry, alias)),
+    ].filter((record): record is HistoricalRecord => Boolean(record))
+      .filter((record, index, all) => all.findIndex((candidate) => candidate.category === record.category && candidate.recordId === record.recordId) === index);
     const evidenceAdditions: HistoricalRecord[] = [];
     const unchangedEvidence: string[] = [];
     for (const desired of desiredRecords) {
@@ -237,14 +356,15 @@ export async function planAccountOnboarding(repo: Repository, batch: AccountOnbo
       else issues.push(`Source record ${desired.recordId} already exists with different evidence.`);
     }
 
-    const aliasAdditions: string[] = [];
+    const aliasAdditions: string[] = aliasReviews.filter((alias) => alias.decision === "add_alias").map((alias) => alias.name);
     const historicalName = entry.historicalSpreadsheetEvidence?.name;
     if (entry.playerId && historicalName && searchKey(historicalName) !== searchKey(existing?.name ?? entry.name)) {
       const otherClaims = claims.get(searchKey(historicalName));
       if (otherClaims && [...otherClaims].some((id) => id !== entry.playerId)) {
         issues.push(`Historical name ${historicalName} is already attached to another Player ID.`);
-      } else if (!aliasKeys.has(searchKey(historicalName))) {
+      } else if (!plannedAliasKeys.has(searchKey(historicalName))) {
         aliasAdditions.push(historicalName);
+        plannedAliasKeys.add(searchKey(historicalName));
       }
     }
 
@@ -267,6 +387,8 @@ export async function planAccountOnboarding(repo: Repository, batch: AccountOnbo
       before: existing ?? null,
       after,
       hasLogin,
+      existingAliases: currentAliases.map((alias) => alias.name),
+      aliasReviews,
       aliasAdditions,
       evidenceAdditions,
       unchangedEvidence,
@@ -278,8 +400,9 @@ export async function planAccountOnboarding(repo: Repository, batch: AccountOnbo
       if (decision === "reuse_exact" && existing) writes.expectedAccounts.push(existing);
       writes.aliases.push(...aliasAdditions.map((name) => ({
         playerId: entry.playerId!,
+        alliance: batch.alliance,
         name,
-        justification: `Source-backed historical name from account-onboarding batch ${batch.batchId}.`,
+        justification: `Source-backed alternate name from account-reconciliation batch ${batch.batchId}.`,
       })));
       writes.evidence.push(...evidenceAdditions);
     }
@@ -291,8 +414,15 @@ export async function planAccountOnboarding(repo: Repository, batch: AccountOnbo
     unresolved: rows.filter((row) => row.decision === "preserve_unresolved").length,
     conflicts: rows.filter((row) => row.decision === "conflict").length,
     aliasesToAdd: writes.aliases.length,
+    aliasesAlreadyPresent: rows.flatMap((row) => row.aliasReviews).filter((alias) => alias.decision === "already_present").length,
+    cosmeticAliasNoops: rows.flatMap((row) => row.aliasReviews).filter((alias) => alias.decision === "already_resolves_cosmetically").length,
+    aliasConflicts: rows.flatMap((row) => row.aliasReviews).filter((alias) => alias.decision === "conflict" || alias.decision === "invalid_source").length,
     evidenceToAdd: writes.evidence.length,
   };
+  const transactionOperations = writes.expectedAccounts.length + writes.accounts.length * 2 + writes.aliases.length * 3 + writes.evidence.length + 1;
+  const batchIssues = transactionOperations > 100
+    ? [`This batch requires ${transactionOperations} atomic operations; the maximum is 100. Split it into smaller reviewed batches.`]
+    : [];
   return {
     batchId: batch.batchId,
     alliance: batch.alliance,
@@ -308,7 +438,9 @@ export async function planAccountOnboarding(repo: Repository, batch: AccountOnbo
       changesMembership: false,
       writesScores: false,
     },
-    applicable: counts.conflicts === 0,
+    batchIssues,
+    transactionOperations,
+    applicable: counts.conflicts === 0 && counts.aliasConflicts === 0 && batchIssues.length === 0,
     writes,
   };
 }

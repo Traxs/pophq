@@ -17,7 +17,7 @@ import type { BotIssuerGroups } from "../../src/http/agentAuth.js";
 import type { EvidenceContent, EvidenceObject, EvidenceStore } from "../../src/ops/evidenceStore.js";
 
 export async function createHarness(
-  opts: { devTools?: boolean; isPaused?: () => Promise<boolean>; logins?: LoginDirectory; history?: boolean; botIssuerGroups?: BotIssuerGroups } = {},
+  opts: { devTools?: boolean; isPaused?: () => Promise<boolean>; logins?: LoginDirectory; history?: boolean; botIssuerGroups?: BotIssuerGroups; now?: () => Date } = {},
 ) {
   const config = {
     tableName: `pophq-test-${ulid().toLowerCase()}`,
@@ -52,6 +52,7 @@ export async function createHarness(
   const app = createApp({
     repo,
     verifier,
+    ...(opts.now ? { now: opts.now } : {}),
     ...(opts.devTools ? { extend: (a) => registerDevRoutes(a, { repo, reset: async () => {} }) } : {}),
     ...(opts.isPaused ? { isPaused: opts.isPaused } : {}),
     ...(opts.logins ? { logins: opts.logins } : {}),

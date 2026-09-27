@@ -146,9 +146,44 @@ export interface AccessAuditRecord {
   resolvedAt?: string;
 }
 
+export interface OnboardingInvitationAudit {
+  inviteId: string;
+  playerId: string;
+  playerName: string;
+  status: "issued" | "redeeming" | "redeemed" | "failed";
+  createdAt: string;
+  createdBy: string;
+  expiresAt: string;
+  method?: "email" | "password";
+  redeemedAt?: string;
+  failedAt?: string;
+  failureCode?: string;
+}
+
 export interface PasswordResetResult {
   credentials: { password: string };
   audit: AccessAuditRecord;
+}
+
+export interface IssuedOnboardingInvitation {
+  token: string;
+  inviteId: string;
+  playerId: string;
+  playerName: string;
+  expiresAt: string;
+}
+
+export interface PublicOnboardingInvitation {
+  playerId: string;
+  playerName: string;
+  expiresAt: string;
+}
+
+export interface RedeemedOnboardingInvitation {
+  account: GameAccount;
+  method: "email" | "password";
+  signInIdentifier: string;
+  credentials?: { username: string; password: string };
 }
 
 export type AgentScope = "all:read" | "results:read" | "results:write" | "events:write" | "history:write" | "rewards:write" | "accounts:write";
@@ -764,7 +799,9 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
       request<Report>("PUT", `/accounts/${playerId}/reports/${encodeURIComponent(reportId)}/ignored`, { ignored, reason }),
     roster: () => request<Roster>("GET", "/roster"),
     invite: (input: InviteInput) => request<InviteResult>("POST", "/invites", input),
-    accessAudit: (playerId: string) => request<{ items: AccessAuditRecord[] }>("GET", `/accounts/${playerId}/access-audit`),
+    issueOnboardingInvitation: (input: { playerId: string; name: string; rank?: string }) =>
+      request<IssuedOnboardingInvitation>("POST", "/onboarding-invitations", input),
+    accessAudit: (playerId: string) => request<{ items: AccessAuditRecord[]; invitations: OnboardingInvitationAudit[] }>("GET", `/accounts/${playerId}/access-audit`),
     resetPassword: (playerId: string, justification: string) =>
       request<PasswordResetResult>("POST", `/accounts/${playerId}/password-reset`, { justification }),
     updateAccount: (playerId: string, changes: AccountChanges) =>
@@ -881,3 +918,13 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
       }),
   };
 }
+
+const publicRequest = createRequest(() => undefined);
+
+export const inspectOnboardingInvitation = (token: string) =>
+  publicRequest<PublicOnboardingInvitation>("POST", "/onboarding-invitations/inspect", { token });
+
+export const redeemOnboardingInvitation = (
+  token: string,
+  input: { method: "email"; email: string } | { method: "password"; loginName: string },
+) => publicRequest<RedeemedOnboardingInvitation>("POST", "/onboarding-invitations/redeem", { token, ...input });

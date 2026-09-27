@@ -13,7 +13,7 @@ export interface LoginDirectory {
   /** Creates a login that signs in with emailed codes only; returns its subject. */
   createLogin(email: string): Promise<string>;
   /** Creates an email-free login with a temporary password that must be changed at first sign-in. */
-  createPasswordLogin(): Promise<{ sub: string; username: string; password: string }>;
+  createPasswordLogin(preferredName?: string): Promise<{ sub: string; username: string; password: string }>;
   /** Replaces a password login's password with a new one-time password. */
   resetPassword(sub: string): Promise<{ password: string }>;
   /** Suspends/restores an existing person's sign-in without deleting their identity. */
@@ -27,6 +27,8 @@ export interface InviteInput {
   /** Old clients infer email when present and otherwise create only the roster account. */
   loginMethod?: "email" | "password" | "none";
   email?: string;
+  /** Optional safe prefix chosen by a player redeeming a one-time onboarding link. */
+  loginName?: string;
   playerId: string;
   name: string;
   rank?: string;
@@ -98,7 +100,7 @@ export async function invite(
     if (seatsLeft(await repo.seats(seatCap)) === 0) {
       throw new ValidationError(`All ${seatCap} sign-in seats are in use. Free one before inviting someone new.`);
     }
-    const created = await logins.createPasswordLogin();
+    const created = await logins.createPasswordLogin(input.loginName);
     sub = created.sub;
     credentials = { username: created.username, password: created.password };
     loginCreated = true;

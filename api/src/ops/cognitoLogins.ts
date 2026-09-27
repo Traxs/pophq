@@ -1,5 +1,6 @@
-// The Cognito side of invites (P4.1). Logins sign in with emailed one-time codes; the password
-// set here is random, never shown to anyone and never used.
+// The Cognito side of invites (P4.1). Email-code logins receive an unusable random permanent
+// password; password logins receive a one-time temporary credential and Cognito requires the
+// member to replace it under the pool's password policy.
 import { randomBytes } from "node:crypto";
 import {
   AdminCreateUserCommand,
@@ -9,14 +10,18 @@ import {
   AdminSetUserPasswordCommand,
   AdminUserGlobalSignOutCommand,
   ListUsersCommand,
+  UsernameExistsException,
   type CognitoIdentityProviderClient,
 } from "@aws-sdk/client-cognito-identity-provider";
 import type { AttributeType } from "@aws-sdk/client-cognito-identity-provider";
 import type { LoginDirectory } from "./invite.js";
+import { ConflictError } from "../domain/errors.js";
 
 const unusablePassword = () => `${randomBytes(24).toString("base64url")}Aa1!`;
 const temporaryPassword = () => `${randomBytes(18).toString("base64url")}Aa1!`;
-const privateUsername = () => `member-${randomBytes(9).toString("base64url").toLowerCase()}@members.pophq.invalid`;
+const privateUsername = (preferredName?: string) => preferredName
+  ? `${preferredName}@members.pophq.invalid`
+  : `member-${randomBytes(9).toString("base64url").toLowerCase()}@members.pophq.invalid`;
 
 export function cognitoLogins(client: CognitoIdentityProviderClient, userPoolId: string): LoginDirectory {
   const subOf = (attributes: AttributeType[] | undefined) => attributes?.find((a) => a.Name === "sub")?.Value;
@@ -56,20 +61,26 @@ export function cognitoLogins(client: CognitoIdentityProviderClient, userPoolId:
       return sub;
     },
 
-    async createPasswordLogin() {
+    async createPasswordLogin(preferredName) {
       // This pool uses email-format usernames. A reserved .invalid address satisfies that fixed
       // pool schema without collecting or pretending to own a real mailbox.
-      const username = privateUsername();
+      const username = privateUsername(preferredName);
       const password = temporaryPassword();
-      const created = await client.send(
-        new AdminCreateUserCommand({
-          UserPoolId: userPoolId,
-          Username: username,
-          UserAttributes: [{ Name: "email", Value: username }],
-          TemporaryPassword: password,
-          MessageAction: "SUPPRESS",
-        }),
-      );
+      let created;
+      try {
+        created = await client.send(
+          new AdminCreateUserCommand({
+            UserPoolId: userPoolId,
+            Username: username,
+            UserAttributes: [{ Name: "email", Value: username }],
+            TemporaryPassword: password,
+            MessageAction: "SUPPRESS",
+          }),
+        );
+      } catch (err) {
+        if (err instanceof UsernameExistsException) throw new ConflictError("That login name is already in use. Ask an R4 for a new invitation and choose another.");
+        throw err;
+      }
       const sub = subOf(created.User?.Attributes);
       if (!sub) throw new Error("Cognito returned no subject for the password login");
       return { sub, username, password };

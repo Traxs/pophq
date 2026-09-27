@@ -65,6 +65,7 @@ import type { Repository } from "../data/repository.js";
 import type { Actor } from "../data/meta.js";
 import { invite, type LoginDirectory } from "../ops/invite.js";
 import { resetMemberPassword } from "../ops/resetPassword.js";
+import { inspectOnboardingInvite, issueOnboardingInvite, redeemOnboardingInvite } from "../ops/onboardingInvites.js";
 import { parseAccountOnboardingBatch, planAccountOnboarding } from "../ops/onboardAccounts.js";
 import { parseResetJustification } from "../domain/access.js";
 import type { TokenVerifier } from "./auth.js";
@@ -576,11 +577,58 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
 
   app.get("/health", (c) => c.json({ status: "ok" }));
 
+  // Public bearer-link endpoints intentionally live before authentication. The secret is sent in
+  // a JSON body (the browser receives it as a URL fragment), never in a request URL or server log.
+  if (logins) {
+    app.post("/onboarding-invitations/inspect", async (c) => {
+      if (!c.req.header("content-type")?.toLowerCase().startsWith("application/json")) {
+        throw new ValidationError("Request body must be JSON.");
+      }
+      const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+      const result = await inspectOnboardingInvite(repo, body.token, now());
+      c.header("Cache-Control", "no-store");
+      c.header("Referrer-Policy", "no-referrer");
+      return c.json(result.public);
+    });
+
+    app.post("/onboarding-invitations/redeem", async (c) => {
+      if (!c.req.header("content-type")?.toLowerCase().startsWith("application/json")) {
+        throw new ValidationError("Request body must be JSON.");
+      }
+      const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+      const result = await redeemOnboardingInvite(
+        { repo, logins, at: now() },
+        { token: body.token, method: body.method, email: body.email, loginName: body.loginName },
+      );
+      c.header("Cache-Control", "no-store");
+      c.header("Referrer-Policy", "no-referrer");
+      return c.json(result, 201);
+    });
+  }
+
   // Bot-specific surface. Normal GET routes also accept bot tokens as their live issuer;
   // normal write routes do not. Dry-run is the default for the one scoped bot write.
   app.get("/agent/doctor", async (c) => {
     const { token } = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "all:read", now(), botIssuerGroups);
     return c.json({ status: "ok", tokenId: token.tokenId, scopes: effectiveBotScopes(token), expiresAt: token.expiresAt });
+  });
+
+  /** Exact canonical/alias resolver for guarded import workflows; never fuzzy-matches. */
+  app.get("/agent/accounts/resolve-name", async (c) => {
+    const { issuerGroups } = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "all:read", now(), botIssuerGroups);
+    requireAgentOfficer(issuerGroups);
+    const alliance = (c.req.query("alliance") ?? "POP").trim().toUpperCase();
+    if (alliance !== "POP") throw new ValidationError("Only the POP alliance registry is available to this bot.");
+    const query = parseGameName(c.req.query("name"));
+    const matches = await repo.resolveAccountName(alliance, query);
+    return c.json({
+      query,
+      alliance,
+      matching: "NFKC, case-insensitive, collapsed whitespace; punctuation and digits retained",
+      ambiguous: matches.length > 1,
+      resolved: matches.length === 1 ? matches[0] : null,
+      matches,
+    });
   });
 
   /** Officer-only exact-ID readback for shell reconciliation; login subjects stay private. */
@@ -596,11 +644,13 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       repo.listHistoricalRecords("evidence"),
       repo.listHistoricalRecords("alias"),
     ]);
+    const sourceRecords = [...evidence, ...historicalNames].filter((record) => record.playerId === playerId);
     return c.json({
       account,
       hasLogin: Boolean(access),
       aliases,
-      sourceRecords: [...evidence, ...historicalNames].filter((record) => record.playerId === playerId),
+      aliasSources: sourceRecords.filter((record) => record.category === "alias" && (record.payload as Record<string, unknown>).kind === "confirmed_account_alias"),
+      sourceRecords,
     });
   });
 
@@ -1560,6 +1610,38 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
    * creates/links the game account (P4.1). Repeating the same invite changes nothing.
    */
   if (logins) {
+    app.post("/onboarding-invitations", async (c) => {
+      const p = c.get("principal");
+      requireOfficer(p);
+      const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+      const playerId = parsePlayerId(body.playerId);
+      if (!(await repo.getAccount(playerId))) {
+        await invite(
+          { repo, logins, actor: { id: p.sub, via: "web", reason: "account created for one-time onboarding invitation" } },
+          {
+            loginMethod: "none",
+            playerId,
+            name: String(body.name ?? ""),
+            ...(typeof body.rank === "string" ? { rank: body.rank } : {}),
+          },
+        );
+      }
+      const result = await issueOnboardingInvite(
+        repo,
+        playerId,
+        { id: p.sub, via: "web", reason: "24-hour one-time onboarding invitation issued" },
+        now(),
+      );
+      c.header("Cache-Control", "no-store");
+      return c.json({
+        token: result.token,
+        inviteId: result.invitation.inviteId,
+        playerId: result.invitation.playerId,
+        playerName: result.invitation.playerName,
+        expiresAt: result.invitation.expiresAt,
+      }, 201);
+    });
+
     app.post("/invites", async (c) => {
       const p = c.get("principal");
       requireOfficer(p);
@@ -1604,7 +1686,10 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       requireOfficer(c.get("principal"));
       const playerId = parsePlayerId(c.req.param("pid"));
       if (!(await repo.getAccount(playerId))) throw new NotFoundError(`Game account ${playerId} not found.`);
-      return c.json({ items: await repo.listAccessAudit(playerId) });
+      return c.json({
+        items: await repo.listAccessAudit(playerId),
+        invitations: await repo.listOnboardingInviteAudit(playerId),
+      });
     });
   }
 

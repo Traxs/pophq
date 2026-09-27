@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import type { AccessAuditRecord, AccountIdentity, Reports, RosterRow } from "../api";
+import type { AccessAuditRecord, AccountIdentity, OnboardingInvitationAudit, Reports, RosterRow } from "../api";
 import { AccountIdentityPanel } from "../components/AccountIdentity";
 import { ErrorBanner } from "../components/Chrome";
 import { InviteMemberForm } from "../components/InviteMember";
@@ -38,6 +38,7 @@ export function MemberPage({ playerId }: { playerId: string }) {
   const [roster, setRoster] = useState<RosterRow[]>([]);
   const [reports, setReports] = useState<Reports | null>(null);
   const [accessAudit, setAccessAudit] = useState<AccessAuditRecord[]>([]);
+  const [invitationAudit, setInvitationAudit] = useState<OnboardingInvitationAudit[]>([]);
   const [identity, setIdentity] = useState<AccountIdentity | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -53,6 +54,7 @@ export function MemberPage({ playerId }: { playerId: string }) {
         setRow(roster.items.find((item) => item.playerId === playerId) ?? null);
         setReports(reportHistory);
         setAccessAudit(audit.items);
+        setInvitationAudit(audit.invitations);
         setIdentity(accountIdentity);
         setError(null);
       })
@@ -162,11 +164,11 @@ export function MemberPage({ playerId }: { playerId: string }) {
           roster={roster}
           onChanged={setIdentity}
         />}
-        {(row.hasLogin || accessAudit.length > 0) && <section className="card member-detail-card access-security-card">
+        {(row.hasLogin || accessAudit.length > 0 || invitationAudit.length > 0) && <section className="card member-detail-card access-security-card">
           <div className="section-head">
             <div>
               <h2>Access security</h2>
-              <p className="muted small">Password recovery actions are retained for fraud review.</p>
+              <p className="muted small">Invitations and password recovery are retained for fraud review.</p>
             </div>
             {row.loginMethod === "password" && <button type="button" className="btn btn-danger btn-small" onClick={() => setResettingPassword(true)}>
               Reset password
@@ -184,6 +186,17 @@ export function MemberPage({ playerId }: { playerId: string }) {
               <span className={`badge ${audit.status === "failed" ? "badge-none" : ""}`}>{audit.status}</span>
             </li>)}
           </ul>}
+          {invitationAudit.length > 0 && <>
+            <h3>Invitation history</h3>
+            <ul className="detail-list access-audit-list">{invitationAudit.map((invite) => <li key={invite.inviteId}>
+              <span>
+                <strong>Onboarding invitation {invite.status}</strong>
+                <span className="muted small">Created {new Date(invite.createdAt).toLocaleString()} · expires {new Date(invite.expiresAt).toLocaleString()}</span>
+                {invite.method && <span className="small">Selected {invite.method === "email" ? "email code" : "login and password"}</span>}
+              </span>
+              <span className={`badge ${invite.status === "failed" ? "badge-none" : ""}`}>{invite.status}</span>
+            </li>)}</ul>
+          </>}
         </section>}
 
         <section className="card member-detail-card">

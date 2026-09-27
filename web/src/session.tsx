@@ -73,8 +73,8 @@ export function useAuth(): [AuthState, (s: AuthState) => void] {
 /** Access token for API calls, renewed first when it is about to expire. */
 export const freshToken = async (): Promise<string | undefined> => (await currentUser())?.access_token;
 
-export const signIn = (clientId?: string, returnTo = window.location.pathname) =>
-  void startSignIn(returnTo, clientId);
+export const signIn = (clientId?: string, returnTo = window.location.pathname, loginHint?: string) =>
+  void startSignIn(returnTo, clientId, loginHint);
 
 export function SessionProvider({
   user,
@@ -132,6 +132,7 @@ export function SessionProvider({
       setReportIgnored: guard(inner.setReportIgnored),
       roster: guard(inner.roster),
       invite: guard(inner.invite),
+      issueOnboardingInvitation: guard(inner.issueOnboardingInvitation),
       accessAudit: guard(inner.accessAudit),
       resetPassword: guard(inner.resetPassword),
       updateAccount: guard(inner.updateAccount),

@@ -114,15 +114,17 @@ npm run admin -w api -- backfill-seats
 
 ## Inviting members
 
-Officers invite from the Members page and choose either **Email code** or **Create password**. Email-code access uses the member's email and sends a one-time code whenever they sign in. Password access creates a pseudonymous login name plus a temporary password, shows both to the officer exactly once, and requires the member to sign in within Cognito's seven-day window and choose a private password; no personal email is required, so an officer must verify the member if access later needs to be recovered. The form can find existing unregistered roster members by name or Player ID and fills their known details. An unregistered member's detail page offers the same form already filled in.
+Officers create a private **24-hour invitation link** from the Members page. This is the recommended and default onboarding path: the player chooses email-code or password access themselves. It is bound to one Player ID, contains a 256-bit one-time secret in the URL fragment, and is shown only once. POP HQ stores only the SHA-256 digest; the fragment never reaches CloudFront, API Gateway, access logs or referrer headers. The form can find existing unregistered roster members by name or Player ID and fills their known details. An unregistered member's detail page offers the same form already filled in. For exceptional cases, an officer can instead expand **Set up access for them** and retain the existing direct email-code or temporary-password workflow.
+
+The player opens the link and chooses either **Email code** or **Login & password**. Email-code access uses their email and sends a new code whenever they sign in. Password access lets them choose the private login-name prefix, then gives them a Cognito temporary password exactly once; Cognito requires a permanent password that satisfies the pool policy. The app never receives or stores that permanent password. Redemption is an atomic one-time claim: concurrent/replayed, expired, inactive-account and already-linked attempts fail closed, and failed provider attempts consume the link instead of leaving it replayable.
 
 R4/R5 users can also choose **Mark as left** on a member profile. POP HQ keeps every historical record and account relationship, but atomically moves the main and all linked secondary accounts out of the active alliance and suspends their shared login. **Welcome back** reverses the operation. Both directions require an officer reason and remain visible in relationship history.
 
-One step creates the Cognito login, creates the game account when necessary, and links the two; repeating the same invite does not expose credentials or create another login. A linked current POP R4/R5 can immediately open officer-only pages, even when their existing token predates the invite or promotion. Logins are capped at 100 seats (FM-08); alts of the same person do not use extra seats.
+Redemption creates the Cognito login and links the exact game account. A linked current POP R4/R5 can immediately open officer-only pages, even when their existing token predates the invite or promotion. Logins are capped at 100 seats (FM-08); alts of the same person do not use extra seats. Invitation issuance, method selection, redemption and failure remain in the member's officer-visible access history without storing the bearer token, email, or any password.
 
 For password-based access, R4/R5 users can open the member profile and choose **Reset password**. They must record a 5–200 character verification reason. POP HQ records the request before touching Cognito, sets a new seven-day temporary password, revokes the member's existing Cognito sessions, and records whether the operation completed or failed. The one-time password is never stored in POP HQ or its audit history. The member profile's **Access security** section shows the actor, time, reason, and outcome of every attempt for fraud review. Email-code accounts do not offer password reset.
 
-Locally the invite flow uses a stand-in directory in DynamoDB Local. It demonstrates and tests issuance, autocomplete, linkage, password resets, and access-audit history, but newly invited email/password logins cannot authenticate against the mock OIDC picker; the test personas cover signed-in flows.
+Locally the invite flow uses a stand-in directory in DynamoDB Local. It demonstrates and tests secure-link issuance, fragment scrubbing, expiry, atomic redemption, replay resistance, autocomplete, linkage, password resets, and access-audit history, but newly invited email/password logins cannot authenticate against the mock OIDC picker; the test personas cover signed-in flows.
 
 **Troops** are reported per type. Infantry, Lancer and Marksman each have their own FC level — capped by the furnace, since troops cannot pass it — and **Helios** is an upgrade on top of a type's level, so a member can hold it on all three at once. A report states both the level and whether Helios is there, so turning it off is as recordable as turning it on.
 
@@ -209,6 +211,7 @@ python3 agent/hermes-skill/state2612/scripts/s26.py result-context EVENT_ID SESS
 python3 agent/hermes-skill/state2612/scripts/s26.py put-result EVENT_ID SESSION_ID result.json
 python3 agent/hermes-skill/state2612/scripts/s26.py reconcile-accounts accounts.json --batch-id STABLE_BATCH_ID
 python3 agent/hermes-skill/state2612/scripts/s26.py account-reconciliation PLAYER_ID
+python3 agent/hermes-skill/state2612/scripts/s26.py resolve-account-name CONFIRMED_ALIAS
 ```
 
 If your shell is in the directory above this repository (for example `~/workspace/WOS`), first run `cd pophq`, or prefix those paths with `pophq/`.

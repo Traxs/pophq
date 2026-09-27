@@ -23,6 +23,7 @@ import type { Strategy } from "../domain/strategy.js";
 import type { EventResult } from "../domain/results.js";
 import type { AgentTokenRecord } from "../domain/agentTokens.js";
 import type { HistoricalCategory, HistoricalRecord } from "../domain/historicalRecords.js";
+import type { OnboardingInvite, OnboardingInviteStatus, OnboardingLoginMethod } from "../domain/onboardingInvites.js";
 import { ConflictError, NotFoundError } from "../domain/errors.js";
 import { searchKey, type AccountAlias, type IdentityAuditRecord } from "../domain/identity.js";
 import type { Report } from "../domain/measurements.js";
@@ -39,6 +40,7 @@ import {
   accountLinkLockKey,
   accountIdentityGroupKey,
   accountAliasKey,
+  accountNameClaimKey,
   allianceIndexKey,
   eventIndexKey,
   eventKey,
@@ -54,6 +56,8 @@ import {
   loginLinkKey,
   personIdentityKey,
   identityAuditKey,
+  onboardingInviteAuditKey,
+  onboardingInviteTokenKey,
   reportKey,
   resultKey,
   seatCounterKey,
@@ -82,21 +86,28 @@ export class Repository {
     const now = this.clock();
     try {
       await this.db.send(
-        new PutCommand({
-          TableName: this.table,
-          Item: {
-            ...accountKey(account.playerId),
-            ...allianceIndexKey(account.alliance, searchKey(account.name), account.playerId),
-            type: "account",
-            ...account,
-            ...newItemMeta(actor, now),
-          },
-          ConditionExpression: "attribute_not_exists(PK)",
-        }),
+        new TransactWriteCommand({ TransactItems: [
+          { Put: {
+            TableName: this.table,
+            Item: {
+              ...accountKey(account.playerId),
+              ...allianceIndexKey(account.alliance, searchKey(account.name), account.playerId),
+              type: "account",
+              ...account,
+              ...newItemMeta(actor, now),
+            },
+            ConditionExpression: "attribute_not_exists(PK)",
+          } },
+          { Put: {
+            TableName: this.table,
+            Item: { ...accountNameClaimKey(account.alliance, searchKey(account.name)), type: "account-name-claim", playerId: account.playerId, name: account.name, kind: "canonical" },
+            ConditionExpression: "attribute_not_exists(PK)",
+          } },
+        ] }),
       );
     } catch (err) {
-      if (err instanceof ConditionalCheckFailedException) {
-        throw new ConflictError(`Player ID ${account.playerId} already exists.`);
+      if (cancellationCodes(err)?.some((code) => code === "ConditionalCheckFailed")) {
+        throw new ConflictError(`Player ID ${account.playerId} or name ${account.name} already exists.`);
       }
       throw err;
     }
@@ -107,6 +118,48 @@ export class Repository {
    * it here — otherwise the account would still exist but drop out of the Members list.
    */
   async updateAccount(account: GameAccount, actor: Actor): Promise<void> {
+    const current = await this.getAccount(account.playerId);
+    if (!current) throw new NotFoundError(`Game account ${account.playerId} not found.`);
+    const changesNameKey = current.alliance !== account.alliance || searchKey(current.name) !== searchKey(account.name);
+    if (changesNameKey) {
+      const claims = await this.resolveAccountName(account.alliance, account.name);
+      if (claims.some((claim) => claim.playerId !== account.playerId)) {
+        throw new ConflictError(`Name ${account.name} already belongs to another Player ID.`);
+      }
+      try {
+        await this.db.send(new TransactWriteCommand({ TransactItems: [
+          { Put: {
+            TableName: this.table,
+            Item: {
+              ...accountKey(account.playerId),
+              ...allianceIndexKey(account.alliance, searchKey(account.name), account.playerId),
+              type: "account",
+              ...account,
+              ...newItemMeta(actor, this.clock()),
+            },
+            ConditionExpression: "attribute_exists(PK)",
+          } },
+          { Put: {
+            TableName: this.table,
+            Item: { ...accountNameClaimKey(account.alliance, searchKey(account.name)), type: "account-name-claim", playerId: account.playerId, name: account.name, kind: "canonical" },
+            ConditionExpression: "attribute_not_exists(PK) OR playerId = :playerId",
+            ExpressionAttributeValues: { ":playerId": account.playerId },
+          } },
+          { Delete: {
+            TableName: this.table,
+            Key: accountNameClaimKey(current.alliance, searchKey(current.name)),
+            ConditionExpression: "attribute_not_exists(PK) OR playerId = :playerId",
+            ExpressionAttributeValues: { ":playerId": account.playerId },
+          } },
+        ] }));
+        return;
+      } catch (err) {
+        if (cancellationCodes(err)?.some((code) => code === "ConditionalCheckFailed")) {
+          throw new ConflictError("The account name changed or was claimed while you were saving. Refresh and try again.");
+        }
+        throw err;
+      }
+    }
     try {
       await this.db.send(
         new PutCommand({
@@ -132,6 +185,178 @@ export class Repository {
   async getAccount(playerId: string): Promise<GameAccount | undefined> {
     const res = await this.db.send(new GetCommand({ TableName: this.table, Key: accountKey(playerId) }));
     return res.Item ? toAccount(res.Item) : undefined;
+  }
+
+  /** Exact supported resolver used by imports; it never fuzzy-matches or drops punctuation/digits. */
+  async resolveAccountName(alliance: string, name: string): Promise<{ playerId: string; canonicalName: string; matchedName: string; basis: "canonical" | "alias" }[]> {
+    const normalized = searchKey(name);
+    const accounts = await this.listAccounts(alliance);
+    const aliases = new Map(await Promise.all(accounts.map(async (account) => [account.playerId, await this.listAliases(account.playerId)] as const)));
+    return accounts.flatMap((account): { playerId: string; canonicalName: string; matchedName: string; basis: "canonical" | "alias" }[] => {
+      if (searchKey(account.name) === normalized) {
+        return [{ playerId: account.playerId, canonicalName: account.name, matchedName: account.name, basis: "canonical" }];
+      }
+      const alias = aliases.get(account.playerId)?.find((candidate) => searchKey(candidate.name) === normalized);
+      return alias ? [{ playerId: account.playerId, canonicalName: account.name, matchedName: alias.name, basis: "alias" }] : [];
+    });
+  }
+
+  // ---- Invite-only onboarding --------------------------------------------------------------
+
+  /** Stores the short-lived hashed-token lookup and permanent account audit atomically. */
+  async issueOnboardingInvite(invite: OnboardingInvite, tokenHash: string, actor: Actor): Promise<void> {
+    const meta = newItemMeta(actor, this.clock());
+    // The main table's TTL attribute is expiresAtEpoch. It belongs only on the token lookup;
+    // placing it on the account audit would silently erase the fraud-review history after 24h.
+    const { expiresAtEpoch: _tokenTtl, ...permanentAudit } = invite;
+    void _tokenTtl;
+    try {
+      await this.db.send(new TransactWriteCommand({
+        TransactItems: [
+          {
+            ConditionCheck: {
+              TableName: this.table,
+              Key: accountKey(invite.playerId),
+              ConditionExpression: "attribute_exists(PK) AND #status IN (:active, :guest, :unknown)",
+              ExpressionAttributeNames: { "#status": "status" },
+              ExpressionAttributeValues: WRITABLE_STATUSES,
+            },
+          },
+          {
+            ConditionCheck: {
+              TableName: this.table,
+              Key: accountLinkLockKey(invite.playerId),
+              ConditionExpression: "attribute_not_exists(PK)",
+            },
+          },
+          {
+            Put: {
+              TableName: this.table,
+              Item: { ...onboardingInviteTokenKey(tokenHash), type: "onboarding-invite-token", ...invite, ...meta },
+              ConditionExpression: "attribute_not_exists(PK)",
+            },
+          },
+          {
+            Put: {
+              TableName: this.table,
+              Item: { ...onboardingInviteAuditKey(invite.playerId, invite.inviteId), type: "onboarding-invite-audit", ...permanentAudit, ...meta },
+              ConditionExpression: "attribute_not_exists(PK)",
+            },
+          },
+        ],
+      }));
+    } catch (err) {
+      const reasons = cancellationCodes(err);
+      if (reasons?.[0] === "ConditionalCheckFailed") throw new ConflictError("This account is not active and cannot be invited.");
+      if (reasons?.[1] === "ConditionalCheckFailed") throw new ConflictError("This player already has POP HQ access.");
+      throw err;
+    }
+  }
+
+  async getOnboardingInvite(tokenHash: string): Promise<OnboardingInvite | undefined> {
+    const res = await this.db.send(new GetCommand({
+      TableName: this.table,
+      Key: onboardingInviteTokenKey(tokenHash),
+      ConsistentRead: true,
+    }));
+    return res.Item ? toOnboardingInvite(res.Item) : undefined;
+  }
+
+  /** Claims the bearer token once, before any external Cognito action can happen. */
+  async claimOnboardingInvite(tokenHash: string, invite: OnboardingInvite, method: OnboardingLoginMethod, at: Date): Promise<void> {
+    const values = {
+      ":issued": "issued",
+      ":redeeming": "redeeming",
+      ":method": method,
+      ":at": at.toISOString(),
+      ":nowEpoch": Math.floor(at.getTime() / 1000),
+      ":one": 1,
+    };
+    const names = { "#status": "status", "#method": "method" };
+    try {
+      await this.db.send(new TransactWriteCommand({
+        TransactItems: [
+          {
+            Update: {
+              TableName: this.table,
+              Key: onboardingInviteTokenKey(tokenHash),
+              UpdateExpression: "SET #status = :redeeming, #method = :method, claimedAt = :at, updatedAt = :at, version = version + :one",
+              ConditionExpression: "#status = :issued AND expiresAtEpoch >= :nowEpoch",
+              ExpressionAttributeNames: names,
+              ExpressionAttributeValues: values,
+            },
+          },
+          {
+            Update: {
+              TableName: this.table,
+              Key: onboardingInviteAuditKey(invite.playerId, invite.inviteId),
+              UpdateExpression: "SET #status = :redeeming, #method = :method, claimedAt = :at, updatedAt = :at, version = version + :one",
+              ConditionExpression: "#status = :issued",
+              ExpressionAttributeNames: names,
+              ExpressionAttributeValues: {
+                ":issued": values[":issued"],
+                ":redeeming": values[":redeeming"],
+                ":method": values[":method"],
+                ":at": values[":at"],
+                ":one": values[":one"],
+              },
+            },
+          },
+          {
+            ConditionCheck: {
+              TableName: this.table,
+              Key: accountLinkLockKey(invite.playerId),
+              ConditionExpression: "attribute_not_exists(PK)",
+            },
+          },
+        ],
+      }));
+    } catch (err) {
+      if (err instanceof TransactionCanceledException) {
+        throw new ConflictError("This invitation is invalid, expired, or has already been used.");
+      }
+      throw err;
+    }
+  }
+
+  /** Completes the permanent audit. A failed attempt remains consumed and cannot be replayed. */
+  async finishOnboardingInvite(
+    tokenHash: string,
+    invite: OnboardingInvite,
+    status: Extract<OnboardingInviteStatus, "redeemed" | "failed">,
+    at: Date,
+    failureCode?: string,
+  ): Promise<void> {
+    const timeField = status === "redeemed" ? "redeemedAt" : "failedAt";
+    const values: Record<string, unknown> = {
+      ":redeeming": "redeeming",
+      ":status": status,
+      ":at": at.toISOString(),
+      ":one": 1,
+      ...(failureCode ? { ":failure": failureCode } : {}),
+    };
+    const update = `SET #status = :status, ${timeField} = :at, updatedAt = :at, version = version + :one${failureCode ? ", failureCode = :failure" : ""}`;
+    const common = {
+      UpdateExpression: update,
+      ConditionExpression: "#status = :redeeming",
+      ExpressionAttributeNames: { "#status": "status" },
+      ExpressionAttributeValues: values,
+    };
+    await this.db.send(new TransactWriteCommand({
+      TransactItems: [
+        { Update: { TableName: this.table, Key: onboardingInviteTokenKey(tokenHash), ...common } },
+        { Update: { TableName: this.table, Key: onboardingInviteAuditKey(invite.playerId, invite.inviteId), ...common } },
+      ],
+    }));
+  }
+
+  async listOnboardingInviteAudit(playerId: string): Promise<OnboardingInvite[]> {
+    const items = await this.queryAll({
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+      ExpressionAttributeValues: { ":pk": `ACCOUNT#${playerId}`, ":sk": "ONBOARDING_INVITE#" },
+      ScanIndexForward: false,
+    });
+    return items.map(toOnboardingInvite);
   }
 
   async listAccounts(alliance: string): Promise<GameAccount[]> {
@@ -713,7 +938,7 @@ export class Repository {
     changes: {
       accounts: GameAccount[];
       expectedAccounts: GameAccount[];
-      aliases: { playerId: string; name: string; justification: string }[];
+      aliases: { playerId: string; alliance: string; name: string; justification: string }[];
       evidence: HistoricalRecord[];
     },
     actor: Actor,
@@ -752,19 +977,28 @@ export class Repository {
       });
     }
     for (const account of changes.accounts) {
-      transactItems.push({
-        Put: {
-          TableName: this.table,
-          Item: {
-            ...accountKey(account.playerId),
-            ...allianceIndexKey(account.alliance, searchKey(account.name), account.playerId),
-            type: "account",
-            ...account,
-            ...newItemMeta(actor, now),
+      transactItems.push(
+        {
+          Put: {
+            TableName: this.table,
+            Item: {
+              ...accountKey(account.playerId),
+              ...allianceIndexKey(account.alliance, searchKey(account.name), account.playerId),
+              type: "account",
+              ...account,
+              ...newItemMeta(actor, now),
+            },
+            ConditionExpression: "attribute_not_exists(PK)",
           },
-          ConditionExpression: "attribute_not_exists(PK)",
         },
-      });
+        {
+          Put: {
+            TableName: this.table,
+            Item: { ...accountNameClaimKey(account.alliance, searchKey(account.name)), type: "account-name-claim", playerId: account.playerId, name: account.name, kind: "canonical" },
+            ConditionExpression: "attribute_not_exists(PK)",
+          },
+        },
+      );
     }
     for (const alias of changes.aliases) {
       const meta = newItemMeta(actor, now);
@@ -778,6 +1012,14 @@ export class Repository {
         performedBy: actor.id,
       };
       transactItems.push(
+        {
+          Put: {
+            TableName: this.table,
+            Item: { ...accountNameClaimKey(alias.alliance, searchKey(alias.name)), type: "account-name-claim", playerId: alias.playerId, name: alias.name, kind: "alias" },
+            ConditionExpression: "attribute_not_exists(PK) OR playerId = :playerId",
+            ExpressionAttributeValues: { ":playerId": alias.playerId },
+          },
+        },
         {
           Put: {
             TableName: this.table,
@@ -1243,6 +1485,8 @@ export class Repository {
     const account = await this.getAccount(playerId);
     if (!account) throw new NotFoundError(`Game account ${playerId} not found.`);
     if (searchKey(account.name) === searchKey(name)) throw new ConflictError("That is already the account's current name.");
+    const claims = await this.resolveAccountName(account.alliance, name);
+    if (claims.some((claim) => claim.playerId !== playerId)) throw new ConflictError("That alternate name belongs to another Player ID.");
     const now = this.clock();
     const meta = newItemMeta(actor, now);
     const audit: IdentityAuditRecord = {
@@ -1251,11 +1495,12 @@ export class Repository {
     };
     try {
       await this.db.send(new TransactWriteCommand({ TransactItems: [
+        { Put: { TableName: this.table, Item: { ...accountNameClaimKey(account.alliance, searchKey(name)), type: "account-name-claim", playerId, name, kind: "alias" }, ConditionExpression: "attribute_not_exists(PK) OR playerId = :playerId", ExpressionAttributeValues: { ":playerId": playerId } } },
         { Put: { TableName: this.table, Item: { ...accountAliasKey(playerId, searchKey(name)), type: "account-alias", name, addedAt: now.toISOString(), addedBy: actor.id, ...meta }, ConditionExpression: "attribute_not_exists(PK)" } },
         { Put: { TableName: this.table, Item: { ...identityAuditKey(playerId, audit.auditId), type: "identity-audit", ...audit, ...meta } } },
       ] }));
     } catch (err) {
-      if (cancellationCodes(err)?.[0] === "ConditionalCheckFailed") throw new ConflictError("That alternate name is already recorded.");
+      if (cancellationCodes(err)?.some((code) => code === "ConditionalCheckFailed")) throw new ConflictError("That alternate name is already recorded or belongs to another Player ID.");
       throw err;
     }
     return audit;
@@ -2336,6 +2581,23 @@ function toAccessAudit(item: Record<string, unknown>): AccessAuditRecord {
   if (item.resolvedAt) record.resolvedAt = String(item.resolvedAt);
   if (item.requestedByName) record.requestedByName = String(item.requestedByName);
   return record;
+}
+
+function toOnboardingInvite(item: Record<string, unknown>): OnboardingInvite {
+  return {
+    inviteId: String(item.inviteId),
+    playerId: String(item.playerId),
+    playerName: String(item.playerName),
+    status: item.status as OnboardingInvite["status"],
+    createdAt: String(item.createdAt),
+    createdBy: String(item.createdBy),
+    expiresAt: String(item.expiresAt),
+    expiresAtEpoch: typeof item.expiresAtEpoch === "number" ? item.expiresAtEpoch : Math.floor(Date.parse(String(item.expiresAt)) / 1000),
+    ...(item.method === "email" || item.method === "password" ? { method: item.method } : {}),
+    ...(typeof item.redeemedAt === "string" ? { redeemedAt: item.redeemedAt } : {}),
+    ...(typeof item.failedAt === "string" ? { failedAt: item.failedAt } : {}),
+    ...(typeof item.failureCode === "string" ? { failureCode: item.failureCode } : {}),
+  };
 }
 
 function toIdentityAudit(item: Record<string, unknown>): IdentityAuditRecord {

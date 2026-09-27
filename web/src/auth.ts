@@ -163,12 +163,15 @@ export async function signOutEverywhere(): Promise<boolean> {
 }
 
 /** Starts sign-in, optionally as a local dev persona. */
-export function startSignIn(returnTo: string, clientId: string = config.clientId): Promise<void> {
+export function startSignIn(returnTo: string, clientId: string = config.clientId, loginHint?: string): Promise<void> {
   try {
     window.localStorage.setItem(CLIENT_KEY, clientId);
   } catch {
     /* ignore */
   }
   manager = build(clientId);
-  return manager.signinRedirect({ state: returnTo === "/callback" ? "/" : returnTo });
+  return manager.signinRedirect({
+    state: returnTo === "/callback" ? "/" : returnTo,
+    ...(loginHint ? { extraQueryParams: { login_hint: loginHint } } : {}),
+  });
 }

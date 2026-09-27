@@ -27,6 +27,13 @@ describe("cognitoLogins.createPasswordLogin", () => {
     expect(command.input.UserAttributes).not.toContainEqual({ Name: "email_verified", Value: "true" });
   });
 
+  it("uses a validated player-chosen prefix while Cognito owns the temporary and permanent password flow", async () => {
+    const send = vi.fn().mockResolvedValue({ User: { Attributes: [{ Name: "sub", Value: "chosen-sub" }] } });
+    const result = await cognitoLogins({ send } as unknown as CognitoIdentityProviderClient, "pool-1").createPasswordLogin("frost-wolf");
+    expect(result.username).toBe("frost-wolf@members.pophq.invalid");
+    expect(send.mock.calls[0]![0].input).toMatchObject({ Username: result.username, TemporaryPassword: result.password });
+  });
+
   it("resets by immutable subject to a temporary password", async () => {
     const send = vi.fn().mockResolvedValue({});
     const logins = cognitoLogins({ send } as unknown as CognitoIdentityProviderClient, "pool-1");

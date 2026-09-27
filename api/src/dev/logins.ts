@@ -17,8 +17,8 @@ export function devLogins(db: DynamoDBDocumentClient, table: string): LoginDirec
       await db.send(new PutCommand({ TableName: table, Item: { ...key(email), type: "dev-login", sub, email } }));
       return sub;
     },
-    async createPasswordLogin() {
-      const username = `member-${randomBytes(6).toString("hex")}@members.pophq.invalid`;
+    async createPasswordLogin(preferredName) {
+      const username = `${preferredName ?? `member-${randomBytes(6).toString("hex")}`}@members.pophq.invalid`;
       const password = `${randomBytes(12).toString("base64url")}Aa1!`;
       const sub = `local-${username}`;
       await db.send(new PutCommand({ TableName: table, Item: { ...key(username), type: "dev-login", sub, email: username } }));

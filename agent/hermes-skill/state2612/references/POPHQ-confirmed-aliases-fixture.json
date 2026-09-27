@@ -1,0 +1,21 @@
+{
+  "fixtureFormat": "pophq-account-reconciliation-v2",
+  "purpose": "Preview-only confirmed operational alias repair",
+  "productionApplyAuthorized": false,
+  "alliance": "POP",
+  "entries": [
+    { "sourceId": "confirmed-name-405338501", "playerId": "405338501", "name": "Arya Stark", "aliases": [{ "name": "Arya", "source": { "kind": "owner_confirmation", "reference": "TRAX-539/owner-confirmations.json" } }] },
+    { "sourceId": "confirmed-name-399036497", "playerId": "399036497", "name": "Very Bad Dudu", "aliases": [{ "name": "Bad Dudu", "source": { "kind": "owner_confirmation", "reference": "TRAX-539/owner-confirmations.json" } }] },
+    { "sourceId": "confirmed-name-412594007", "playerId": "412594007", "name": "Cloud Tear", "aliases": [{ "name": "CloudTear", "source": { "kind": "owner_confirmation", "reference": "TRAX-539/owner-confirmations.json" } }] },
+    { "sourceId": "confirmed-name-407643654", "playerId": "407643654", "name": "Chief_D", "aliases": [{ "name": "ChiefD", "source": { "kind": "owner_confirmation", "reference": "TRAX-539/owner-confirmations.json" } }] },
+    { "sourceId": "confirmed-name-401444799", "playerId": "401444799", "name": "DaYo", "aliases": [{ "name": "Dayo", "source": { "kind": "owner_confirmation", "reference": "TRAX-539/owner-confirmations.json" } }] },
+    { "sourceId": "confirmed-name-405364781", "playerId": "405364781", "name": "Lord Henry", "aliases": [{ "name": "LordHenry", "source": { "kind": "owner_confirmation", "reference": "TRAX-539/owner-confirmations.json" } }] },
+    { "sourceId": "confirmed-name-414051721", "playerId": "414051721", "name": "Lil pup", "aliases": [{ "name": "Lil Pup", "source": { "kind": "owner_confirmation", "reference": "TRAX-539/owner-confirmations.json" } }] },
+    { "sourceId": "confirmed-name-398544949", "playerId": "398544949", "name": "JunMoxiao", "aliases": [{ "name": "Junmoxi", "source": { "kind": "owner_confirmation", "reference": "TRAX-519/reconciliation.json; owner-confirmed source binding" } }] },
+    { "sourceId": "confirmed-name-323475910", "playerId": "323475910", "name": "Phoenix", "aliases": [{ "name": "PhoenixOnFire", "source": { "kind": "owner_confirmation", "reference": "TRAX-519/reconciliation.json; owner-confirmed source binding" } }] },
+    { "sourceId": "confirmed-name-401821764", "playerId": "401821764", "name": "Expo", "aliases": [{ "name": "Expo Fusion", "source": { "kind": "owner_confirmation", "reference": "TRAX-519/reconciliation.json; owner-confirmed source binding" } }] },
+    { "sourceId": "confirmed-name-416876116", "playerId": "416876116", "name": "Commander C", "aliases": [{ "name": "CommanderC", "source": { "kind": "owner_confirmation", "reference": "TRAX-519/reconciliation.json; owner-confirmed source binding" } }] },
+    { "sourceId": "confirmed-name-411988099", "playerId": "411988099", "name": "Baron", "aliases": [{ "name": "Baron81", "source": { "kind": "owner_confirmation", "reference": "TRAX-519/reconciliation.json; owner-confirmed source binding" } }] },
+    { "sourceId": "confirmed-name-401250554", "playerId": "401250554", "name": "Wenzy", "aliases": [{ "name": "Wenzyporsche", "source": { "kind": "owner_confirmation", "reference": "TRAX-545/owner-confirmation.json" } }] }
+  ]
+}

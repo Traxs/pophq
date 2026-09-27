@@ -736,6 +736,63 @@ button.card {
   min-height: 44px;
 }
 
+.invite-paths {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.invite-paths > button {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  min-height: 130px;
+  padding: 14px;
+  color: var(--ink);
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-2);
+  cursor: pointer;
+}
+
+.invite-paths > button:hover,
+.invite-paths > button:focus-visible {
+  border-color: var(--accent);
+}
+
+.invite-paths > button.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  background: var(--accent-soft);
+}
+
+.invite-paths > button > span:not(.invite-path-heading),
+.invite-paths > button > small {
+  color: var(--muted);
+}
+
+.invite-path-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.recommended-pill {
+  padding: 3px 7px;
+  color: var(--accent);
+  font-size: 0.7rem;
+  font-weight: 800;
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+@media (max-width: 520px) {
+  .invite-paths { grid-template-columns: 1fr; }
+  .invite-paths > button { min-height: auto; }
+}
+
 .member-lookup {
   position: relative;
 }
@@ -792,6 +849,45 @@ button.card {
 .invite-credentials h2,
 .invite-credentials p {
   margin: 0;
+}
+
+.invite-link {
+  padding: 12px;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+}
+.invite-link code { font-size: 12px; }
+.security-checks { margin: 0; padding-left: 20px; color: var(--muted); }
+.security-checks li + li { margin-top: 6px; }
+
+.join-page { min-height: 100dvh; padding: 24px 16px; }
+.join-card { width: min(100%, 520px); }
+.join-card h1 { margin-bottom: 8px; }
+.join-player { display: grid; gap: 4px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+.join-methods { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.join-methods button {
+  display: grid;
+  gap: 4px;
+  min-height: 84px;
+  padding: 14px;
+  text-align: left;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+.join-methods button.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: var(--accent-soft); }
+.join-methods button span { color: var(--muted); font-size: 13px; }
+.login-name-input { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); overflow: hidden; }
+.login-name-input:focus-within { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.login-name-input input { min-width: 0; border: 0; box-shadow: none; }
+.login-name-input span { padding-right: 12px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.join-loading { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 100px; color: var(--muted); }
+@media (max-width: 420px) {
+  .join-methods { grid-template-columns: 1fr; }
+  .login-name-input span { font-size: 10px; }
 }
 
 .success-mark {

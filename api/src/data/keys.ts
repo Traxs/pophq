@@ -11,6 +11,15 @@ export const accessAuditKey = (playerId: string, auditId: string) => ({
   SK: `ACCESS_AUDIT#${auditId}`,
 });
 
+/** Public onboarding looks up only a SHA-256 digest; the bearer token itself is never stored. */
+export const onboardingInviteTokenKey = (tokenHash: string) => ({ PK: `ONBOARDING#${tokenHash}`, SK: "META" });
+
+/** Permanent officer-visible lifecycle audit, retained after the short-lived token mapping expires. */
+export const onboardingInviteAuditKey = (playerId: string, inviteId: string) => ({
+  PK: `ACCOUNT#${playerId}`,
+  SK: `ONBOARDING_INVITE#${inviteId}`,
+});
+
 export const loginLinkKey = (sub: string, playerId: string) => ({ PK: `LOGIN#${sub}`, SK: `ACCOUNT#${playerId}` });
 
 /** Which linked account represents a person in people-level views. */
@@ -24,6 +33,12 @@ export const accountIdentityGroupKey = (playerId: string) => ({ PK: `ACCOUNT#${p
 export const accountAliasKey = (playerId: string, normalizedName: string) => ({
   PK: `ACCOUNT#${playerId}`,
   SK: `ALIAS#${encodeURIComponent(normalizedName)}`,
+});
+
+/** Race-safe ownership claim for a canonical or alternate name inside one alliance. */
+export const accountNameClaimKey = (alliance: string, normalizedName: string) => ({
+  PK: `ACCOUNTNAME#${alliance}`,
+  SK: `NAME#${encodeURIComponent(normalizedName)}`,
 });
 
 /** Immutable officer log for account relationship and alias changes. */

@@ -68,7 +68,7 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 
 ## Milestone 4: Membership lifecycle and officer inbox
 
-- [x] P4.1a Officer invites: one step creates an emailed-code or email-free password login, the game account and the link; repeating it changes nothing; officers-only; Members page autocomplete and profile prefill
+- [x] P4.1a Officer invites: an officer creates a 256-bit, hashed-at-rest, Player-ID-bound, single-use 24-hour link; the player chooses Cognito email OTP or a private login name and Cognito-enforced password; atomic redemption, permanent lifecycle audit, Members autocomplete and profile prefill
 - [x] P4.1c Audited password recovery: R4/R5 reset only password-based logins after recording a reason; a fresh one-time credential is shown once, existing Cognito sessions are revoked, and requested/completed/failed outcomes remain in the member's officer-visible access history
 - [ ] P4.1b Access requests with profile screenshot, officer approval, bulk approve (ID-01, ID-02, FM-26, LCH-01) — for people who already have a login (alts, re-links); needs evidence uploads (P3.8)
 - [x] P4.2 Seat cap of 100 logins with a conditional counter (FM-08); shown on the Members page; `npm run admin -w api -- backfill-seats` counts logins created before seats existed
@@ -142,6 +142,7 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 - [ ] P9.3b Inbox proposals for large/sensitive changes and `lineup:write` for Hermes (AGT-03, EVT-05)
 - [ ] P9.4 OpenAPI 3.1 published; `/v1/guide`
 - [x] P9.5a Result-focused Hermes skill: checksummed `state2612` SKILL.md, result API reference and standard-library `s26` CLI with doctor/context/preview/apply (AGT-04)
+- [x] P9.5a.1 Guarded exact-ID alias repair: structured provenance, operational resolver readback, collision-safe preview/apply and a preview-only confirmed-alias fixture
 - [ ] P9.5b Generate all references from OpenAPI and publish a checksummed full-feature release
 - [ ] P9.6 Negative and prompt-injection test suites (SEC tests in Failure review)
 

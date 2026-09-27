@@ -13,13 +13,16 @@ import { Settings } from "./pages/Settings";
 import { Svs } from "./pages/Svs";
 import { BuffDetail, Buffs } from "./pages/Buffs";
 import { SignIn } from "./pages/SignIn";
+import { Join } from "./pages/Join";
 import { usePath } from "./router";
 import { SessionProvider, useAuth, useSession } from "./session";
 
 export function App() {
   const [auth, setAuth] = useAuth();
+  const path = usePath();
 
   if (auth.status === "loading") return <div className="boot" aria-busy="true" />;
+  if (path === "/join") return <Join />;
   if (auth.status === "signedOut") return <SignIn />;
   return (
     <ToastProvider>
