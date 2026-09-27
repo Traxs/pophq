@@ -10,7 +10,7 @@ Use `scripts/s26.py` for POP HQ API calls. It uses only Python's standard librar
 - `POPHQ_URL`: the POP HQ base URL, such as `https://example.cloudfront.net`.
 - `POPHQ_BOT_TOKEN`: the one-time `s26_...` credential issued by an officer.
 
-Never print, persist, or place the token in a command argument. Run `doctor` before work. Read [references/read-api.md](references/read-api.md) when retrieving general POP HQ data, [references/events-api.md](references/events-api.md) before creating or editing events, [references/results-api.md](references/results-api.md) before preparing a result, [references/rewards-api.md](references/rewards-api.md) before extracting or registering Fortress/Stronghold rewards, and [references/history-api.md](references/history-api.md) before importing historical records or evidence.
+Never print, persist, or place the token in a command argument. Run `doctor` before work. Read [references/read-api.md](references/read-api.md) when retrieving general POP HQ data, [references/events-api.md](references/events-api.md) before creating or editing events, [references/results-api.md](references/results-api.md) before preparing a result or SvS/KOI phase scores, [references/rewards-api.md](references/rewards-api.md) before extracting or registering Fortress/Stronghold rewards, and [references/history-api.md](references/history-api.md) before importing historical records or evidence.
 
 ## Reading POP HQ
 
@@ -42,6 +42,8 @@ python3 scripts/s26.py put-result EVENT_ID SESSION_ID result.json --apply --reas
 ```
 
 The API defaults guarded writes to dry-run even if the CLI is used incorrectly. `--apply` is intentionally separate from preview. Normal web write routes and every undocumented write family remain forbidden.
+
+SvS and King of Icefield player points belong to configured phases, not signup sessions. Use `preparation` or `castle_battle`; never invent a team outcome or opponent score for points-only evidence. Fetch `phase-score-context`, retain exact integer points and source names, and preview `put-phase-scores`. Partial upserts preserve omitted players. Apply only the exact officer-approved preview hash. A reported-player subtotal is not an official event total unless completeness was independently confirmed.
 
 ## Event workflow
 

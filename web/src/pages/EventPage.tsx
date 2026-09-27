@@ -6,6 +6,8 @@ import {
   type EventDetail,
   type EventOutcome,
   type EventMember,
+  type EventScorePhase,
+  type EventScoreboard,
   type LineupEntryView,
   type PublishedLineup,
   type PublishedResult,
@@ -133,6 +135,17 @@ export function EventPage({ eventId }: { eventId: string }) {
 
       {error && <p className="banner banner-error" role="alert">{error}</p>}
 
+      {event.scoreboards && (
+        <EventScoreboards
+          eventId={event.eventId}
+          scoreboards={event.scoreboards}
+          {...(account ? { playerId: account.playerId } : {})}
+          isOfficer={isOfficer}
+          onChanged={dataChanged}
+          onError={setError}
+        />
+      )}
+
       {event.sessions.length > 0 ? (
         <ul className="stack">
           {event.sessions.map((session) => (
@@ -173,6 +186,150 @@ export function EventPage({ eventId }: { eventId: string }) {
       {isOfficer && event.members && <OfficerTable event={event} members={event.members} />}
     </>
   );
+}
+
+function EventScoreboards({
+  eventId,
+  scoreboards,
+  playerId,
+  isOfficer,
+  onChanged,
+  onError,
+}: {
+  eventId: string;
+  scoreboards: Record<EventScorePhase, EventScoreboard>;
+  playerId?: string;
+  isOfficer: boolean;
+  onChanged: () => void;
+  onError: (message: string | null) => void;
+}) {
+  const { api } = useSession();
+  const toast = useToast();
+  const [active, setActive] = useState<EventScorePhase>("preparation");
+  const [score, setScore] = useState("");
+  const [paste, setPaste] = useState("");
+  const [coverage, setCoverage] = useState<"partial" | "complete">("partial");
+  const [saving, setSaving] = useState(false);
+  const board = scoreboards[active];
+  const mine = board.entries.find((entry) => entry.playerId === playerId);
+
+  useEffect(() => setScore(mine ? String(mine.points) : ""), [active, mine?.points]);
+
+  const saveMine = async () => {
+    if (!playerId) return;
+    const points = Number(score.replaceAll(/[,._\s]/g, ""));
+    if (!Number.isSafeInteger(points) || points < 0) {
+      onError("Enter your score as a whole number.");
+      return;
+    }
+    setSaving(true);
+    onError(null);
+    try {
+      await api.setEventScore(eventId, active, playerId, points);
+      toast(`${active === "preparation" ? "Preparation" : "Castle battle"} score saved`);
+      onChanged();
+    } catch (error) {
+      onError(error instanceof ApiError ? error.message : "Couldn't save the score.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const importOfficial = async () => {
+    try {
+      const entries = parseOfficialScorePaste(paste);
+      setSaving(true);
+      onError(null);
+      const result = await api.importEventScores(eventId, active, {
+        expectedVersion: board.version,
+        coverage,
+        playerPoints: entries,
+        source: { type: "officer_import" },
+      });
+      toast(`${result.imported} official scores imported`);
+      setPaste("");
+      onChanged();
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "Couldn't import the official scores.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="card event-scoreboards" aria-labelledby="event-score-title">
+      <div className="event-head">
+        <div>
+          <h2 id="event-score-title" className="event-title">Event scores</h2>
+          <p className="muted small">Preparation and castle-battle points stay separate.</p>
+        </div>
+      </div>
+      <div className="score-phase-tabs" role="tablist" aria-label="Score phase">
+        {(["preparation", "castle_battle"] as const).map((phase) => (
+          <button key={phase} type="button" role="tab" aria-selected={active === phase} className={active === phase ? "active" : ""} onClick={() => setActive(phase)}>
+            {scoreboards[phase].phaseLabel}
+            <span>{scoreboards[phase].entries.length}</span>
+          </button>
+        ))}
+      </div>
+
+      {playerId && (
+        <div className="my-event-score">
+          <div>
+            <strong>Your {active} score</strong>
+            <small>{mine ? "Recorded — you can correct it" : "Not in the visible top 100? Add your exact score here."}</small>
+          </div>
+          <input aria-label={`Your ${active} score`} inputMode="numeric" placeholder="0" value={score} onChange={(event) => setScore(event.target.value)} />
+          <button type="button" className="btn btn-primary btn-small" disabled={saving} onClick={() => void saveMine()}>
+            {saving ? "…" : mine ? "Update" : "Add score"}
+          </button>
+        </div>
+      )}
+
+      {isOfficer && <div className="score-summary"><span><strong>{board.scoredPlayers}</strong> scored players</span><span><strong>{full(board.reportedPlayerSubtotal)}</strong> reported-player subtotal</span><span className="pill pill-flat">{board.coverage === "complete" ? "Complete" : "Partial data"}</span></div>}
+
+      {board.entries.length > 0 ? (
+        <div className="score-table-wrap">
+          <table className="score-table">
+            <thead><tr>{isOfficer && <th>Rank</th>}<th>Member</th><th>Exact score</th></tr></thead>
+            <tbody>{board.entries.map((entry) => (
+              <tr key={entry.playerId} className={entry.mine ? "mine" : ""}>
+                {isOfficer && <td>#{entry.rank}</td>}
+                <td><strong>{entry.name}</strong><small>{entry.playerId}</small></td>
+                <td>{full(entry.points)}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      ) : <p className="muted score-empty">No {active} scores yet.</p>}
+
+      {isOfficer && (
+        <details className="score-import">
+          <summary>Import player scores</summary>
+          <p className="muted small">One row per player: Player ID, exact score. Omitted players remain unchanged.</p>
+          <label>Data completeness<select value={coverage} onChange={(event) => setCoverage(event.target.value as "partial" | "complete")}><option value="partial">Partial — more scores may be missing</option><option value="complete">Complete — all scores confirmed</option></select></label>
+          <textarea value={paste} onChange={(event) => setPaste(event.target.value)} placeholder={"401234567, 987654321\n409876543, 876543210"} />
+          <button type="button" className="btn btn-primary btn-small" disabled={saving || !paste.trim()} onClick={() => void importOfficial()}>Import {board.phaseLabel.toLowerCase()} scores</button>
+        </details>
+      )}
+    </section>
+  );
+}
+
+function parseOfficialScorePaste(raw: string): { playerId: string; points: number }[] {
+  const lines = raw.trim().split(/\r?\n/).filter(Boolean);
+  if (lines.length === 0 || lines.length > 100) throw new Error("Paste between 1 and 100 score rows.");
+  return lines.map((line, index) => {
+    const parts = line.trim().split(/[\t,;]+/).map((part) => part.trim());
+    if (parts.length !== 2) throw new Error(`Row ${index + 1}: use Player ID, score.`);
+    const [rawPlayerId = "", rawPoints = ""] = parts;
+    const playerId = rawPlayerId.replaceAll(/\s/g, "");
+    const points = Number(rawPoints.replaceAll(/[._\s]/g, ""));
+    if (!/^\d{6,12}$/.test(playerId) || !Number.isSafeInteger(points) || points < 0) {
+      throw new Error(`Row ${index + 1}: check the Player ID and whole-number score.`);
+    }
+    return { playerId, points };
+  });
 }
 
 function SessionCard({

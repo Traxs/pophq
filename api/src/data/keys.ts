@@ -43,6 +43,12 @@ export const eventTypeKey = (typeId: string) => ({ PK: "EVENTTYPES", SK: `TYPE#$
 
 export const eventKey = (eventId: string) => ({ PK: `EVENT#${eventId}`, SK: "META" });
 
+/** One Preparation/Battle score per game account for SvS and King of Icefield. */
+export const eventScoreKey = (eventId: string, phase: string) => ({
+  PK: `EVENT#${eventId}`,
+  SK: `PHASE_SCORE#${phase}`,
+});
+
 /** Events of an alliance, sorted by start time (GSI1). */
 export const eventIndexKey = (alliance: string, startsAt: string, eventId: string) => ({
   GSI1PK: `EVENTS#${alliance}`,

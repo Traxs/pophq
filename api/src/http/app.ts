@@ -39,6 +39,7 @@ import {
 } from "../domain/svs.js";
 import { parseStrategy } from "../domain/strategy.js";
 import { parseEventResult } from "../domain/results.js";
+import { parsePhaseScoreUpsert, parseSelfScore, phaseScoreCounts, phasesForEvent, scorePhaseFor, scoreSubtotal, upsertPhaseScores } from "../domain/eventScores.js";
 import { canonicalJson, issueAgentToken } from "../domain/agentTokens.js";
 import { HISTORICAL_CATEGORIES, parseHistoricalRecord, type HistoricalCategory } from "../domain/historicalRecords.js";
 import { authenticateAgent, effectiveBotScopes, publicAgentToken, type BotIssuerGroups } from "./agentAuth.js";
@@ -924,6 +925,89 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     );
     c.header("x-change-id", key);
     return c.json({ dryRun: false, replayed: false, result }, 201);
+  });
+
+  app.get("/agent/events/:id/phases/:phase/score-context", async (c) => {
+    const { token, issuerGroups } = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "all:read", now(), botIssuerGroups);
+    const event = await repo.getEvent(c.req.param("id"));
+    if (!event) throw new NotFoundError("Event not found.");
+    const phase = scorePhaseFor(event.kind, c.req.param("phase"));
+    const accountList = await repo.listAccounts(event.alliance);
+    const names = new Map(accountList.map((account) => [account.playerId, account.name]));
+    const current = await repo.getEventPhaseScores(event.eventId, phase.key);
+    const officer = issuerGroups.has("officer") || issuerGroups.has("owner");
+    const visible = officer ? undefined : new Set(await repo.linkedAccounts(token.issuedBy));
+    const rows = (current?.playerPoints ?? []).filter((row) => !visible || visible.has(row.playerId));
+    return c.json({
+      event: { eventId: event.eventId, title: event.title, kind: event.kind, startsAt: event.startsAt },
+      phase,
+      version: current?.version ?? 0,
+      coverage: current?.coverage ?? null,
+      scoredPlayers: rows.length,
+      reportedPlayerSubtotal: scoreSubtotal(rows),
+      scores: rows.map((row, index) => ({ ...row, rank: index + 1, name: names.get(row.playerId) ?? row.playerId })),
+      ...(officer ? { players: accountList.map(({ playerId, name }) => ({ playerId, name })) } : {}),
+    });
+  });
+
+  app.put("/agent/events/:id/phases/:phase/scores", async (c) => {
+    const { token } = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "results:write", now(), botIssuerGroups);
+    const event = await repo.getEvent(c.req.param("id"));
+    if (!event) throw new NotFoundError("Event not found.");
+    const phase = scorePhaseFor(event.kind, c.req.param("phase"));
+    const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+    const apply = c.req.query("apply") === "true";
+    const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+    const expectedHash = typeof body.expectedHash === "string" ? body.expectedHash : "";
+    const approved = body.approved === true;
+    const key = c.req.header("idempotency-key") ?? "";
+    const bodyHash = createHash("sha256").update(canonicalJson(body)).digest("hex");
+    if (apply) {
+      if (!reason || !expectedHash || !approved) throw new ValidationError("Applying phase scores requires the reviewed preview hash, explicit approval and a reason.");
+      if (!/^[A-Za-z0-9._:-]{8,100}$/.test(key)) throw new ValidationError("Applying requires an Idempotency-Key of 8–100 safe characters.");
+      const replay = await repo.getIdempotentChange(token.tokenId, key);
+      if (replay) return replayAgentChange(c, replay, bodyHash, "result");
+    }
+    const input = parsePhaseScoreUpsert(body);
+    const current = await repo.getEventPhaseScores(event.eventId, phase.key);
+    if (input.expectedVersion !== (current?.version ?? 0)) throw new ConflictError("The phase scores changed. Fetch context and preview again.");
+    const known = new Set((await repo.listAccounts(event.alliance)).map((account) => account.playerId));
+    const unresolved = input.playerPoints.filter((row) => !known.has(row.playerId)).map((row) => ({ playerId: row.playerId, reason: "Game account not found" }));
+    if (unresolved.length > 0) throw new ValidationError("Some score rows cannot be applied.", { unresolved });
+    const desired = upsertPhaseScores(current, input, {
+      eventId: event.eventId,
+      phaseKey: phase.key,
+      phaseLabel: phase.label,
+      recordedAt: now().toISOString(),
+      recordedBy: `agent:${token.tokenId}`,
+    });
+    const previewHash = stateHash({
+      beforeVersion: current?.version ?? 0,
+      after: {
+        eventId: desired.eventId,
+        phaseKey: desired.phaseKey,
+        phaseLabel: desired.phaseLabel,
+        version: desired.version,
+        coverage: desired.coverage,
+        playerPoints: desired.playerPoints,
+        source: desired.source,
+      },
+    });
+    const result = {
+      event: { eventId: event.eventId, title: event.title, kind: event.kind },
+      phase,
+      version: desired.version,
+      coverage: desired.coverage,
+      counts: phaseScoreCounts(current?.playerPoints ?? [], desired.playerPoints),
+      subtotals: { before: scoreSubtotal(current?.playerPoints ?? []), after: scoreSubtotal(desired.playerPoints) },
+      diff: { before: current?.playerPoints ?? [], after: desired.playerPoints },
+      record: desired,
+    };
+    if (!apply) return c.json({ dryRun: true, expectedHash: previewHash, ...result });
+    if (expectedHash !== previewHash) throw new ConflictError("This is not the exact reviewed preview. Preview again before applying.");
+    await repo.putEventPhaseScoresIdempotent(desired, agentActor(token.tokenId, reason), token.tokenId, key, bodyHash, result);
+    c.header("x-change-id", key);
+    return c.json({ dryRun: false, replayed: false, result }, current ? 200 : 201);
   });
 
   // Everything below requires a verified token.
@@ -2129,6 +2213,23 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
 
     const eventType = (await repo.getEventType(event.kind)) ?? STARTER_TYPES.find((type) => type.typeId === event.kind);
 
+    const scoreboards = phasesForEvent(event.kind).length > 0
+      ? Object.fromEntries(await Promise.all(phasesForEvent(event.kind).map(async (phase) => {
+          const record = await repo.getEventPhaseScores(event.eventId, phase.key);
+          const visible = isOfficer(p) ? (record?.playerPoints ?? []) : (record?.playerPoints ?? []).filter((row) => row.playerId === acting);
+          const entries = visible.map((row, index) => ({ ...row, rank: isOfficer(p) ? index + 1 : undefined, name: byName.get(row.playerId) ?? row.playerId, mine: row.playerId === acting }));
+          return [phase.key, {
+            phaseKey: phase.key,
+            phaseLabel: phase.label,
+            version: record?.version ?? 0,
+            coverage: record?.coverage ?? null,
+            scoredPlayers: isOfficer(p) ? (record?.playerPoints.length ?? 0) : entries.length,
+            reportedPlayerSubtotal: scoreSubtotal(isOfficer(p) ? (record?.playerPoints ?? []) : visible),
+            entries,
+          }] as const;
+        })))
+      : undefined;
+
     const body: Record<string, unknown> = {
       ...event,
       sessions,
@@ -2143,6 +2244,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         return acting ? (answers.find((a) => a.playerId === acting)?.sessionId ?? null) : null;
       })(),
       ...(eventType?.strategyTemplate ? { strategyTemplate: eventType.strategyTemplate } : {}),
+      ...(scoreboards ? { scoreboards } : {}),
     };
     if (isOfficer(p)) {
       const checklist = await repo.getChecklist(event.eventId);
@@ -2187,6 +2289,52 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       });
     }
     return c.json(body);
+  });
+
+  /** A player can report only their own phase score; officers can correct an alliance account. */
+  app.put("/events/:id/phases/:phase/scores/:pid", async (c) => {
+    const p = c.get("principal");
+    const event = await repo.getEvent(c.req.param("id"));
+    if (!event) throw new NotFoundError("Event not found.");
+    const phase = scorePhaseFor(event.kind, c.req.param("phase"));
+    const playerId = parsePlayerId(c.req.param("pid"));
+    const role = requireCanWriteFor(p, playerId);
+    const account = await repo.getAccount(playerId);
+    if (!account || account.alliance !== event.alliance) throw new ValidationError(`Player ID ${playerId} is not in ${event.alliance}.`);
+    const parsed = parseSelfScore(await readJson(c.req.raw));
+    const current = await repo.getEventPhaseScores(event.eventId, phase.key);
+    const desired = upsertPhaseScores(current, {
+      expectedVersion: current?.version ?? 0,
+      coverage: current?.coverage ?? "partial",
+      playerPoints: [{ playerId, points: parsed.points }],
+      source: { type: role === "officer" ? "officer_correction" : "self_report" },
+    }, {
+      eventId: event.eventId,
+      phaseKey: phase.key,
+      phaseLabel: phase.label,
+      recordedAt: now().toISOString(),
+      recordedBy: p.sub,
+    });
+    await repo.putEventPhaseScores(desired, { id: p.sub, via: "web", reason: role === "officer" ? "phase score corrected" : "phase score self-reported" });
+    return c.json({ playerId, points: parsed.points, version: desired.version });
+  });
+
+  /** Officer UI bulk upsert. Bot automation uses the stricter guarded preview/apply route. */
+  app.post("/events/:id/phases/:phase/scores/import", async (c) => {
+    const p = c.get("principal");
+    requireOfficer(p);
+    const event = await repo.getEvent(c.req.param("id"));
+    if (!event) throw new NotFoundError("Event not found.");
+    const phase = scorePhaseFor(event.kind, c.req.param("phase"));
+    const input = parsePhaseScoreUpsert(await readJson(c.req.raw));
+    const current = await repo.getEventPhaseScores(event.eventId, phase.key);
+    if (input.expectedVersion !== (current?.version ?? 0)) throw new ConflictError("The phase scores changed. Reload and try again.");
+    const known = new Set((await repo.listAccounts(event.alliance)).map((account) => account.playerId));
+    const strangers = input.playerPoints.filter((score) => !known.has(score.playerId)).map((score) => score.playerId);
+    if (strangers.length > 0) throw new ValidationError(`Not members of ${event.alliance}: ${strangers.join(", ")}.`);
+    const desired = upsertPhaseScores(current, input, { eventId: event.eventId, phaseKey: phase.key, phaseLabel: phase.label, recordedAt: now().toISOString(), recordedBy: p.sub });
+    await repo.putEventPhaseScores(desired, { id: p.sub, via: "web", reason: `${phase.key} scores imported` });
+    return c.json({ imported: input.playerPoints.length, version: desired.version });
   });
 
   /**

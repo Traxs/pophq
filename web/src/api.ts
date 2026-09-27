@@ -430,6 +430,27 @@ export interface AnswerCounts {
   bySession: Record<string, number>;
 }
 
+export type EventScorePhase = "preparation" | "castle_battle";
+
+export interface EventScoreEntry {
+  rank?: number;
+  playerId: string;
+  name: string;
+  points: number;
+  provenance?: { sourceName?: string; displayName?: string; suppliedLabel?: string };
+  mine: boolean;
+}
+
+export interface EventScoreboard {
+  phaseKey: EventScorePhase;
+  phaseLabel: string;
+  version: number;
+  coverage: "partial" | "complete" | null;
+  scoredPlayers: number;
+  reportedPlayerSubtotal: number;
+  entries: EventScoreEntry[];
+}
+
 export type AttendanceStatus = "present" | "absent" | "excused" | "unknown";
 
 export type Outcome = "attended" | "no_show" | "unregistered" | "excused" | "not_counted";
@@ -513,6 +534,8 @@ export interface EventDetail extends Omit<EventListItem, "sessions"> {
   checklist?: { version: number; tasks: ChecklistTask[] };
   /** The name behind ownerPlayerId, for display. */
   ownerName?: string | null;
+  /** SvS and King of Icefield only: official top-100 plus lower self-reported scores. */
+  scoreboards?: Record<EventScorePhase, EventScoreboard>;
 }
 
 export type Buff = "construction" | "research" | "training";
@@ -728,6 +751,10 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
     events: (from?: string) =>
       request<{ items: EventListItem[] }>("GET", `/events${from ? `?from=${encodeURIComponent(from)}` : ""}`),
     event: (eventId: string) => request<EventDetail>("GET", `/events/${eventId}`),
+    setEventScore: (eventId: string, phase: EventScorePhase, playerId: string, points: number) =>
+      request("PUT", `/events/${eventId}/phases/${phase}/scores/${playerId}`, { points }),
+    importEventScores: (eventId: string, phase: EventScorePhase, input: { expectedVersion: number; coverage: "partial" | "complete"; playerPoints: { playerId: string; points: number }[]; source: { type: string; reference?: string } }) =>
+      request<{ imported: number; version: number }>("POST", `/events/${eventId}/phases/${phase}/scores/import`, input),
     createEvent: (input: NewEvent) => request<AllianceEvent>("POST", "/events", input),
     updateEvent: (eventId: string, changes: EventChanges) =>
       request<AllianceEvent>("PATCH", `/events/${eventId}`, changes),

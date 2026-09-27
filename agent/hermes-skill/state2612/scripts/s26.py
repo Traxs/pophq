@@ -77,6 +77,17 @@ def main() -> None:
     put.add_argument("--apply", action="store_true")
     put.add_argument("--reason")
     put.add_argument("--idempotency-key")
+    phase_context = sub.add_parser("phase-score-context", help="Read one SvS/KOI scoring phase")
+    phase_context.add_argument("event_id")
+    phase_context.add_argument("phase_key", choices=["preparation", "castle_battle"])
+    phase_scores = sub.add_parser("put-phase-scores", help="Preview or apply phase-specific player scores")
+    phase_scores.add_argument("event_id")
+    phase_scores.add_argument("phase_key", choices=["preparation", "castle_battle"])
+    phase_scores.add_argument("json_file", help="JSON file, or - for stdin")
+    phase_scores.add_argument("--apply", action="store_true")
+    phase_scores.add_argument("--reason")
+    phase_scores.add_argument("--idempotency-key")
+    phase_scores.add_argument("--expected-hash", help="expectedHash returned by the reviewed preview")
     create_event = sub.add_parser("create-event")
     create_event.add_argument("json_file", help="JSON file, or - for stdin")
     create_event.add_argument("--apply", action="store_true")
@@ -129,6 +140,22 @@ def main() -> None:
         session = urllib.parse.quote(args.session_id, safe="")
         suffix = "?apply=true" if args.apply else ""
         result = request("PUT", f"/agent/events/{event}/sessions/{session}/result{suffix}", payload, args.idempotency_key)
+    elif args.command == "phase-score-context":
+        event = urllib.parse.quote(args.event_id, safe="")
+        phase = urllib.parse.quote(args.phase_key, safe="")
+        result = request("GET", f"/agent/events/{event}/phases/{phase}/score-context")
+    elif args.command == "put-phase-scores":
+        if args.apply and (not args.reason or not args.idempotency_key or not args.expected_hash):
+            raise SystemExit("--apply requires --reason, --idempotency-key and --expected-hash.")
+        payload = load_payload(args.json_file)
+        if args.apply:
+            payload["reason"] = args.reason
+            payload["expectedHash"] = args.expected_hash
+            payload["approved"] = True
+        event = urllib.parse.quote(args.event_id, safe="")
+        phase = urllib.parse.quote(args.phase_key, safe="")
+        suffix = "?apply=true" if args.apply else ""
+        result = request("PUT", f"/agent/events/{event}/phases/{phase}/scores{suffix}", payload, args.idempotency_key)
     elif args.command == "create-event":
         if args.apply and (not args.reason or not args.idempotency_key):
             raise SystemExit("--apply requires --reason and --idempotency-key.")

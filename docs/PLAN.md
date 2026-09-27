@@ -135,6 +135,7 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 - [x] P9.2d Guarded reward registration: current POP R4/R5 users may issue `rewards:write`; bots preview and idempotently apply one complete Fortress/Stronghold inventory haul with stable batch ids, while recipient assignment remains officer-only in the web app
 - [ ] P9.2e Output guards for untrusted text, row budgets, request/write quotas and scopes for other data families
 - [x] P9.3a Result writes: exact dry-run diff by default; apply requires reason, expected version and an atomically stored idempotency key
+- [x] P9.3b Phase-specific SvS/KOI scores: preparation and castle-battle points are versioned independently from signup sessions and team results; officer UI and guarded bot preview/apply preserve partial coverage, provenance, privacy and exact integer scores
 - [ ] P9.3b Inbox proposals for large/sensitive changes and `lineup:write` for Hermes (AGT-03, EVT-05)
 - [ ] P9.4 OpenAPI 3.1 published; `/v1/guide`
 - [x] P9.5a Result-focused Hermes skill: checksummed `state2612` SKILL.md, result API reference and standard-library `s26` CLI with doctor/context/preview/apply (AGT-04)
