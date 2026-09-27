@@ -131,7 +131,9 @@ export class AppStack extends Stack {
 
     const guard = new CostGuard(this, "CostGuard", {
       monthlyBudgetUsd: 10,
-      tripAtUsd: 15,
+      // $20 leaves room for the $8 (plus VAT) pophq.fyi registration and renewal in the month it
+      // lands; normal months stay near $5 (FM-27).
+      tripAtUsd: 20,
       alertEmailParameter: ALERT_EMAIL_PARAMETER,
     });
 
