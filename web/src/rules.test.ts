@@ -24,10 +24,10 @@ describe("isReportOverdue", () => {
 
 describe("isValidLevel", () => {
   // Same cases as the API's level validation (api/src/domain/measurements.test.ts).
-  it.each(["1", "9", "25", "30", "FC1", "FC10", "FC5-2", "fc5-4", " FC3 "])("accepts %j", (v) => {
+  it.each(["1", "9", "25", "30", "FC1", "FC10", "FC5-2", "fc5-4", "FC9-5", " FC3 "])("accepts %j", (v) => {
     expect(isValidLevel(v)).toBe(true);
   });
-  it.each(["", "0", "31", "FC", "FC0", "FC11", "FC99", "FC5-5", "FC5-0", "5-2", "abc"])("rejects %j", (v) => {
+  it.each(["", "0", "31", "FC", "FC0", "FC11", "FC99", "FC5-6", "FC5-0", "5-2", "abc"])("rejects %j", (v) => {
     expect(isValidLevel(v)).toBe(false);
   });
 });
@@ -70,6 +70,7 @@ describe("levelRank", () => {
     expect(levelRank("30")! < levelRank("FC1")!).toBe(true);
     expect(levelRank("FC5")! < levelRank("FC5-2")!).toBe(true);
     expect(levelRank("FC5-4")! < levelRank("FC6")!).toBe(true);
+    expect(levelRank("FC9-5")! < levelRank("FC10")!).toBe(true);
     expect(levelRank("FC10")).toBe(40);
   });
 

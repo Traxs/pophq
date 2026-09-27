@@ -1165,6 +1165,7 @@ function CompletedEventReport({ event, members }: { event: EventDetail; members:
   const [filter, setFilter] = useState<CompletedReportFilter>("records");
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState<string | null>(null);
+  const [correcting, setCorrecting] = useState<string | null>(null);
   const rows = useMemo(() => completedEventRows({ ...event, members }), [event, members]);
   const counts = rows.reduce<Record<CompletedAttendance, number>>((result, row) => {
     result[row.attendance] += 1;
@@ -1187,6 +1188,7 @@ function CompletedEventReport({ event, members }: { event: EventDetail; members:
     try {
       await api.attendance(event.eventId, member.playerId, status, member.sessionId ?? undefined);
       toast(`${member.name}: ${status === "present" ? "attended" : status === "absent" ? "did not attend" : status}`);
+      setCorrecting(null);
       dataChanged();
     } catch (error) {
       toast(error instanceof ApiError ? error.message : "Couldn't save attendance");
@@ -1260,21 +1262,24 @@ function CompletedEventReport({ event, members }: { event: EventDetail; members:
                   <div className="completed-attendance-cell">
                     <span className={`pill ${statusClass(row.attendance)}`}>{completedAttendanceLabel(row.attendance)}</span>
                     {row.attendanceEvidence === "score" && <small>Score evidence</small>}
-                    <select aria-label={`Attendance for ${row.member.name}`} disabled={saving === row.member.playerId} value={row.attendance === "unrecorded" ? "unknown" : row.attendance} onChange={(change) => void mark(row.member, change.target.value as AttendanceStatus)}>
-                      <option value="unknown">Not reviewed</option>
-                      <option value="present">Attended</option>
-                      <option value="absent">Did not attend</option>
-                      <option value="excused">Excused</option>
-                    </select>
+                    {correcting === row.member.playerId ? <div className="completed-attendance-editor">
+                      <select autoFocus aria-label={`Attendance for ${row.member.name}`} disabled={saving === row.member.playerId} value={row.attendance === "unrecorded" ? "unknown" : row.attendance} onChange={(change) => void mark(row.member, change.target.value as AttendanceStatus)}>
+                        <option value="unknown">Not reviewed</option>
+                        <option value="present">Attended</option>
+                        <option value="absent">Did not attend</option>
+                        <option value="excused">Excused</option>
+                      </select>
+                      <button type="button" className="text-btn small" onClick={() => setCorrecting(null)}>Cancel</button>
+                    </div> : <button type="button" className="text-btn small completed-attendance-correct" onClick={() => setCorrecting(row.member.playerId)}>Correct</button>}
                   </div>
                 </td>
                 {hasPhaseScores ? (
                   <>
-                    <td className="num">{row.preparationPoints === null ? "–" : full(row.preparationPoints)}</td>
-                    <td className="num">{row.castleBattlePoints === null ? "–" : full(row.castleBattlePoints)}</td>
+                    <td className="num completed-score-data" data-label="Preparation score">{row.preparationPoints === null ? "–" : full(row.preparationPoints)}</td>
+                    <td className="num completed-score-data" data-label="Battle score">{row.castleBattlePoints === null ? "–" : full(row.castleBattlePoints)}</td>
                   </>
                 ) : (
-                  <td className="num completed-score-cell">
+                  <td className="num completed-score-cell completed-score-data" data-label="Player score">
                     {row.sessionScores.length === 0 ? "–" : row.sessionScores.map((score) => (
                       <span key={score.sessionId}><small>{score.label}</small><strong>{full(score.points)}</strong></span>
                     ))}

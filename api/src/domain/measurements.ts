@@ -65,8 +65,8 @@ export interface Report {
   ignoreReason?: string;
 }
 
-// Furnace levels as shown in game: 1–30, then FC1–FC10 with optional sub-steps (e.g. "FC5-2").
-const LEVEL = /^(?:[1-9]|[12][0-9]|30|FC(?:[1-9]|10)(?:-[1-4])?)$/;
+// Furnace levels as shown in game: 1–30, then FC1–FC10 with five sub-steps (e.g. "FC9-5").
+const LEVEL = /^(?:[1-9]|[12][0-9]|30|FC(?:[1-9]|10)(?:-[1-5])?)$/;
 
 const TOLERANCE_MS = 5 * 60 * 1000; // server clock tolerance (FM-30)
 const PLAYER_BACKDATE_MS = 30 * 24 * 60 * 60 * 1000;

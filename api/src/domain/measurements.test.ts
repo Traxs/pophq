@@ -35,10 +35,10 @@ describe("parseReport", () => {
 
   // Same cases as the web form's check (web/src/rules.test.ts); keep both lists in step.
   const level = (value: string) => () => parseReport({ values: [{ metric: "furnace_level", value }] }, ctx());
-  it.each(["1", "9", "25", "30", "FC1", "FC10", "FC5-2", "fc5-4", " FC3 "])("accepts level %j", (v) => {
+  it.each(["1", "9", "25", "30", "FC1", "FC10", "FC5-2", "fc5-4", "FC9-5", " FC3 "])("accepts level %j", (v) => {
     expect(level(v)).not.toThrow();
   });
-  it.each(["", "0", "31", "FC", "FC0", "FC11", "FC99", "FC5-5", "FC5-0", "5-2", "abc"])("rejects level %j", (v) => {
+  it.each(["", "0", "31", "FC", "FC0", "FC11", "FC99", "FC5-6", "FC5-0", "5-2", "abc"])("rejects level %j", (v) => {
     expect(level(v)).toThrow(ValidationError);
   });
 

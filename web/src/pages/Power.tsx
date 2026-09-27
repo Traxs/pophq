@@ -288,7 +288,7 @@ function ReportForm({
           value={furnace}
           onChange={(e) => setFurnace(e.target.value.toUpperCase())}
           onBlur={() => setFurnaceTouched(true)}
-          placeholder="e.g. 30 or FC5-2"
+          placeholder="e.g. 30 or FC9-5"
           aria-invalid={furnaceInvalid && furnaceTouched}
           aria-describedby={furnaceInvalid && furnaceTouched ? "f-furnace-error" : undefined}
         />

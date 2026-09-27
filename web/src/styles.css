@@ -3231,6 +3231,8 @@ button.event-timeline-card:hover { border-color: color-mix(in srgb, var(--accent
 .completed-attendance-cell select {
   min-width: 150px;
 }
+.completed-attendance-editor { display: grid; gap: 3px; }
+.completed-attendance-correct { padding: 0; }
 
 .completed-score-cell > span {
   display: grid;
@@ -3266,7 +3268,15 @@ button.event-timeline-card:hover { border-color: color-mix(in srgb, var(--accent
 
 @media (max-width: 760px) {
   .completed-report-filters {
-    grid-template-columns: repeat(6, 125px);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow: visible;
+  }
+
+  .completed-report-filters button {
+    min-width: 0;
+    min-height: 52px;
+    padding: 7px 8px;
+    white-space: normal;
   }
 
   .completed-report-head {
@@ -3276,6 +3286,47 @@ button.event-timeline-card:hover { border-color: color-mix(in srgb, var(--accent
   .completed-score-summaries {
     grid-template-columns: 1fr;
   }
+
+  .completed-report-table-wrap { overflow: visible; }
+  .completed-report-table,
+  .completed-report-table tbody { display: block; }
+  .completed-report-table thead { display: none; }
+  .completed-report-table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px 14px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .completed-report-table tr:last-child { border-bottom: 0; }
+  .completed-report-table td {
+    display: block;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+  }
+  .completed-report-table td:nth-child(2) { justify-self: end; }
+  .completed-attendance-cell { justify-items: end; text-align: right; }
+  .completed-score-data {
+    grid-column: 1 / -1;
+    display: flex !important;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 9px 11px !important;
+    border-radius: 10px !important;
+    background: var(--surface-2);
+    color: var(--ink);
+    font-weight: 800;
+  }
+  .completed-score-data::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: .75rem;
+    font-weight: 700;
+  }
+  .completed-score-cell > span { display: flex; align-items: baseline; gap: 7px; }
+  .completed-score-cell > span + span { margin-top: 0; }
 }
 .score-import { padding-top: 12px; border-top: 1px solid var(--line); }
 .score-import summary { color: var(--accent); font-weight: 800; cursor: pointer; }

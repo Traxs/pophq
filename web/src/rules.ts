@@ -10,9 +10,9 @@ export function isReportOverdue(lastReportAt: string | null | undefined, now: Da
   return !lastReportAt || daysBetween(new Date(lastReportAt), now) >= REPORT_DUE_DAYS;
 }
 
-// Furnace and troop levels as shown in game: 1–30, then FC1–FC10 with optional sub-steps (FC5-2).
-const LEVEL = /^(?:[1-9]|[12][0-9]|30|FC(?:[1-9]|10)(?:-[1-4])?)$/;
-export const LEVEL_HINT = "Use 1–30 or FC1–FC10, e.g. FC5-2.";
+// Furnace and troop levels as shown in game: 1–30, then FC1–FC10 with five sub-steps.
+const LEVEL = /^(?:[1-9]|[12][0-9]|30|FC(?:[1-9]|10)(?:-[1-5])?)$/;
+export const LEVEL_HINT = "Use 1–30 or FC1–FC10, including substages such as FC9-5.";
 
 export const isValidLevel = (value: string): boolean => LEVEL.test(value.trim().toUpperCase());
 
@@ -41,7 +41,7 @@ export function roleLabel(groups: readonly string[], rank: string | undefined, a
 export function levelRank(value: string): number | undefined {
   const s = value.trim().toUpperCase().replace(/\s+/g, "");
   if (!isValidLevel(s)) return undefined;
-  const fc = /^FC([1-9]|10)(?:-([1-4]))?$/.exec(s);
+  const fc = /^FC([1-9]|10)(?:-([1-5]))?$/.exec(s);
   if (!fc) return Number(s);
   return 30 + Number(fc[1]) + (fc[2] ? Number(fc[2]) / 10 : 0);
 }
