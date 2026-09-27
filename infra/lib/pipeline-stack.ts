@@ -10,6 +10,8 @@ import { REPO } from "./config.js";
 
 export interface PipelineStackProps extends StackProps {
   webAssetPath: string;
+  /** The custom domain once it exists (P2.1). */
+  site?: { domainName: string; hostedZoneId: string } | undefined;
 }
 
 /**
@@ -62,7 +64,11 @@ export class PipelineStack extends Stack {
       }),
     });
 
-    const prod = new AppStage(this, "Prod", { env: props.env ?? {}, webAssetPath: props.webAssetPath });
+    const prod = new AppStage(this, "Prod", {
+      env: props.env ?? {},
+      webAssetPath: props.webAssetPath,
+      site: props.site,
+    });
     pipeline.addStage(prod, {
       post: [
         new pipelines.ShellStep("SmokeTest", {
@@ -109,5 +115,23 @@ export class PipelineStack extends Stack {
       "AwsSolutions-S1": "Pipeline artifact bucket; access logs add cost without value here.",
       "AwsSolutions-CB4": "Build projects use the AWS managed key for artifacts; no customer KMS key (cost)."
     });
+
+    // Deploying the certificate to us-east-1 makes CDK Pipelines add a support stack there with a
+    // replication bucket for artifacts. It is a separate stack, so the acknowledgements above do
+    // not reach it; without these the first synth after buying the domain fails on cdk-nag.
+    for (const support of Object.values(pipeline.pipeline.crossRegionSupport)) {
+      acknowledge(support.stack, {
+        "AwsSolutions-S1": "CDK Pipelines cross-region artifact replica; access logs add cost without value here.",
+      });
+      // The grant lands on the pipeline's own role, and the replica has a generated physical name,
+      // so the finding carries the literal bucket ARN. The name is a token until resolved here.
+      const replica: unknown = this.resolve(support.replicationBucket.bucketName);
+      acknowledgeEach(
+        this,
+        "AwsSolutions-IAM5",
+        [`Resource::arn:aws:s3:::${String(replica)}/*`],
+        "CDK Pipelines replication bucket: the pipeline role reads and writes artifact objects in it.",
+      );
+    }
   }
 }

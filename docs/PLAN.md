@@ -40,6 +40,8 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 ## Milestone 2: Identity and edge in production
 
 - [ ] P2.1 Buy `pophq.fyi` in Route 53; hosted zone; ACM certificate (us-east-1); exclude domain registration from the budget (FM-27)
+  - [x] CDK ready behind `SITE` in `infra/lib/config.ts`: `PopHqSiteCertificate` stack (us-east-1, DNS-validated, apex + www), CloudFront alias, Route 53 A/AAAA alias records, Cognito callback and logout URLs for both origins during the move, cdk-nag acknowledgements for the pipeline's us-east-1 replication bucket
+  - [ ] Owner: register the domain (Route 53 creates the hosted zone), handle the budget (FM-27), fill in `SITE`
 - [ ] P2.2 CloudFront on the flat-rate Free plan with WAF (5 rules), security headers policy (CSP, HSTS, frame-ancestors); origin verification (FM-31) is done via the CloudFront-only API key, and moves into the Lambda authorizer with P2.5
 - [ ] P2.3 Cognito user pool (Essentials): email one-time code, passkeys, self sign-up off, SMS off, deletion protection; managed login on the custom domain; limit the web client to the auth flows the hosted login needs
 - [ ] P2.4 SES: domain verification, DKIM/SPF/DMARC, production access (FM-32)

@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CfnOutput, Duration, RemovalPolicy, Stack, type CfnElement, type StackProps } from "aws-cdk-lib";
+import type * as acm from "aws-cdk-lib/aws-certificatemanager";
+import * as route53 from "aws-cdk-lib/aws-route53";
+import * as targets from "aws-cdk-lib/aws-route53-targets";
 import * as apigw from "aws-cdk-lib/aws-apigateway";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as cloudwatchActions from "aws-cdk-lib/aws-cloudwatch-actions";
@@ -28,6 +31,16 @@ import { NODE_BUNDLING } from "./node-bundling.js";
 export interface AppStackProps extends StackProps {
   /** Built web app (web/dist). */
   webAssetPath: string;
+  /**
+   * The custom domain, once it exists (P2.1). Without it the app answers on its CloudFront name
+   * and no DNS records or aliases are created.
+   */
+  site?: {
+    domainName: string;
+    hostedZoneId: string;
+    /** Issued in us-east-1, which is the only region CloudFront reads certificates from. */
+    certificate: acm.ICertificate;
+  };
 }
 
 /**
@@ -230,6 +243,7 @@ export class AppStack extends Stack {
 
     const cdn = new cloudfront.Distribution(this, "Cdn", {
       comment: "POP HQ",
+      ...(props.site ? { domainNames: [props.site.domainName], certificate: props.site.certificate } : {}),
       defaultRootObject: "index.html",
       httpVersion: cloudfront.HttpVersion.HTTP2_AND_3,
       defaultBehavior: {
@@ -250,7 +264,20 @@ export class AppStack extends Stack {
         },
       },
     });
-    const origin = `https://${cdn.distributionDomainName}`;
+    const cdnOrigin = `https://${cdn.distributionDomainName}`;
+    const origin = props.site ? `https://${props.site.domainName}` : cdnOrigin;
+
+    if (props.site) {
+      const zone = route53.HostedZone.fromHostedZoneAttributes(this, "Zone", {
+        hostedZoneId: props.site.hostedZoneId,
+        zoneName: props.site.domainName,
+      });
+      const target = route53.RecordTarget.fromAlias(new targets.CloudFrontTarget(cdn));
+      // Both record types: an AAAA-only client cannot reach an A-only name, and CloudFront
+      // answers on IPv6 by default.
+      new route53.ARecord(this, "SiteA", { zone, target, recordName: props.site.domainName });
+      new route53.AaaaRecord(this, "SiteAaaa", { zone, target, recordName: props.site.domainName });
+    }
 
     const client = users.addClient("WebClient", {
       generateSecret: false,
@@ -269,8 +296,11 @@ export class AppStack extends Stack {
       oAuth: {
         flows: { authorizationCodeGrant: true },
         scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL],
-        callbackUrls: [`${origin}/callback`],
-        logoutUrls: [origin],
+        // Both origins while a domain is being moved: a member signed in on the CloudFront name
+        // would otherwise get a redirect-mismatch error on their next sign-in. The CloudFront
+        // entry is dropped once everyone is on the custom domain.
+        callbackUrls: [...new Set([`${origin}/callback`, `${cdnOrigin}/callback`])],
+        logoutUrls: [...new Set([origin, cdnOrigin])],
       },
     });
 
