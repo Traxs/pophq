@@ -86,7 +86,10 @@ export class CostGuard extends Construct {
 
     new budgets.CfnBudget(this, "Budget", {
       budget: {
-        budgetName: "pophq-monthly",
+        // Changing any notification replaces the budget, and CloudFormation creates the new one
+        // before deleting the old, so a fixed name fails the deploy. The name carries the amounts
+        // instead; change it too if a percentage threshold below changes.
+        budgetName: `pophq-monthly-${props.monthlyBudgetUsd}-trip-${props.tripAtUsd}`,
         budgetType: "COST",
         timeUnit: "MONTHLY",
         budgetLimit: { amount: props.monthlyBudgetUsd, unit: "USD" },

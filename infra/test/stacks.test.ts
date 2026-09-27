@@ -272,7 +272,13 @@ describe("AppStack", () => {
   it("alerts at the $10 budget and trips the kill switch at $20", () => {
     template.hasResourceProperties("AWS::SSM::Parameter", { Name: "/pophq/kill-switch", Value: "off" });
     template.hasResourceProperties("AWS::Budgets::Budget", {
-      Budget: Match.objectLike({ BudgetLimit: { Amount: 10, Unit: "USD" }, TimeUnit: "MONTHLY", BudgetType: "COST" }),
+      Budget: Match.objectLike({
+        // The name has to change with the amounts: a notification change replaces the budget.
+        BudgetName: "pophq-monthly-10-trip-20",
+        BudgetLimit: { Amount: 10, Unit: "USD" },
+        TimeUnit: "MONTHLY",
+        BudgetType: "COST",
+      }),
       NotificationsWithSubscribers: Match.arrayWith([
         Match.objectLike({ Notification: Match.objectLike({ NotificationType: "FORECASTED", Threshold: 100 }) }),
         Match.objectLike({

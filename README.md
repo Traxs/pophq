@@ -230,7 +230,7 @@ Locally the dev server polls DynamoDB Local's stream and runs the same handler a
 ## Cost guard
 
 - **Request cap:** API Gateway only accepts requests carrying an API key that CloudFront adds. The usage plan allows 20 requests per second and **20,000 requests per day**, which caps API cost at about $3 a month even under a flood. Calls to the execute-api URL get 403.
-- **Budget:** `pophq-monthly`, $10 a month. Email at 50 % and 100 % actual spend and at 100 % forecast.
+- **Budget:** `pophq-monthly-10-trip-20`, $10 a month. Email at 50 % and 100 % actual spend and at 100 % forecast.
 - **Kill switch:** at $20 actual spend, a Lambda sets `/pophq/kill-switch` to `on` and the API answers 503 to every request. Budget data lags by up to a day, so this is a backstop behind the request cap. Turn it back off by hand:
 
 ```bash
