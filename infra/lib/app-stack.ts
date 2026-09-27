@@ -335,8 +335,8 @@ export class AppStack extends Stack {
     const logo = loginAsset("logo.png");
     const favicon = loginAsset("favicon.ico");
     // The page links the SVG favicon first, and Cognito keeps an asset category until it is given
-    // a new one, so the SVG is needed as well: a 64 px copy of the logo wrapped in SVG. Browsers
-    // without SVG favicons (Safari) use the .ico.
+    // a new one, so the SVG is needed as well. Cognito rejects embedded images in SVG, so it is
+    // the logo traced at 32x32 as plain colored paths. Safari uses the .ico instead.
     const faviconSvg = loginAsset("favicon.svg");
     new cognito.CfnManagedLoginBranding(this, "LoginBranding", {
       userPoolId: users.userPoolId,
