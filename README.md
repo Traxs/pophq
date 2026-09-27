@@ -76,6 +76,20 @@ Before the first deploy of the app stack, store the budget alert email in SSM (k
 aws ssm put-parameter --region eu-central-1 --name /pophq/alerts/email --type String --value "you@example.com"
 ```
 
+## Custom domain
+
+The app answers on its CloudFront name until `SITE` in `infra/lib/config.ts` is filled in. Moving to `pophq.fyi`:
+
+1. Register the domain in Route 53 (Registered domains). Route 53 creates the public hosted zone with it.
+2. Registration is a one-off charge on the same bill the cost guard watches: the kill switch sits at $20 so a normal month (about $5) plus the registration and VAT stays below it (FM-27).
+3. Put the domain and its zone id into `SITE`:
+
+```bash
+aws route53 list-hosted-zones --query "HostedZones[?Name=='pophq.fyi.']"
+```
+
+4. Merge. The pipeline adds a `PopHqSiteCertificate` stack in us-east-1 (CloudFront only reads certificates from there), waits for DNS validation, then points the domain at CloudFront. The CloudFront name keeps working, and sign-in accepts both origins until the old one is removed.
+
 ## Roles and the first owner
 
 Roles are Cognito groups defined in the stack: `player` (every signed-in person), `officer` (roster and planning tools) and `owner` (runs the site). R1–R5 is stored on the game account. A linked current POP R4/R5 automatically receives officer access from that rank, so inviting or promoting an R4 does not require a separate Cognito-group operation; explicit `officer` and `owner` groups remain valid for bootstrap and exceptional access.
@@ -217,7 +231,7 @@ Locally the dev server polls DynamoDB Local's stream and runs the same handler a
 
 - **Request cap:** API Gateway only accepts requests carrying an API key that CloudFront adds. The usage plan allows 20 requests per second and **20,000 requests per day**, which caps API cost at about $3 a month even under a flood. Calls to the execute-api URL get 403.
 - **Budget:** `pophq-monthly`, $10 a month. Email at 50 % and 100 % actual spend and at 100 % forecast.
-- **Kill switch:** at $15 actual spend, a Lambda sets `/pophq/kill-switch` to `on` and the API answers 503 to every request. Budget data lags by up to a day, so this is a backstop behind the request cap. Turn it back off by hand:
+- **Kill switch:** at $20 actual spend, a Lambda sets `/pophq/kill-switch` to `on` and the API answers 503 to every request. Budget data lags by up to a day, so this is a backstop behind the request cap. Turn it back off by hand:
 
 ```bash
 aws ssm put-parameter --region eu-central-1 --name /pophq/kill-switch --type String --value off --overwrite

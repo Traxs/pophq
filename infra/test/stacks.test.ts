@@ -8,8 +8,9 @@ import { AwsSolutionsChecks } from "cdk-nag";
 import { beforeAll, describe, expect, it } from "vitest";
 import { AppStack } from "../lib/app-stack.js";
 import { AppStage } from "../lib/app-stage.js";
-import { PROD } from "../lib/config.js";
+import { CERTIFICATE_REGION, PROD } from "../lib/config.js";
 import { PipelineStack } from "../lib/pipeline-stack.js";
+import { SiteCertificateStack } from "../lib/site-certificate-stack.js";
 
 function fakeWebDist(): string {
   const dir = mkdtempSync(join(tmpdir(), "pophq-web-"));
@@ -268,14 +269,14 @@ describe("AppStack", () => {
     expect(dist).toContain('"HeaderName":"x-api-key"');
   });
 
-  it("alerts at the $10 budget and trips the kill switch at $15", () => {
+  it("alerts at the $10 budget and trips the kill switch at $20", () => {
     template.hasResourceProperties("AWS::SSM::Parameter", { Name: "/pophq/kill-switch", Value: "off" });
     template.hasResourceProperties("AWS::Budgets::Budget", {
       Budget: Match.objectLike({ BudgetLimit: { Amount: 10, Unit: "USD" }, TimeUnit: "MONTHLY", BudgetType: "COST" }),
       NotificationsWithSubscribers: Match.arrayWith([
         Match.objectLike({ Notification: Match.objectLike({ NotificationType: "FORECASTED", Threshold: 100 }) }),
         Match.objectLike({
-          Notification: Match.objectLike({ NotificationType: "ACTUAL", Threshold: 15, ThresholdType: "ABSOLUTE_VALUE" }),
+          Notification: Match.objectLike({ NotificationType: "ACTUAL", Threshold: 20, ThresholdType: "ABSOLUTE_VALUE" }),
         }),
       ]),
     });
@@ -345,5 +346,93 @@ describe("AppStage", () => {
       new iam.PolicyStatement({ actions: ["s3:*"], resources: ["*"] }),
     );
     expect(() => app.synth()).toThrow();
+  });
+});
+
+describe("custom domain (P2.1)", () => {
+  const SITE = { domainName: "pophq.example", hostedZoneId: "Z0123456789ABCDEFGHIJ" };
+
+  it("changes nothing until a domain is configured", () => {
+    const app = nagApp();
+    const stack = new AppStack(app, "NoDomain", { env: PROD, webAssetPath: fakeWebDist() });
+    app.synth();
+    const template = Template.fromStack(stack);
+
+    template.hasResourceProperties("AWS::CloudFront::Distribution", {
+      DistributionConfig: Match.objectLike({ Aliases: Match.absent() }),
+    });
+    template.resourceCountIs("AWS::Route53::RecordSet", 0);
+    // One callback, not the same one twice: the de-duplication must hold for unresolved tokens.
+    const client = Object.values(template.findResources("AWS::Cognito::UserPoolClient"))[0] as {
+      Properties: { CallbackURLs: unknown[] };
+    };
+    expect(client.Properties.CallbackURLs).toHaveLength(1);
+  });
+
+  it("serves the app on the domain, with DNS records and both sign-in origins during the move", () => {
+    const app = nagApp();
+    const certificateStack = new SiteCertificateStack(app, "Cert", {
+      env: { account: PROD.account, region: CERTIFICATE_REGION },
+      crossRegionReferences: true,
+      ...SITE,
+    });
+    const stack = new AppStack(app, "WithDomain", {
+      env: PROD,
+      crossRegionReferences: true,
+      webAssetPath: fakeWebDist(),
+      site: { ...SITE, certificate: certificateStack.certificate },
+    });
+    // The cross-region reference is the part most likely to fail at deploy; synth proves CDK
+    // accepts it, and nag proves the new resources raise no findings.
+    app.synth();
+    const template = Template.fromStack(stack);
+
+    template.hasResourceProperties("AWS::CloudFront::Distribution", {
+      DistributionConfig: Match.objectLike({
+        Aliases: ["pophq.example"],
+        ViewerCertificate: Match.objectLike({ SslSupportMethod: "sni-only" }),
+      }),
+    });
+    template.hasResourceProperties("AWS::Route53::RecordSet", { Name: "pophq.example.", Type: "A" });
+    template.hasResourceProperties("AWS::Route53::RecordSet", { Name: "pophq.example.", Type: "AAAA" });
+
+    const client = Object.values(template.findResources("AWS::Cognito::UserPoolClient"))[0] as {
+      Properties: { CallbackURLs: unknown[]; LogoutURLs: unknown[] };
+    };
+    // The new domain and the old CloudFront name, so nobody mid-session is locked out.
+    expect(client.Properties.CallbackURLs).toContain("https://pophq.example/callback");
+    expect(client.Properties.CallbackURLs).toHaveLength(2);
+    expect(client.Properties.LogoutURLs).toContain("https://pophq.example");
+
+    template.hasOutput("Url", { Value: "https://pophq.example" });
+  });
+
+  it("issues the certificate in us-east-1 by DNS, covering www too", () => {
+    const app = newApp();
+    const stack = new SiteCertificateStack(app, "CertOnly", {
+      env: { account: PROD.account, region: CERTIFICATE_REGION },
+      ...SITE,
+    });
+    expect(stack.region).toBe("us-east-1");
+    Template.fromStack(stack).hasResourceProperties("AWS::CertificateManager::Certificate", {
+      DomainName: "pophq.example",
+      SubjectAlternativeNames: ["www.pophq.example"],
+      ValidationMethod: "DNS",
+    });
+  });
+});
+
+describe("pipeline with a custom domain", () => {
+  it("synthesises cleanly under cdk-nag once a domain is configured", () => {
+    // The regression this guards: deploying the certificate to us-east-1 makes CDK Pipelines add
+    // a cross-region support stack whose replication bucket failed cdk-nag. Building the stacks
+    // directly never showed it — only the whole pipeline does.
+    const app = nagApp();
+    new PipelineStack(app, "PopHqPipeline", {
+      env: PROD,
+      webAssetPath: fakeWebDist(),
+      site: { domainName: "pophq.example", hostedZoneId: "Z0123456789ABCDEFGHIJ" },
+    });
+    expect(() => app.synth()).not.toThrow();
   });
 });

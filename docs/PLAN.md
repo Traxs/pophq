@@ -32,7 +32,7 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 - [x] P1.9 Post-deploy smoke test in the pipeline: `/v1/health`, the web page, `config.json`, and `/v1/me` returns 401 without a token
 - [ ] P1.10 PR checks in GitHub Actions: `cdk synth` + cdk-nag (done); `cdk diff` against prod via a read-only OIDC role (no AWS keys in GitHub)
 - [ ] P1.11 Repo settings after the first push: `main` ruleset (PR, required checks, no force-push), secret scanning + push protection, CodeQL, dependency review, private vulnerability reporting, Actions read-only + SHA pinning, fork approval for all outside contributors
-- [x] P1.12 Cost guard: AWS Budget ($10 alerts), kill switch as an SSM flag checked by the API and tripped at $15 (FM-13); API key only CloudFront sends + usage plan quota of 20,000 requests/day as a hard cost ceiling. Excluding domain registration from the budget (FM-27) moves to P2.1
+- [x] P1.12 Cost guard: AWS Budget ($10 alerts), kill switch as an SSM flag checked by the API and tripped at $15, raised to $20 with P2.1 (FM-13); API key only CloudFront sends + usage plan quota of 20,000 requests/day as a hard cost ceiling. Excluding domain registration from the budget (FM-27) moves to P2.1
 - [x] P1.13a CodeDeploy canary: new API code serves 10 % of requests for 5 minutes; an error alarm rolls it back and fails the deploy (PLT-02)
 - [ ] P1.13b Lambda code signing (PLT-07): needs a signing step for the CDK asset in the pipeline (AWS Signer profile + signing job), otherwise enforcement blocks every deploy
 - [ ] P1.13c Pre-traffic hook running integration tests against the new version before it takes traffic
@@ -40,6 +40,9 @@ Goal: every merge to `main` deploys automatically to AWS account 529088263366 (e
 ## Milestone 2: Identity and edge in production
 
 - [ ] P2.1 Buy `pophq.fyi` in Route 53; hosted zone; ACM certificate (us-east-1); exclude domain registration from the budget (FM-27)
+  - [x] CDK ready behind `SITE` in `infra/lib/config.ts`: `PopHqSiteCertificate` stack (us-east-1, DNS-validated, apex + www), CloudFront alias, Route 53 A/AAAA alias records, Cognito callback and logout URLs for both origins during the move, cdk-nag acknowledgements for the pipeline's us-east-1 replication bucket
+  - [x] Domain registered 2026-09-27 (privacy protection on all contacts), hosted zone `Z024603319A9CK1ZSXZM4`, `SITE` filled in
+  - [x] FM-27: kill switch raised from $15 to $20 so the registration month (about $15 with VAT and deploys) cannot trip it
 - [ ] P2.2 CloudFront on the flat-rate Free plan with WAF (5 rules), security headers policy (CSP, HSTS, frame-ancestors); origin verification (FM-31) is done via the CloudFront-only API key, and moves into the Lambda authorizer with P2.5
 - [ ] P2.3 Cognito user pool (Essentials): email one-time code, passkeys, self sign-up off, SMS off, deletion protection; managed login on the custom domain; limit the web client to the auth flows the hosted login needs
 - [ ] P2.4 SES: domain verification, DKIM/SPF/DMARC, production access (FM-32)
