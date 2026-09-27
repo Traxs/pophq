@@ -6,9 +6,7 @@ export function SignIn() {
   return (
     <main className="signin">
       <div className="signin-card">
-        <span className="signin-mark" aria-hidden="true">
-          ❄
-        </span>
+        <img className="signin-logo" src="/pop-logo.png" alt="" aria-hidden="true" />
         <h1>POP HQ</h1>
         <p className="muted">The POP alliance's command center for State 2612.</p>
 

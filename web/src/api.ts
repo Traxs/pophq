@@ -419,6 +419,25 @@ export interface EventListItem extends AllianceEvent {
   myAnswer: Answer | null;
   /** Which session they picked, when the event has sessions. */
   mySessionId: string | null;
+  /** Lightweight completed-event data for the history cards; absent before the event starts. */
+  history?: {
+    results: {
+      sessionId: string;
+      sessionLabel: string;
+      outcome: EventOutcome;
+      ourScore: number;
+      opponentScore: number;
+      participants?: number;
+    }[];
+    phases: {
+      phaseKey: EventScorePhase;
+      phaseLabel: string;
+      coverage: "partial" | "complete";
+      scoredPlayers: number;
+      reportedPlayerSubtotal: number;
+      scope: "alliance" | "mine";
+    }[];
+  };
 }
 
 export interface AnswerCounts {

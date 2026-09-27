@@ -111,8 +111,9 @@ export function Events() {
   if (me && me.accounts.length === 0) return <NoAccount />;
 
   const now = new Date();
-  const upcoming = (items ?? []).filter((e) => Date.parse(e.startsAt) >= now.getTime());
-  const past = (items ?? []).filter((e) => Date.parse(e.startsAt) < now.getTime());
+  const newestFirst = (items ?? []).toSorted((a, b) => Date.parse(b.startsAt) - Date.parse(a.startsAt));
+  const upcoming = newestFirst.filter((e) => Date.parse(e.startsAt) >= now.getTime());
+  const past = newestFirst.filter((e) => Date.parse(e.startsAt) < now.getTime());
 
   return (
     <>
@@ -138,7 +139,8 @@ export function Events() {
         </section>
       )}
 
-      <ul className="stack">
+      {upcoming.length > 0 && <h2 className="section-label">Upcoming</h2>}
+      <ul className="stack event-list">
         {upcoming.map((event) => (
           <li key={event.eventId}>
             <EventCard
@@ -155,8 +157,13 @@ export function Events() {
 
       {past.length > 0 && (
         <>
-          <h2 className="section-label">{showHistory ? "Event history" : "Recent"}</h2>
-          <ul className="stack">
+          <div className="event-history-heading">
+            <div>
+              <h2 className="section-label">{showHistory ? "Event history" : "Completed events"}</h2>
+              <p className="muted small">Newest first · results and recorded scores</p>
+            </div>
+          </div>
+          <ul className="stack event-list event-history-list">
             {past.map((event) => (
               <li key={event.eventId}>
                 <EventCard
@@ -313,7 +320,9 @@ function EventCard({
         <span className="badge">
           {kindLabel(event.kind)}{event.kind === "foundry" && event.sessions.length > 1 ? " · one event" : ""}
         </span>
-        <span className="muted small">{event.closed ? "Answers closed" : `Answers close ${untilText(event.deadlineAt)}`}</span>
+        {past
+          ? <span className="event-complete-label">Completed</span>
+          : <span className="muted small">{event.closed ? "Answers closed" : `Answers close ${untilText(event.deadlineAt)}`}</span>}
       </div>
       <h3 className="event-title">
         <button type="button" className="link-btn" onClick={() => navigate(`/events/${event.eventId}`)}>
@@ -333,7 +342,14 @@ function EventCard({
       </p>
       {event.notes && <p className="event-notes">{event.notes}</p>}
 
-      {!accountId ? (
+      {past ? (
+        <>
+          <PastEventSummary event={event} />
+          <button type="button" className="event-report-link" onClick={() => navigate(`/events/${event.eventId}`)}>
+            View event report <span aria-hidden="true">→</span>
+          </button>
+        </>
+      ) : !accountId ? (
         <p className="muted small">Pick a game account to answer.</p>
       ) : event.sessions.length > 0 ? (
         <div className="event-signup">
@@ -398,13 +414,13 @@ function EventCard({
       )}
 
 
-      {isOfficer && event.kind === "foundry" && event.sessions.length === 0 && onConfigure && (
+      {isOfficer && !past && event.kind === "foundry" && event.sessions.length === 0 && onConfigure && (
         <button type="button" className="text-btn" onClick={() => onConfigure(event)}>
           Configure result session
         </button>
       )}
 
-      {isOfficer && (details ? (
+      {isOfficer && !past && (details ? (
         <EventBreakdown detail={details} />
       ) : detailsLoading ? (
         <p className="muted small">Loading attendance…</p>
@@ -414,6 +430,50 @@ function EventCard({
         </button>
       ))}
     </article>
+  );
+}
+
+function PastEventSummary({ event }: { event: EventListItem }) {
+  const results = event.history?.results ?? [];
+  const phases = event.history?.phases ?? [];
+  if (results.length === 0 && phases.length === 0) {
+    return (
+      <div className="event-result-empty">
+        <strong>Result not recorded yet</strong>
+        <span>The event is over. Scores and attendance can still be added to its report.</span>
+      </div>
+    );
+  }
+  return (
+    <div className="event-result-grid" aria-label={`${event.title} results`}>
+      {results.map((result) => {
+        const label = result.outcome === "win" ? "Victory" : result.outcome === "loss" ? "Defeat" : "Draw";
+        return (
+          <section key={result.sessionId} className={`event-result-tile result-${result.outcome}`}>
+            <div className="event-result-tile-head">
+              <span>{result.sessionLabel}</span>
+              <strong>{label}</strong>
+            </div>
+            <p className="event-result-score"><strong>{full(result.ourScore)}</strong><span>–</span><strong>{full(result.opponentScore)}</strong></p>
+            {result.participants !== undefined && <small>{result.participants} scored participants</small>}
+          </section>
+        );
+      })}
+      {phases.map((phase) => (
+        <section key={phase.phaseKey} className="event-result-tile result-points">
+          <div className="event-result-tile-head">
+            <span>{phase.phaseLabel} scores</span>
+            <strong>{phase.coverage === "complete" ? "Complete results" : "Partial results"}</strong>
+          </div>
+          <p className="event-result-score"><strong>{full(phase.reportedPlayerSubtotal)}</strong><small>pts</small></p>
+          <small>
+            {phase.scope === "alliance"
+              ? `${phase.scoredPlayers} player scores · alliance subtotal`
+              : phase.scoredPlayers > 0 ? "Your reported score" : "Your score is not recorded"}
+          </small>
+        </section>
+      ))}
+    </div>
   );
 }
 

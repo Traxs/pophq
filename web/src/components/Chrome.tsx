@@ -19,9 +19,7 @@ export function TopBar() {
           navigate("/");
         }}
       >
-        <span className="brand-mark" aria-hidden="true">
-          ❄
-        </span>
+        <img className="brand-logo" src="/pop-logo.png" alt="" aria-hidden="true" />
         POP HQ
       </a>
 

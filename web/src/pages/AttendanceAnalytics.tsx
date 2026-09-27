@@ -107,7 +107,7 @@ export function AttendanceAnalytics() {
       ) : data ? (
         <>
           <div className="attendance-overview-grid">
-            <section className="card attendance-trend-card">
+            <section className="card chart-card attendance-trend-card">
               <div className="metric-card-head">
                 <div>
                   <span className="section-label">Alliance attendance</span>

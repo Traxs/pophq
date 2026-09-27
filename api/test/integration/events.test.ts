@@ -73,17 +73,35 @@ describe("events", () => {
         title: "Historical Foundry",
         startsAt,
         deadlineAt: new Date(Date.parse(startsAt) - 3 * 86_400_000).toISOString(),
-        sessions: [],
+        sessions: [{ id: "L1", label: "Legion 1", startsAt }],
         createdBy: "import",
       },
       { id: "import", via: "migration" },
     );
+    await h.repo.putResult({
+      eventId: oldEventId,
+      sessionId: "L1",
+      version: 1,
+      outcome: "win",
+      ourScore: 340_778,
+      opponentScore: 178_248,
+      playerPoints: [{ playerId: "100000001", points: 20_000 }],
+      recordedAt: new Date().toISOString(),
+      recordedBy: "import",
+    }, { id: "import", via: "migration" });
 
     const recent = await h.call("GET", "/events", PLAYER);
     expect((recent.body.items as { eventId: string }[]).some((event) => event.eventId === oldEventId)).toBe(false);
 
     const history = await h.call("GET", `/events?from=${encodeURIComponent("1970-01-01T00:00:00.000Z")}`, PLAYER);
-    expect((history.body.items as { eventId: string }[]).some((event) => event.eventId === oldEventId)).toBe(true);
+    const historyItems = history.body.items as {
+      eventId: string;
+      startsAt: string;
+      history?: { results: { outcome: string; ourScore: number; opponentScore: number; participants?: number }[] };
+    }[];
+    const historical = historyItems.find((event) => event.eventId === oldEventId);
+    expect(historical?.history?.results).toEqual([{ sessionId: "L1", sessionLabel: "Legion 1", outcome: "win", ourScore: 340_778, opponentScore: 178_248 }]);
+    expect(historyItems.map((event) => event.startsAt)).toEqual(historyItems.map((event) => event.startsAt).toSorted().reverse());
     expect((await h.call("GET", "/events?from=not-a-date", PLAYER)).status).toBe(400);
   });
 

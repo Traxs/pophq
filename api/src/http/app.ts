@@ -2052,11 +2052,47 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const acting = defaultActing(p);
     const mine = acting ? await repo.answersForAccount(acting, from) : [];
     const byEvent = new Map(mine.map((a) => [a.eventId, a]));
-    const items = events.map((event) => ({
-      ...event,
-      closed: isClosed(event, at),
-      myAnswer: byEvent.get(event.eventId)?.answer ?? null,
-      mySessionId: byEvent.get(event.eventId)?.sessionId ?? null,
+    const officer = isOfficer(p);
+    const orderedEvents = events.toSorted((a, b) => Date.parse(b.startsAt) - Date.parse(a.startsAt));
+    const items = await Promise.all(orderedEvents.map(async (event) => {
+      const history = Date.parse(event.startsAt) < at.getTime()
+        ? await (async () => {
+            const results = await repo.listResults(event.eventId);
+            const phases = (await Promise.all(phasesForEvent(event.kind).map(async (phase) => {
+              const record = await repo.getEventPhaseScores(event.eventId, phase.key);
+              if (!record) return undefined;
+              const visible = officer
+                ? record.playerPoints
+                : record.playerPoints.filter((row) => row.playerId === acting);
+              return {
+                phaseKey: phase.key,
+                phaseLabel: phase.label,
+                coverage: record.coverage,
+                scoredPlayers: visible.length,
+                reportedPlayerSubtotal: scoreSubtotal(visible),
+                scope: officer ? "alliance" as const : "mine" as const,
+              };
+            }))).filter((phase) => phase !== undefined);
+            return {
+              results: results.map((result) => ({
+                sessionId: result.sessionId,
+                sessionLabel: event.sessions.find((session) => session.id === result.sessionId)?.label ?? result.sessionId,
+                outcome: result.outcome,
+                ourScore: result.ourScore,
+                opponentScore: result.opponentScore,
+                ...(officer ? { participants: result.playerPoints.filter((row) => row.points > 0).length } : {}),
+              })),
+              phases,
+            };
+          })()
+        : undefined;
+      return {
+        ...event,
+        closed: isClosed(event, at),
+        myAnswer: byEvent.get(event.eventId)?.answer ?? null,
+        mySessionId: byEvent.get(event.eventId)?.sessionId ?? null,
+        ...(history ? { history } : {}),
+      };
     }));
     return c.json({ items });
   });

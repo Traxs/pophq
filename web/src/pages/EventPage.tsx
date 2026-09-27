@@ -112,6 +112,7 @@ export function EventPage({ eventId }: { eventId: string }) {
 
   if (error && !event) return <ErrorBanner message={error} onRetry={() => navigate("/events")} />;
   if (!event) return <div className="card skeleton" style={{ height: 200 }} />;
+  const completed = Date.parse(event.startsAt) <= Date.now();
 
   return (
     <>
@@ -124,9 +125,9 @@ export function EventPage({ eventId }: { eventId: string }) {
       </div>
       <p className="muted">
         {dayTime(event.startsAt)} ·{" "}
-        {event.closed ? "answers closed" : `answers close ${untilText(event.deadlineAt)} (${dayTime(event.deadlineAt)})`}
+        {completed ? "event completed" : event.closed ? "answers closed" : `answers close ${untilText(event.deadlineAt)} (${dayTime(event.deadlineAt)})`}
       </p>
-      {event.closed && isOfficer && (
+      {event.closed && !completed && isOfficer && (
         <p className="banner banner-warn">
           Answers are closed for members. You can still change who is coming until the event starts.
         </p>
@@ -154,7 +155,7 @@ export function EventPage({ eventId }: { eventId: string }) {
                 session={session}
                 closed={event.closed && !isOfficer}
                 busy={busy}
-                canAnswer={account !== undefined}
+                canAnswer={!completed && account !== undefined}
                 isOfficer={isOfficer}
                 myPlayerId={account?.playerId}
                 strategyTemplate={event.strategyTemplate ?? ""}
@@ -164,11 +165,11 @@ export function EventPage({ eventId }: { eventId: string }) {
             </li>
           ))}
         </ul>
-      ) : (
+      ) : !completed ? (
         <p className="muted">This event has no parts to choose between.</p>
-      )}
+      ) : null}
 
-      {account && event.myAnswer === "yes" ? (
+      {completed ? null : account && event.myAnswer === "yes" ? (
         <button
           type="button"
           className="btn btn-quiet btn-block"
@@ -205,7 +206,13 @@ function EventScoreboards({
 }) {
   const { api } = useSession();
   const toast = useToast();
-  const [active, setActive] = useState<EventScorePhase>("preparation");
+  const [active, setActive] = useState<EventScorePhase>(() =>
+    scoreboards.preparation.version > 0
+      ? "preparation"
+      : scoreboards.castle_battle.version > 0
+        ? "castle_battle"
+        : "preparation",
+  );
   const [score, setScore] = useState("");
   const [paste, setPaste] = useState("");
   const [coverage, setCoverage] = useState<"partial" | "complete">("partial");
@@ -276,10 +283,10 @@ function EventScoreboards({
       {playerId && (
         <div className="my-event-score">
           <div>
-            <strong>Your {active} score</strong>
+            <strong>Your {board.phaseLabel.toLowerCase()} score</strong>
             <small>{mine ? "Recorded — you can correct it" : "Not in the visible top 100? Add your exact score here."}</small>
           </div>
-          <input aria-label={`Your ${active} score`} inputMode="numeric" placeholder="0" value={score} onChange={(event) => setScore(event.target.value)} />
+          <input aria-label={`Your ${board.phaseLabel.toLowerCase()} score`} inputMode="numeric" placeholder="0" value={score} onChange={(event) => setScore(event.target.value)} />
           <button type="button" className="btn btn-primary btn-small" disabled={saving} onClick={() => void saveMine()}>
             {saving ? "…" : mine ? "Update" : "Add score"}
           </button>
@@ -289,8 +296,8 @@ function EventScoreboards({
       {isOfficer && <div className="score-summary"><span><strong>{board.scoredPlayers}</strong> scored players</span><span><strong>{full(board.reportedPlayerSubtotal)}</strong> reported-player subtotal</span><span className="pill pill-flat">{board.coverage === "complete" ? "Complete" : "Partial data"}</span></div>}
 
       {board.entries.length > 0 ? (
-        <div className="score-table-wrap">
-          <table className="score-table">
+        <div className="table-wrap score-table-wrap">
+          <table className="table score-table">
             <thead><tr>{isOfficer && <th>Rank</th>}<th>Member</th><th>Exact score</th></tr></thead>
             <tbody>{board.entries.map((entry) => (
               <tr key={entry.playerId} className={entry.mine ? "mine" : ""}>

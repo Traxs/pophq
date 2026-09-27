@@ -80,7 +80,7 @@ export function GrowthAnalytics({ metric }: { metric: StrengthMetric }) {
         <div className="card skeleton" style={{ height: 300 }} />
       ) : growth ? (
         <>
-          <section className="card growth-detail-chart">
+          <section className="card chart-card growth-detail-chart">
             <div className="metric-card-head">
               <div>
                 <span className="section-label">Total alliance {label.toLowerCase()}</span>

@@ -49,6 +49,7 @@ export function LineChart({
   return (
     <figure className="chart">
       <svg
+        className="chart-plot"
         viewBox={`0 0 ${width} ${height}`}
         width="100%"
         height={height}
@@ -62,6 +63,16 @@ export function LineChart({
             <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
           </linearGradient>
         </defs>
+        {[0.25, 0.5, 0.75].map((position) => (
+          <line
+            key={position}
+            x1={pad.left}
+            y1={pad.top + position * (height - pad.top - pad.bottom)}
+            x2={width - pad.right}
+            y2={pad.top + position * (height - pad.top - pad.bottom)}
+            className="chart-grid-line"
+          />
+        ))}
         <path d={area} fill={`url(#${id}-fill)`} />
         <path d={line} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
         {points.map((p, i) => (

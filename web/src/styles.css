@@ -17,6 +17,9 @@
   --warn-soft: #fcf1d6;
   --shadow: 0 1px 2px rgb(16 32 48 / 6%), 0 4px 16px rgb(16 32 48 / 6%);
   --radius: 14px;
+  --control-height: 46px;
+  --control-radius: 12px;
+  --page-max: 1180px;
   --tabbar-h: 64px;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color: var(--ink);
@@ -128,19 +131,18 @@ textarea {
   text-decoration: none;
 }
 
-.brand-mark {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: var(--accent);
-  color: var(--accent-ink);
-  font-size: 0.95rem;
+.brand-logo {
+  width: 32px;
+  height: 32px;
+  border: 1px solid color-mix(in srgb, white 28%, transparent);
+  border-radius: 10px;
+  object-fit: cover;
+  box-shadow: 0 5px 16px color-mix(in srgb, black 24%, transparent);
 }
 
 .content {
-  max-width: 560px;
+  width: 100%;
+  max-width: var(--page-max);
   margin: 0 auto;
   padding: 16px 16px calc(var(--tabbar-h) + 32px + env(safe-area-inset-bottom, 0px));
   display: grid;
@@ -631,7 +633,7 @@ button.card {
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--surface-2);
-  color: var(--text);
+  color: var(--ink);
   font-size: 1.05rem;
 }
 
@@ -1010,16 +1012,13 @@ button.card {
   text-align: center;
 }
 
-.signin-mark {
-  display: grid;
-  place-items: center;
-  width: 64px;
-  height: 64px;
-  border-radius: 18px;
-  background: var(--accent);
-  color: var(--accent-ink);
-  font-size: 2rem;
-  box-shadow: 0 10px 30px color-mix(in srgb, var(--accent) 35%, transparent);
+.signin-logo {
+  width: 80px;
+  height: 80px;
+  border: 2px solid color-mix(in srgb, white 35%, transparent);
+  border-radius: 24px;
+  object-fit: cover;
+  box-shadow: 0 12px 34px color-mix(in srgb, black 35%, transparent);
 }
 
 .signin-card h1 {
@@ -1816,6 +1815,19 @@ th[aria-sort="descending"] .th-btn {
   display: grid;
   gap: 8px;
 }
+.event-list {
+  margin-top: 8px;
+}
+.event-history-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  margin-top: 24px;
+}
+.event-history-heading .section-label,
+.event-history-heading p {
+  margin-bottom: 0;
+}
 .event-head {
   display: flex;
   align-items: center;
@@ -1846,7 +1858,88 @@ th[aria-sort="descending"] .th-btn {
   gap: 2px;
 }
 .event-past {
-  opacity: 0.7;
+  gap: 10px;
+  border-color: color-mix(in srgb, var(--line) 82%, var(--accent));
+  background: color-mix(in srgb, var(--surface) 96%, var(--accent));
+}
+.event-complete-label {
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+}
+.event-result-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+  gap: 10px;
+  margin-top: 4px;
+}
+.event-result-tile {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-left-width: 4px;
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+.event-result-tile.result-win { border-left-color: var(--up); }
+.event-result-tile.result-loss { border-left-color: var(--down); }
+.event-result-tile.result-draw { border-left-color: var(--muted); }
+.event-result-tile.result-points { border-left-color: var(--accent); }
+.event-result-tile-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.event-result-tile-head strong { color: var(--ink); }
+.result-win .event-result-tile-head strong { color: var(--up); }
+.result-loss .event-result-tile-head strong { color: var(--down); }
+.event-result-score {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.event-result-score strong { font-size: 1.2rem; }
+.event-result-tile > small { color: var(--muted); }
+.event-result-empty {
+  display: grid;
+  gap: 3px;
+  padding: 13px 14px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  color: var(--muted);
+  background: var(--surface-2);
+}
+.event-result-empty strong { color: var(--ink); }
+.event-report-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 42px;
+  padding: 6px 2px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+@media (min-width: 900px) {
+  .event-history-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
 }
 .answers button[aria-checked="true"] {
   background: var(--accent);
@@ -2038,22 +2131,6 @@ th[aria-sort="descending"] .th-btn {
 .table-wrap {
   overflow-x: auto;
 }
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-.table th,
-.table td {
-  padding: 8px 10px;
-  text-align: left;
-  border-bottom: 1px solid var(--line);
-  white-space: nowrap;
-}
-.table .num {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
 .pill-warn {
   background: var(--warn-soft);
   color: var(--warn);
@@ -2061,13 +2138,13 @@ th[aria-sort="descending"] .th-btn {
 
 /* Nothing may push the page sideways on a phone. */
 .app,
-.content,
 .card,
 .table-wrap {
   min-width: 0;
   max-width: 100%;
 }
 .content {
+  min-width: 0;
   overflow-x: hidden;
 }
 
@@ -2831,9 +2908,9 @@ td:nth-child(3) .inline-select {
 .identity-account-list > li + li { border-top: 1px solid var(--line); }
 .identity-account-copy { display: grid; gap: 3px; min-width: 0; }
 .identity-account-copy > span:first-child { display: flex; align-items: center; gap: 8px; }
-.identity-main-badge { color: var(--good); background: color-mix(in srgb, var(--good) 15%, transparent); }
+.identity-main-badge { color: var(--up); background: color-mix(in srgb, var(--up) 15%, transparent); }
 .identity-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
-.danger-text { color: var(--danger); }
+.danger-text { color: var(--down); }
 .identity-audit { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
 .identity-audit summary { color: var(--accent); font-weight: 750; cursor: pointer; }
 .identity-audit .detail-list { margin-top: 10px; }
@@ -2848,9 +2925,9 @@ td:nth-child(3) .inline-select {
   gap: 10px;
   margin-top: -6px;
   padding: 11px 12px;
-  border: 1px solid color-mix(in srgb, var(--good) 45%, var(--line));
+  border: 1px solid color-mix(in srgb, var(--up) 45%, var(--line));
   border-radius: 12px;
-  background: color-mix(in srgb, var(--good) 8%, var(--surface-2));
+  background: color-mix(in srgb, var(--up) 8%, var(--surface-2));
 }
 .identity-selected-account > span:nth-child(2) { display: grid; gap: 1px; min-width: 0; }
 .identity-selected-account small { color: var(--muted); }
@@ -2860,8 +2937,8 @@ td:nth-child(3) .inline-select {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--good) 18%, transparent);
-  color: var(--good);
+  background: color-mix(in srgb, var(--up) 18%, transparent);
+  color: var(--up);
   font-weight: 850;
 }
 .identity-reason textarea { min-height: 92px; }
@@ -2881,7 +2958,7 @@ td:nth-child(3) .inline-select {
 .event-scoreboards .event-head p { margin: 3px 0 0; }
 .score-phase-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; padding: 5px; border-radius: 12px; background: var(--surface-2); }
 .score-phase-tabs button { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); font-weight: 800; cursor: pointer; text-transform: capitalize; }
-.score-phase-tabs button.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+.score-phase-tabs button.active { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
 .score-phase-tabs span { min-width: 23px; padding: 2px 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: .74rem; }
 .my-event-score { display: grid; grid-template-columns: minmax(0, 1fr) minmax(120px, 180px) auto; align-items: end; gap: 10px; padding: 13px; border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--line)); border-radius: 12px; background: var(--accent-soft); }
 .my-event-score > div { display: grid; gap: 3px; }
@@ -2898,7 +2975,7 @@ td:nth-child(3) .inline-select {
 .score-table tr.mine { background: var(--accent-soft); }
 .score-empty { margin: 4px 0; text-align: center; }
 .score-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 9px 16px; color: var(--muted); }
-.score-summary strong { color: var(--text); }
+.score-summary strong { color: var(--ink); }
 .score-import { padding-top: 12px; border-top: 1px solid var(--line); }
 .score-import summary { color: var(--accent); font-weight: 800; cursor: pointer; }
 .score-import textarea { width: 100%; min-height: 130px; margin: 8px 0 10px; font-variant-numeric: tabular-nums; }
@@ -2911,4 +2988,239 @@ td:nth-child(3) .inline-select {
   .identity-account-list > li { align-items: flex-start; flex-direction: column; }
   .identity-actions { width: 100%; justify-content: flex-start; }
   .identity-form-actions .btn { min-width: 0; flex: 1 1 0; }
+}
+
+/* ---------- Unified interface primitives ---------- */
+
+/* Keep the same field surface everywhere: sheets, cards, tables and settings. */
+:where(input:not([type="checkbox"]):not([type="radio"]), select, textarea),
+.search,
+.filter-select select,
+.score-import select {
+  width: 100%;
+  min-height: var(--control-height);
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background-color: var(--surface-2);
+  color: var(--ink);
+  transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+}
+
+.field input:not([type="checkbox"]):not([type="radio"]),
+.field select,
+.my-event-score input {
+  min-height: var(--control-height);
+  padding: 10px 14px;
+  border-radius: var(--control-radius);
+  background-color: var(--surface-2);
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+:where(select),
+.filter-select select,
+.score-import select {
+  appearance: none;
+  padding-right: 42px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='m3 6 5 5 5-5' stroke='%2393a7b9' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: right 14px center;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+:where(input:not([type="checkbox"]):not([type="radio"]), select, textarea):hover:not(:disabled),
+.search:hover:not(:disabled),
+.filter-select select:hover:not(:disabled),
+.score-import select:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 52%, var(--line));
+}
+
+:where(input:not([type="checkbox"]):not([type="radio"]), select, textarea):focus-visible,
+.search:focus-visible,
+.filter-select select:focus-visible,
+.score-import select:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+:where(input, select, textarea):disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+:where(input, textarea)::placeholder {
+  color: color-mix(in srgb, var(--muted) 82%, transparent);
+}
+
+:where(input[type="checkbox"], input[type="radio"]) {
+  accent-color: var(--accent);
+}
+
+.field {
+  gap: 7px;
+}
+
+.field label,
+.field legend,
+.field > span:first-child,
+.score-import label {
+  color: var(--ink);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+/* Inline selects are the compact member of the same control family. */
+.inline-select {
+  width: auto;
+  min-height: 36px;
+  padding-block: 6px;
+  border-radius: 9px;
+  background-color: var(--surface-2);
+}
+
+/* One table surface and one row rhythm across roster, attendance and scores. */
+.table-wrap,
+.table-scroll,
+.score-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.table-card .table-scroll {
+  border: 0;
+  border-radius: inherit;
+}
+
+.table,
+.score-table {
+  width: 100%;
+  min-width: 520px;
+  border-collapse: collapse;
+  background: var(--surface);
+  font-size: 0.9rem;
+}
+
+.table th,
+.table td,
+.score-table th,
+.score-table td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.table th,
+.score-table th {
+  position: static;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 750;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.table tbody tr:last-child td,
+.score-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.table tbody tr:hover td,
+.score-table tbody tr:hover td {
+  background: color-mix(in srgb, var(--surface-2) 74%, var(--surface));
+}
+
+.table .num,
+.table th.num,
+.table td.num,
+.score-table td:nth-child(3) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.score-table td:nth-child(2) {
+  white-space: normal;
+}
+
+/* Every full-size graph uses the same framed plot, grid and caption treatment. */
+.chart-card {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.chart {
+  gap: 7px;
+}
+
+.chart-plot {
+  display: block;
+  overflow: visible;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-2) 82%, var(--surface));
+}
+
+.chart-grid-line {
+  stroke: var(--line);
+  stroke-width: 0.7;
+  stroke-dasharray: 2 3;
+}
+
+.chart-caption {
+  min-height: 22px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Segmented choices are visually identical whether used for time, type or score phase. */
+.segmented,
+.score-phase-tabs {
+  gap: 5px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--surface-2);
+}
+
+.segmented button,
+.score-phase-tabs button {
+  min-height: 40px;
+  border-radius: 9px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.segmented button[aria-checked="true"],
+.score-phase-tabs button[aria-selected="true"],
+.score-phase-tabs button.active {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+
+.btn-secondary {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+@media (max-width: 640px) {
+  .content {
+    padding-inline: 12px;
+  }
+
+  .table th,
+  .table td,
+  .score-table th,
+  .score-table td {
+    padding-inline: 12px;
+  }
 }

@@ -333,7 +333,7 @@ function AllianceAttendanceChart({ weeks }: { weeks: number }) {
 
   return (
     <section
-      className="card alliance-chart-card attendance-chart-link"
+      className="card chart-card alliance-chart-card attendance-chart-link"
       aria-label="Alliance event attendance. Open detailed analytics."
       role="link"
       tabIndex={0}
@@ -396,7 +396,7 @@ function AllianceChart({ metric, weeks }: { metric: StrengthMetric; weeks: numbe
 
   return (
     <section
-      className="card alliance-chart-card attendance-chart-link"
+      className="card chart-card alliance-chart-card attendance-chart-link"
       aria-label={`${metric === "foundry_strength" ? "Foundry strength" : "City power"}. Open growth analytics.`}
       role="link"
       tabIndex={0}

@@ -93,7 +93,7 @@ export function Power() {
 function HeroCard({ latest, previous, series }: { latest: PowerPoint; previous?: PowerPoint | undefined; series: PowerPoint[] }) {
   const delta = change(latest.power, previous?.power);
   return (
-    <section className="card hero" aria-label="Current power">
+    <section className="card hero chart-card" aria-label="Current power">
       <span className="hero-label">Current power</span>
       <span className="hero-value">{full(latest.power)}</span>
       <span className="hero-meta">

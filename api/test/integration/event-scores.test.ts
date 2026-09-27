@@ -9,6 +9,7 @@ describe("SvS and KOI scoreboards", () => {
   let h: Harness;
   let eventId: string;
   let foundryId: string;
+  const pastEventId = "01M36PTMTPN3VRN4KX862PAST";
 
   beforeAll(async () => {
     h = await createHarness();
@@ -18,6 +19,31 @@ describe("SvS and KOI scoreboards", () => {
     eventId = koi.body.eventId as string;
     const foundry = await h.call("POST", "/events", { ...OFFICER, body: { kind: "foundry", title: "Foundry", startsAt } });
     foundryId = foundry.body.eventId as string;
+    const pastStartsAt = new Date(Date.now() - 86_400_000).toISOString();
+    await h.repo.createEvent({
+      eventId: pastEventId,
+      alliance: "POP",
+      kind: "koi",
+      title: "Completed King of Icefield",
+      startsAt: pastStartsAt,
+      deadlineAt: new Date(Date.parse(pastStartsAt) - 3 * 3_600_000).toISOString(),
+      sessions: [],
+      createdBy: "fixture",
+    }, { id: "fixture", via: "seed" });
+    await h.repo.putEventPhaseScores({
+      eventId: pastEventId,
+      phaseKey: "castle_battle",
+      phaseLabel: "Castle battle phase",
+      version: 1,
+      coverage: "partial",
+      playerPoints: [
+        { playerId: "100000005", points: 900_000 },
+        { playerId: "100000001", points: 450_000 },
+      ],
+      source: { type: "fixture" },
+      recordedAt: new Date().toISOString(),
+      recordedBy: "fixture",
+    }, { id: "fixture", via: "seed" });
   });
 
   afterAll(() => h.cleanup());
@@ -63,5 +89,28 @@ describe("SvS and KOI scoreboards", () => {
       ...OFFICER,
       body: { expectedVersion: 1, coverage: "partial", playerPoints: [{ playerId: "999999999", points: 1 }], source: { type: "officer_import" } },
     })).status).toBe(400);
+  });
+
+  it("puts privacy-aware phase totals directly on completed event cards", async () => {
+    const officerList = await h.call("GET", "/events", OFFICER);
+    const officerEvent = (officerList.body.items as { eventId: string; history?: { phases: unknown[] } }[])
+      .find((event) => event.eventId === pastEventId);
+    expect(officerEvent?.history?.phases).toEqual([expect.objectContaining({
+      phaseKey: "castle_battle",
+      scoredPlayers: 2,
+      reportedPlayerSubtotal: 1_350_000,
+      scope: "alliance",
+    })]);
+
+    const playerList = await h.call("GET", "/events", PLAYER);
+    const playerEvent = (playerList.body.items as { eventId: string; history?: { phases: unknown[] } }[])
+      .find((event) => event.eventId === pastEventId);
+    expect(playerEvent?.history?.phases).toEqual([expect.objectContaining({
+      phaseKey: "castle_battle",
+      scoredPlayers: 1,
+      reportedPlayerSubtotal: 450_000,
+      scope: "mine",
+    })]);
+    expect(JSON.stringify(playerEvent)).not.toContain("900000");
   });
 });
