@@ -247,10 +247,9 @@ describe("POST /v1/invites", () => {
     })).status).toBe(200);
     expect((await h.call("GET", "/roster", { as: sub })).status).toBe(200);
 
-    expect((await h.call("PATCH", "/accounts/400000011", {
-      as: "officer-1",
-      groups: ["officer"],
-      body: { status: "transferred_out" },
+    expect((await h.call("PUT", "/accounts/400000011/membership", {
+      as: sub,
+      body: { active: false, justification: "Confirmed departure after promotion" },
     })).status).toBe(200);
     expect((await h.call("GET", "/roster", { as: sub })).status).toBe(403);
   });
