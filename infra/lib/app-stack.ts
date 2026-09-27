@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { CfnOutput, Duration, RemovalPolicy, Stack, type CfnElement, type StackProps } from "aws-cdk-lib";
 import * as apigw from "aws-cdk-lib/aws-apigateway";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
+import * as cloudwatchActions from "aws-cdk-lib/aws-cloudwatch-actions";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import * as codedeploy from "aws-cdk-lib/aws-codedeploy";
@@ -16,6 +17,7 @@ import * as logs from "aws-cdk-lib/aws-logs";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
 import * as sqs from "aws-cdk-lib/aws-sqs";
+import * as sns from "aws-cdk-lib/aws-sns";
 import * as cr from "aws-cdk-lib/custom-resources";
 import type { Construct } from "constructs";
 import { S3_GRANT_ACTIONS, acknowledge, acknowledgeEach } from "./nag.js";
@@ -127,6 +129,7 @@ export class AppStack extends Stack {
       users.userPoolId,
       history.tableName,
       evidence.bucketName,
+      guard.alertsTopic,
     );
     table.grantReadWriteData(api.handler);
     history.grantReadData(api.handler);
@@ -363,6 +366,7 @@ export class AppStack extends Stack {
     userPoolId: string,
     historyTableName: string,
     evidenceBucketName: string,
+    alertsTopic: sns.ITopic,
   ): { handler: NodejsFunction; rest: apigw.RestApi; alias: lambda.Alias } {
     const handler = new NodejsFunction(this, "Api", {
       entry: API_ENTRY,
@@ -402,6 +406,7 @@ export class AppStack extends Stack {
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
+    failing.addAlarmAction(new cloudwatchActions.SnsAction(alertsTopic));
     new codedeploy.LambdaDeploymentGroup(this, "ApiCanary", {
       alias,
       deploymentConfig: codedeploy.LambdaDeploymentConfig.CANARY_10PERCENT_5MINUTES,
@@ -430,6 +435,24 @@ export class AppStack extends Stack {
         accessLogFormat: apigw.AccessLogFormat.jsonWithStandardFields(),
       },
     });
+    const serverErrors = new cloudwatch.Alarm(this, "ApiGateway5xx", {
+      alarmDescription: "POP HQ returned at least one server error. Check the request reference in the API logs.",
+      metric: rest.metricServerError({ period: Duration.minutes(1), statistic: "Sum" }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    serverErrors.addAlarmAction(new cloudwatchActions.SnsAction(alertsTopic));
+    const clientErrorBurst = new cloudwatch.Alarm(this, "ApiGateway4xxBurst", {
+      alarmDescription: "POP HQ received repeated rejected requests. Inspect structured domain_error logs for the cause.",
+      metric: rest.metricClientError({ period: Duration.minutes(5), statistic: "Sum" }),
+      threshold: 5,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    clientErrorBurst.addAlarmAction(new cloudwatchActions.SnsAction(alertsTopic));
     return { handler, rest, alias };
   }
 

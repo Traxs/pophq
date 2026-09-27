@@ -16,6 +16,10 @@ export const loginLinkKey = (sub: string, playerId: string) => ({ PK: `LOGIN#${s
 /** Which linked account represents a person in people-level views. */
 export const personIdentityKey = (sub: string) => ({ PK: `LOGIN#${sub}`, SK: "IDENTITY" });
 
+/** Account relationships exist independently of authentication. The same compact group is
+ * copied onto every member so any Player ID can resolve the person with one strongly-consistent read. */
+export const accountIdentityGroupKey = (playerId: string) => ({ PK: `ACCOUNT#${playerId}`, SK: "IDENTITY_GROUP" });
+
 /** Previous/alternate names remain attached to the exact Player ID. */
 export const accountAliasKey = (playerId: string, normalizedName: string) => ({
   PK: `ACCOUNT#${playerId}`,

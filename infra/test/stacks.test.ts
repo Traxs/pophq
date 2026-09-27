@@ -174,6 +174,22 @@ describe("AppStack", () => {
     expect(api).toContain("Live");
   });
 
+  it("alerts the owner about server errors and repeated rejected requests", () => {
+    template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+      MetricName: "5XXError",
+      Namespace: "AWS/ApiGateway",
+      Threshold: 1,
+      AlarmActions: Match.anyValue(),
+    });
+    template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+      MetricName: "4XXError",
+      Namespace: "AWS/ApiGateway",
+      Period: 300,
+      Threshold: 5,
+      AlarmActions: Match.anyValue(),
+    });
+  });
+
   it("lets the API manage logins and check bot issuers in its own user pool only", () => {
     template.hasResourceProperties("AWS::IAM::Policy", {
       PolicyDocument: Match.objectLike({

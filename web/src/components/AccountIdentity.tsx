@@ -2,6 +2,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import type { AccountIdentity, IdentityAuditRecord, RosterRow } from "../api";
 import { shortDate } from "../format";
 import { useSession } from "../session";
+import { ErrorBanner } from "./Chrome";
 import { Sheet } from "./Sheet";
 
 type Action =
@@ -38,6 +39,7 @@ export function AccountIdentityPanel({
   const [saving, setSaving] = useState(false);
   const linked = useMemo(() => new Set(identity.accounts.map((account) => account.playerId)), [identity.accounts]);
   const candidates = roster.filter((account) => !linked.has(account.playerId) && !account.hasLogin && account.status !== "transferred_out");
+  const selectedSecondary = candidates.find((candidate) => candidate.playerId === secondaryPlayerId);
 
   const open = (next: Action) => {
     setAction(next);
@@ -76,6 +78,10 @@ export function AccountIdentityPanel({
     : action?.type === "main" ? `Make ${action.name} the main account`
       : action?.type === "unlink" ? `Unlink ${action.name}`
         : action?.type === "alias" ? `Add a previous name for ${action.name}` : "Accounts & names";
+  const submitLabel = action?.type === "link" ? "Link accounts"
+    : action?.type === "main" ? "Make main account"
+      : action?.type === "unlink" ? "Unlink account"
+        : action?.type === "alias" ? "Add name" : "Save change";
 
   return <section className="card member-detail-card identity-card">
     <div className="section-head">
@@ -115,35 +121,46 @@ export function AccountIdentityPanel({
     </details>
 
     <Sheet open={action !== null} title={title} onClose={close}>
-      <form className="form-stack" onSubmit={submit}>
-        {action?.type === "link" && <div className="field member-lookup">
-          <label htmlFor="identity-account-search">Secondary account</label>
-          <input id="identity-account-search" role="combobox" aria-autocomplete="list" autoComplete="off" value={lookup}
-            onChange={(event) => { setLookup(event.target.value); setSecondaryPlayerId(""); }}
-            placeholder="Search name, previous name or Player ID" autoFocus />
-          {lookup.trim() && !secondaryPlayerId && <ul className="member-suggestions" role="listbox">
-            {candidates.filter((candidate) => {
-              const query = lookup.trim().toLowerCase();
-              return candidate.name.toLowerCase().includes(query) || candidate.playerId.includes(query) || (candidate.aliases ?? []).some((name) => name.toLowerCase().includes(query));
-            }).slice(0, 8).map((candidate) => <li key={candidate.playerId} role="option">
-              <button type="button" onClick={() => { setLookup(`${candidate.name} · ${candidate.playerId}`); setSecondaryPlayerId(candidate.playerId); }}>
-                <strong>{candidate.name}</strong><span>{candidate.playerId}{candidate.rank ? ` · ${candidate.rank}` : ""}</span>
-              </button>
-            </li>)}
-          </ul>}
-          <span className="field-help">Only accounts without another sign-in are available.</span>
+      <form className="form identity-form" onSubmit={submit}>
+        {error && <ErrorBanner message={error} />}
+        {action?.type === "link" && <>
+          <p className="muted identity-form-intro">Connect another Player ID to this person. Event participation and account history will be combined under the main account.</p>
+          <div className="field member-lookup identity-lookup">
+            <label htmlFor="identity-account-search">Find the secondary account</label>
+            <input id="identity-account-search" role="combobox" aria-autocomplete="list" aria-controls="identity-account-results"
+              aria-expanded={Boolean(lookup.trim() && !secondaryPlayerId)} autoComplete="off" value={lookup}
+              onChange={(event) => { setLookup(event.target.value); setSecondaryPlayerId(""); }}
+              placeholder="Search by name or Player ID" autoFocus />
+            {lookup.trim() && !secondaryPlayerId && <ul id="identity-account-results" className="member-suggestions" role="listbox">
+              {candidates.filter((candidate) => {
+                const query = lookup.trim().toLowerCase();
+                return candidate.name.toLowerCase().includes(query) || candidate.playerId.includes(query) || (candidate.aliases ?? []).some((name) => name.toLowerCase().includes(query));
+              }).slice(0, 8).map((candidate) => <li key={candidate.playerId} role="option">
+                <button type="button" onClick={() => { setLookup(`${candidate.name} · ${candidate.playerId}`); setSecondaryPlayerId(candidate.playerId); }}>
+                  <strong>{candidate.name}</strong><span>Player ID {candidate.playerId}{candidate.rank ? ` · ${candidate.rank}` : ""}</span>
+                </button>
+              </li>)}
+            </ul>}
+            <span className="field-help">Only accounts without their own sign-in or another main account can be linked.</span>
+          </div>
+          {selectedSecondary && <div className="identity-selected-account" aria-live="polite">
+            <span className="identity-selected-check" aria-hidden="true">✓</span>
+            <span><strong>{selectedSecondary.name}</strong><small>Player ID {selectedSecondary.playerId}{selectedSecondary.rank ? ` · ${selectedSecondary.rank}` : ""}</small></span>
+            <button type="button" className="text-btn" onClick={() => { setLookup(""); setSecondaryPlayerId(""); }}>Change</button>
+          </div>}
+        </>}
+        {action?.type === "alias" && <div className="field">
+          <label htmlFor="identity-alias">Previous or alternate name</label>
+          <input id="identity-alias" value={alias} onChange={(event) => setAlias(event.target.value)} minLength={2} maxLength={30} autoFocus required />
         </div>}
-        {action?.type === "alias" && <label>Previous or alternate name
-          <input value={alias} onChange={(event) => setAlias(event.target.value)} minLength={2} maxLength={30} autoFocus required />
-        </label>}
-        <label>Reason
-          <textarea value={reason} onChange={(event) => setReason(event.target.value)} minLength={5} maxLength={200} placeholder="Why is this relationship correct?" required />
-          <span className="field-help">Saved permanently in the officer audit history.</span>
-        </label>
-        {error && <p className="error-text" role="alert">{error}</p>}
-        <div className="form-actions">
+        <div className="field identity-reason">
+          <label htmlFor="identity-reason">Reason for this change</label>
+          <textarea id="identity-reason" value={reason} onChange={(event) => setReason(event.target.value)} minLength={5} maxLength={200} placeholder="Explain how this account relationship was confirmed" rows={3} required />
+          <span className="field-help">This note is saved permanently in the officer audit history.</span>
+        </div>
+        <div className="form-actions identity-form-actions">
           <button type="button" className="btn btn-secondary" onClick={close}>Cancel</button>
-          <button type="submit" className={`btn ${action?.type === "unlink" ? "btn-danger" : "btn-primary"}`} disabled={saving || (action?.type === "link" && !secondaryPlayerId)}>{saving ? "Saving…" : "Save change"}</button>
+          <button type="submit" className={`btn ${action?.type === "unlink" ? "btn-danger" : "btn-primary"}`} disabled={saving || (action?.type === "link" && !secondaryPlayerId)}>{saving ? "Saving…" : submitLabel}</button>
         </div>
       </form>
     </Sheet>

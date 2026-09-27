@@ -643,8 +643,9 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly requestId?: string,
   ) {
-    super(message);
+    super(requestId ? `${message} (reference ${requestId})` : message);
   }
 }
 
@@ -665,7 +666,8 @@ export function createRequest(getToken: TokenSource, actingAs?: string) {
     const data: unknown = await res.json().catch(() => ({}));
     if (!res.ok) {
       const title = (data as { title?: string }).title ?? `Request failed (${res.status})`;
-      throw new ApiError(res.status, title);
+      const requestId = (data as { requestId?: string }).requestId ?? res.headers.get("x-request-id") ?? undefined;
+      throw new ApiError(res.status, title, requestId);
     }
     return data as T;
   };

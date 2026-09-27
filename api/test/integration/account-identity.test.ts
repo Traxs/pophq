@@ -41,6 +41,31 @@ describe("account identity workflow", () => {
     expect((roster.body.items as { playerId: string; aliases: string[] }[]).find((row) => row.playerId === "100000001")?.aliases).toContain("Old Poppy");
   });
 
+  it("links and manages two accounts before either person has a sign-in", async () => {
+    await h.repo.createAccount({ playerId: "299000001", name: "Mando Test", alliance: "POP", status: "active" }, { id: "test", via: "web" });
+    await h.repo.createAccount({ playerId: "299000002", name: "Grogu Test", alliance: "POP", status: "active" }, { id: "test", via: "web" });
+
+    const linked = await h.call("POST", "/accounts/299000001/identity/accounts", {
+      ...R4,
+      body: { secondaryPlayerId: "299000002", justification: "Confirmed as the same player" },
+    });
+    expect(linked.status).toBe(201);
+    expect(linked.body.primaryPlayerId).toBe("299000001");
+    expect(linked.body.accounts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ playerId: "299000001", isPrimary: true }),
+      expect.objectContaining({ playerId: "299000002", isPrimary: false }),
+    ]));
+    expect(await h.repo.linkedLogin("299000001")).toBeUndefined();
+    expect(await h.repo.linkedLogin("299000002")).toBeUndefined();
+
+    const changed = await h.call("PUT", "/accounts/299000001/identity/main", {
+      ...R4,
+      body: { playerId: "299000002", justification: "Grogu is now the main account" },
+    });
+    expect(changed.status).toBe(200);
+    expect(changed.body.primaryPlayerId).toBe("299000002");
+  });
+
   it("protects the implicit main account until another main is selected", async () => {
     const result = await h.call("DELETE", "/accounts/100000002/identity/accounts/100000001", {
       ...R4,
@@ -56,6 +81,9 @@ describe("account identity workflow", () => {
     });
     expect(linked.status).toBe(201);
     expect(linked.body.accounts).toEqual(expect.arrayContaining([expect.objectContaining({ playerId: "100000003" })]));
+    expect(linked.body.audit).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: "link_secondary", relatedPlayerId: "100000003", justification: "Confirmed as the same person" }),
+    ]));
 
     const changed = await h.call("PUT", "/accounts/100000001/identity/main", {
       ...R4,
