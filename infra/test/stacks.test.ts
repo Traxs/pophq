@@ -230,8 +230,13 @@ describe("AppStack", () => {
     });
     template.hasResourceProperties("AWS::Cognito::ManagedLoginBranding", {
       Settings: Match.objectLike({ categories: Match.objectLike({ global: Match.objectLike({ colorSchemeMode: "DYNAMIC" }) }) }),
-      Assets: Match.arrayWith([Match.objectLike({ Category: "FORM_LOGO", ColorMode: "LIGHT", Extension: "SVG" })]),
+      Assets: Match.arrayWith([
+        Match.objectLike({ Category: "FORM_LOGO", ColorMode: "LIGHT", Extension: "PNG" }),
+        Match.objectLike({ Category: "FAVICON_ICO", ColorMode: "DARK", Extension: "ICO" }),
+      ]),
     });
+    // Branding images are inlined into the template, which CloudFormation caps at 1 MB.
+    expect(JSON.stringify(template.toJSON()).length).toBeLessThan(600_000);
   });
 
   it("routes /v1/* to the API uncached and keeps the bucket private", () => {
