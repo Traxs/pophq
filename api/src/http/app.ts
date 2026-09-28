@@ -96,9 +96,14 @@ function personalEventScore(
   }];
 }
 
-/** A positive score always proves presence; a guarded officer-bot upload also confirms listed zero rows. */
-function scoreConfirmsAttendance(row: { points: number }, recordedBy: string): boolean {
-  return row.points > 0 || recordedBy.startsWith("agent:");
+/**
+ * Only a positive score proves presence. A guarded bot upload is trusted as a source, but a
+ * listed zero is still evidence that the player scored nothing, not that they participated.
+ * This distinction matters most for complete Foundry/Canyon results: zero must be allowed to
+ * fall through to an explicit absence, a signed-up no-show, or an unregistered outcome.
+ */
+function scoreConfirmsAttendance(row: { points: number }, _recordedBy: string): boolean {
+  return row.points > 0;
 }
 
 export interface AppDeps {
