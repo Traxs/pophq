@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, type Answer, type EventDetail, type EventListItem, type EventKind, type EventMember } from "../api";
 import { ErrorBanner } from "../components/Chrome";
+import { ActiveEventRail } from "../components/ActiveEventRegistration";
 import { Sheet } from "../components/Sheet";
 import { useToast } from "../components/Toast";
 import { compact, dayTime, full, relativeDay, shortTime, untilText } from "../format";
@@ -101,6 +102,11 @@ export function Events() {
   const newestFirst = (items ?? []).toSorted((a, b) => Date.parse(b.startsAt) - Date.parse(a.startsAt));
   const upcoming = newestFirst.filter((e) => Date.parse(e.startsAt) >= now.getTime());
   const past = newestFirst.filter((e) => Date.parse(e.startsAt) < now.getTime());
+  const focusEvent = (eventId: string) => {
+    const target = document.getElementById(`event-${eventId}`);
+    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+    target?.querySelector<HTMLElement>("button, [href], input")?.focus({ preventScroll: true });
+  };
 
   return (
     <>
@@ -126,21 +132,28 @@ export function Events() {
         </section>
       )}
 
-      {upcoming.length > 0 && <h2 className="section-label">Upcoming</h2>}
-      <ul className="stack event-list">
-        {upcoming.map((event) => (
-          <li key={event.eventId}>
-            <EventCard
-              event={event}
-              onAnswered={dataChanged}
-              accountId={account?.playerId}
-              isOfficer={isOfficer}
-              onEdit={setEditing}
-              onConfigure={setConfiguring}
-            />
-          </li>
-        ))}
-      </ul>
+      {upcoming.length > 0 && (
+        <div className="active-events-layout">
+          <ActiveEventRail events={upcoming} onOpen={focusEvent} />
+          <section className="active-events-main" aria-labelledby="upcoming-events-title">
+            <h2 id="upcoming-events-title" className="section-label">Upcoming</h2>
+            <ul className="stack event-list">
+              {upcoming.map((event) => (
+                <li key={event.eventId} id={`event-${event.eventId}`}>
+                  <EventCard
+                    event={event}
+                    onAnswered={dataChanged}
+                    accountId={account?.playerId}
+                    isOfficer={isOfficer}
+                    onEdit={setEditing}
+                    onConfigure={setConfiguring}
+                  />
+                </li>
+              ))}
+            </ul>
+          </section>
+        </div>
+      )}
 
       {past.length > 0 && (
         <>
