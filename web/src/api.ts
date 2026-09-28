@@ -423,19 +423,30 @@ export interface PublishedStrategy {
 }
 
 export type EventOutcome = "win" | "loss" | "draw";
+export type ResultRole = "starter" | "substitute";
+export type ResultScorePrecision = { kind: "exact" } | { kind: "rounded"; display: string; roundedTo: number };
+
+export interface AllianceBattleScore {
+  allianceTag: string;
+  allianceName: string;
+  isOurAlliance: boolean;
+  score: number;
+  precision: ResultScorePrecision;
+}
 
 export interface PublishedResult {
   version: number;
   outcome: EventOutcome;
   ourScore: number;
   opponentScore: number;
+  allianceScores?: AllianceBattleScore[];
   ourMatchmakingPower?: number;
   opponentMatchmakingPower?: number;
   opponentCombatants?: number;
   notes?: string;
   recordedAt: string;
   /** Officers receive every known entry; members receive only their own. */
-  playerPoints: { playerId: string; name: string; points: number }[];
+  playerPoints: { playerId: string; name: string; points: number; role?: ResultRole; precision?: ResultScorePrecision }[];
 }
 
 /** A session as the event page shows it: with live counts and where you stand. */
@@ -483,6 +494,7 @@ export interface EventListItem extends AllianceEvent {
       outcome: EventOutcome;
       ourScore: number;
       opponentScore: number;
+      allianceScores?: AllianceBattleScore[];
       participants?: number;
     }[];
     phases: {
@@ -501,6 +513,7 @@ export interface EventListItem extends AllianceEvent {
         key: string;
         label: string;
         points: number;
+        precision?: ResultScorePrecision;
         place: number;
         scoredPlayers: number;
       }[];
@@ -901,13 +914,14 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
       sessionId: string,
       input: {
         outcome: EventOutcome;
-        ourScore: number;
-        opponentScore: number;
+        ourScore?: number;
+        opponentScore?: number;
+        allianceScores?: AllianceBattleScore[];
         ourMatchmakingPower?: number;
         opponentMatchmakingPower?: number;
         opponentCombatants?: number;
         notes?: string;
-        playerPoints: { playerId: string; points: number }[];
+        playerPoints: { playerId: string; points: number; role?: ResultRole; precision?: ResultScorePrecision }[];
         expectedVersion: number;
       },
     ) => request<PublishedResult>("POST", `/events/${eventId}/sessions/${sessionId}/result`, input),

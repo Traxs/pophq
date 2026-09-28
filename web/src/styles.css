@@ -3687,3 +3687,23 @@ button.event-timeline-card:hover { border-color: color-mix(in srgb, var(--accent
 .roster-scope button { display: flex; align-items: center; justify-content: center; gap: 8px; }
 .roster-scope button span { min-width: 24px; padding: 2px 7px; border-radius: 999px; background: var(--surface-2); color: var(--muted); font-size: 0.78em; }
 .roster-scope button.active span { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+
+.alliance-result-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.alliance-result-card { display: grid; gap: 5px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+.alliance-result-card.is-ours { border-color: var(--accent); background: var(--accent-soft); }
+.alliance-result-card.is-winner > b { color: var(--up); }
+.alliance-result-card > small:last-child { color: var(--muted); }
+.alliance-result-note { grid-column: 1 / -1; margin: 0; }
+.pop-player-results { display: grid; gap: 8px; }
+.pop-player-result { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; margin: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+.pop-player-result > span:first-child { display: grid; }
+.pop-player-result small { color: var(--muted); text-transform: capitalize; }
+.event-three-team-score { display: grid; gap: 5px; }
+.event-three-team-score > span { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 6px 8px; border-radius: 8px; background: var(--surface); }
+.event-three-team-score > span.is-ours { color: var(--accent); }
+
+@media (max-width: 640px) {
+  .alliance-result-grid { grid-template-columns: 1fr; }
+  .pop-player-result { grid-template-columns: minmax(0, 1fr) auto; }
+  .pop-player-result > b { grid-column: 1 / -1; }
+}

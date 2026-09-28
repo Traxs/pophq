@@ -20,6 +20,7 @@ import {
 import { navigate } from "../router";
 import { useSession } from "../session";
 import { NoAccount } from "./Home";
+import { allianceScoreText, playerScoreText, rankedAllianceScores } from "../resultDisplay";
 
 /** What officers can schedule. The Bear hunt runs every other day and needs no sign-up. */
 const KINDS: { value: EventKind; label: string }[] = [
@@ -455,7 +456,18 @@ function PastEventSummary({ event }: { event: EventListItem }) {
                   <span>{result.sessionLabel}</span>
                   <strong>{label}</strong>
                 </div>
-                <p className="event-result-score"><strong>{full(result.ourScore)}</strong><span>–</span><strong>{full(result.opponentScore)}</strong></p>
+                {result.allianceScores ? (
+                  <div className="event-three-team-score">
+                    {rankedAllianceScores(result.allianceScores).map((row, index) => (
+                      <span key={row.allianceTag} className={row.isOurAlliance ? "is-ours" : ""}>
+                        <small>{index === 0 ? "Winner" : `#${index + 1}`} · [{row.allianceTag}] {row.allianceName}</small>
+                        <strong>{allianceScoreText(row)}</strong>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="event-result-score"><strong>{full(result.ourScore)}</strong><span>–</span><strong>{full(result.opponentScore)}</strong></p>
+                )}
                 {result.participants !== undefined && <small>{result.participants} scored participants</small>}
               </section>
             );
@@ -512,7 +524,7 @@ function PersonalEventPerformance({
           {performance.scores.map((score) => (
             <span key={score.key}>
               <small>{score.label}</small>
-              <strong>{full(score.points)} pts</strong>
+              <strong>{playerScoreText(score)} pts</strong>
               <b>#{score.place} of {score.scoredPlayers}</b>
             </span>
           ))}

@@ -131,6 +131,21 @@ describe("participationOf", () => {
     expect(missed).toMatchObject({ rate: 0, noShows: 1, sample: 1 });
   });
 
+  it("counts an explicit zero as a no-show while a missing Canyon score stays unknown", () => {
+    const canyon = { ...event(1, 1), kind: "canyon" as const };
+    const zero = participationOf({
+      events: [canyon], answers: [], attendance: [], noShowEvidence: [canyon.eventId], completeEvidence: [], now,
+    });
+    const missing = participationOf({
+      events: [canyon], answers: [], attendance: [], completeEvidence: [], now,
+    });
+    expect(zero).toMatchObject({ rate: 0, noShows: 1, sample: 1 });
+    expect(zero.events[0]?.outcome).toBe("no_show");
+    expect(missing).toMatchObject({ noShows: 0, unregistered: 0, sample: 0 });
+    expect(missing.rate).toBeUndefined();
+    expect(missing.events[0]?.outcome).toBe("not_counted");
+  });
+
   it("leaves excused absences out of the sum", () => {
     const result = participationOf({
       events: [event(1, 1), event(2, 5)],

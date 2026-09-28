@@ -29,6 +29,7 @@ import { assignmentsToPublish, StrategyText, strategyDraftFor, type StrategyDraf
 import { completedAttendanceLabel, completedEventRows, type CompletedAttendance } from "../eventReport";
 import { eventTimeline, type EventTimelinePoint } from "../eventTimeline";
 import { visibleEventSessions } from "../eventSessions";
+import { allianceScoreText, playerScoreText, rankedAllianceScores } from "../resultDisplay";
 
 const ALL_EVENT_HISTORY = "1970-01-01T00:00:00.000Z";
 
@@ -729,12 +730,27 @@ function SessionCard({
 
 function ResultView({ result, hidePlayerPoints = false }: { result: PublishedResult; hidePlayerPoints?: boolean }) {
   const outcome = result.outcome === "win" ? "Victory" : result.outcome === "loss" ? "Defeat" : "Draw";
+  const winner = result.allianceScores ? rankedAllianceScores(result.allianceScores)[0] : undefined;
   return (
     <section className="strategy stack" aria-label="Event result">
       <h3 className="section-label">
         Result · {outcome} <span className="muted small">· recorded {relativeDay(result.recordedAt)}</span>
       </h3>
-      <p className="pill pill-flat">Score: {full(result.ourScore)} – {full(result.opponentScore)}</p>
+      {result.allianceScores ? (
+        <div className="alliance-result-grid" aria-label="Alliance battle totals">
+          {rankedAllianceScores(result.allianceScores).map((row, index) => (
+            <article key={row.allianceTag} className={`alliance-result-card${row.isOurAlliance ? " is-ours" : ""}${index === 0 ? " is-winner" : ""}`}>
+              <span className="muted small">{index === 0 ? "Winner" : `#${index + 1}`}</span>
+              <strong>[{row.allianceTag}] {row.allianceName}</strong>
+              <b title={row.precision.kind === "rounded" ? `Rounded to the nearest ${full(row.precision.roundedTo)} points` : "Exact battle score"}>{allianceScoreText(row)}</b>
+              {row.precision.kind === "rounded" && <small>rounded display</small>}
+            </article>
+          ))}
+          <p className="muted small alliance-result-note">Alliance totals are official battle scores, not a sum of player scores. Winner: [{winner?.allianceTag}] {winner?.allianceName}.</p>
+        </div>
+      ) : (
+        <p className="pill pill-flat">Score: {full(result.ourScore)} – {full(result.opponentScore)}</p>
+      )}
       {(result.ourMatchmakingPower !== undefined || result.opponentMatchmakingPower !== undefined) && (
         <p className="muted small">
           Matchmaking power: {result.ourMatchmakingPower === undefined ? "–" : compact(result.ourMatchmakingPower)} vs{" "}
@@ -746,9 +762,19 @@ function ResultView({ result, hidePlayerPoints = false }: { result: PublishedRes
       {hidePlayerPoints && result.playerPoints.length > 0 && (
         <p className="muted small">{result.playerPoints.length} individual score{result.playerPoints.length === 1 ? "" : "s"} recorded · shown in the attendance report below</p>
       )}
-      {!hidePlayerPoints && result.playerPoints.map((row) => (
-        <p key={row.playerId} className="pill pill-up">{row.name}: {full(row.points)} points</p>
-      ))}
+      {!hidePlayerPoints && result.playerPoints.length > 0 && (
+        <div className="pop-player-results">
+          <h4>POP player results</h4>
+          {result.playerPoints.toSorted((a, b) => b.points - a.points).map((row) => (
+            <p key={row.playerId} className="pop-player-result">
+              <span><strong>{row.name}</strong>{row.role ? <small>{row.role === "starter" ? "Starter" : "Substitute"}</small> : null}</span>
+              <span className={`pill ${row.points > 0 ? "pill-up" : "pill-down"}`}>{row.points > 0 ? "Attended" : "Registered no-show"}</span>
+              <b title={row.precision?.kind === "rounded" ? `Rounded to the nearest ${full(row.precision.roundedTo)} points` : "Exact player score"}>{playerScoreText(row)} pts</b>
+            </p>
+          ))}
+          <p className="muted small">Players without a score remain unknown. Opponent player data is not available.</p>
+        </div>
+      )}
     </section>
   );
 }
@@ -805,7 +831,11 @@ function ResultEditor({
             ...(opponentPower === "" ? {} : { opponentMatchmakingPower: Number(opponentPower) }),
             ...(opponents === "" ? {} : { opponentCombatants: Number(opponents) }),
             ...(notes.trim() ? { notes: notes.trim() } : {}),
-            playerPoints: Object.entries(points).filter(([, value]) => value !== "").map(([playerId, value]) => ({ playerId, points: Number(value) })),
+            playerPoints: Object.entries(points).filter(([, value]) => value !== "").map(([playerId, value]) => {
+              const role = current?.playerPoints.find((row) => row.playerId === playerId)?.role;
+              const precision = current?.playerPoints.find((row) => row.playerId === playerId)?.precision;
+              return { playerId, points: Number(value), ...(role ? { role } : {}), ...(precision ? { precision } : {}) };
+            }),
             expectedVersion: current?.version ?? 0,
           }).then(() => setOpen(false)).finally(() => setSaving(false));
         }}>{saving ? "Saving…" : "Save result"}</button>
@@ -1281,7 +1311,7 @@ function CompletedEventReport({ event, members }: { event: EventDetail; members:
                 ) : (
                   <td className="num completed-score-cell completed-score-data" data-label="Player score">
                     {row.sessionScores.length === 0 ? "–" : row.sessionScores.map((score) => (
-                      <span key={score.sessionId}><small>{score.label}</small><strong>{full(score.points)}</strong></span>
+                      <span key={score.sessionId}><small>{score.label}</small><strong>{playerScoreText(score)}</strong></span>
                     ))}
                   </td>
                 )}

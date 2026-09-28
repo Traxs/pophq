@@ -1,4 +1,4 @@
-import type { AttendanceStatus, EventDetail, EventMember } from "./api";
+import type { AttendanceStatus, EventDetail, EventMember, ResultScorePrecision } from "./api";
 
 export type CompletedAttendance = "present" | "absent" | "excused" | "unrecorded";
 
@@ -8,7 +8,7 @@ export interface CompletedEventRow {
   attendanceEvidence: "score" | "record" | null;
   answerLabel: string;
   lineupLabel: string | null;
-  sessionScores: { sessionId: string; label: string; points: number }[];
+  sessionScores: { sessionId: string; label: string; points: number; precision?: ResultScorePrecision }[];
   preparationPoints: number | null;
   castleBattlePoints: number | null;
   hasEventRecord: boolean;
@@ -24,7 +24,7 @@ export function completedEventRows(event: EventDetail): CompletedEventRow[] {
   for (const session of event.sessions) {
     for (const score of session.result?.playerPoints ?? []) {
       const rows = resultScores.get(score.playerId) ?? [];
-      rows.push({ sessionId: session.id, label: session.label, points: score.points });
+      rows.push({ sessionId: session.id, label: session.label, points: score.points, ...(score.precision ? { precision: score.precision } : {}) });
       resultScores.set(score.playerId, rows);
     }
   }

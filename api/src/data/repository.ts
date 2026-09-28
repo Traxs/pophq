@@ -2442,6 +2442,7 @@ function toResult(item: Record<string, unknown>): EventResult {
     outcome: item.outcome as EventResult["outcome"],
     ourScore: Number(item.ourScore),
     opponentScore: Number(item.opponentScore),
+    ...(Array.isArray(item.allianceScores) ? { allianceScores: item.allianceScores as NonNullable<EventResult["allianceScores"]> } : {}),
     playerPoints: Array.isArray(item.playerPoints) ? (item.playerPoints as EventResult["playerPoints"]) : [],
     recordedAt: String(item.recordedAt),
     recordedBy: String(item.recordedBy),

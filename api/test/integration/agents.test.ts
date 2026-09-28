@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { parseNewAccount } from "../../src/domain/accounts.js";
 import { parseNewEvent } from "../../src/domain/events.js";
+import type { EventResult } from "../../src/domain/results.js";
 import type { Group } from "../../src/domain/principal.js";
 import { createHarness, type Harness } from "./harness.js";
 
@@ -20,12 +21,22 @@ describe("bot result agent", () => {
     await h.repo.linkAccount("officer", "700000001", actor);
     await h.repo.createAccount(parseNewAccount({ playerId: "700000002", name: "Lieutenant", rank: "R3" }), actor);
     await h.repo.linkAccount("r3-issuer", "700000002", actor);
+    await h.repo.createAccount(parseNewAccount({ playerId: "700000003", name: "Unknown score", rank: "R3" }), actor);
     const startsAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     const event = parseNewEvent(
       { kind: "foundry", title: "Hermes result", startsAt, sessions: [{ id: "L1", label: "Legion 1", startsAt }] },
       { eventId: "AGENT-RESULT", createdBy: "fixture", now: new Date(Date.now() - 2 * 60 * 60 * 1000) },
     );
     await h.repo.createEvent(event, actor);
+    await h.repo.createEvent(parseNewEvent(
+      {
+        kind: "canyon",
+        title: "Canyon Clash — 5 September",
+        startsAt: "2026-09-05T19:00:00.000Z",
+        sessions: [{ id: "L2", label: "Legion 2", startsAt: "2026-09-05T19:00:00.000Z" }],
+      },
+      { eventId: "HISTORY-CANYON-2026-09-05-L2", createdBy: "fixture", now: new Date("2026-09-05T18:00:00.000Z") },
+    ), actor);
     eventId = event.eventId;
     const issued = await h.call("POST", "/agent-tokens", {
       ...OFFICER,
@@ -174,13 +185,20 @@ describe("bot result agent", () => {
       expectedVersion: 0,
     };
     const preview = await h.call("PUT", `/agent/events/${eventId}/sessions/L1/result`, agent(body));
-    expect(preview.body).toMatchObject({ dryRun: true, diff: { before: null, after: { version: 1, outcome: "win" } } });
+    expect(preview.body).toMatchObject({ dryRun: true, expectedHash: expect.any(String), diff: { before: null, after: { version: 1, outcome: "win" } } });
     expect(await h.repo.getResult(eventId, "L1")).toBeUndefined();
 
     const noReason = await h.call("PUT", `/agent/events/${eventId}/sessions/L1/result?apply=true`, agent(body, { "idempotency-key": "result-001" }));
     expect(noReason.status).toBe(400);
 
-    const appliedBody = { ...body, reason: "Imported reviewed Foundry scoreboard" };
+    const unreviewed = await h.call(
+      "PUT",
+      `/agent/events/${eventId}/sessions/L1/result?apply=true`,
+      agent({ ...body, approved: true, expectedHash: "wrong-preview-hash", reason: "Reviewed result" }, { "idempotency-key": "result-wrong-hash" }),
+    );
+    expect(unreviewed.status).toBe(409);
+
+    const appliedBody = { ...body, approved: true, expectedHash: preview.body.expectedHash, reason: "Imported reviewed Foundry scoreboard" };
     const first = await h.call(
       "PUT",
       `/agent/events/${eventId}/sessions/L1/result?apply=true`,
@@ -280,6 +298,74 @@ describe("bot result agent", () => {
     expect(preview.status).toBe(200);
     expect(preview.body).toMatchObject({ dryRun: true, diff: { after: { playerPoints: [] } } });
     expect(await h.repo.getResult(eventId, "L1")).toMatchObject({ version: 1, outcome: "win" });
+  });
+
+  it("previews, applies and exactly reads back a three-alliance Canyon result", async () => {
+    const path = "/agent/events/HISTORY-CANYON-2026-09-05-L2/sessions/L2/result";
+    const body = {
+      outcome: "win",
+      allianceScores: [
+        { allianceTag: "POP", allianceName: "POP", isOurAlliance: true, score: 550_591, precision: { kind: "exact" } },
+        { allianceTag: "BOS", allianceName: "S", isOurAlliance: false, score: 487_805, precision: { kind: "exact" } },
+        { allianceTag: "SOA", allianceName: "SonsOfAnarchy", isOurAlliance: false, score: 486_816, precision: { kind: "exact" } },
+      ],
+      playerPoints: [
+        { playerId: "700000001", points: 515_000, role: "starter", precision: { kind: "rounded", display: "515.0K", roundedTo: 100 } },
+        { playerId: "700000002", points: 0, role: "substitute" },
+      ],
+      expectedVersion: 0,
+    };
+    const preview = await h.call("PUT", path, agent(body));
+    expect(preview.status).toBe(200);
+    expect(preview.body).toMatchObject({
+      dryRun: true,
+      expectedHash: expect.any(String),
+      diff: { after: { ourScore: 550_591, opponentScore: 487_805, allianceScores: body.allianceScores, playerPoints: body.playerPoints } },
+    });
+    const appliedBody = {
+      ...body,
+      approved: true,
+      expectedHash: preview.body.expectedHash,
+      reason: "Reviewed three-alliance Canyon screenshot",
+    };
+    const applied = await h.call("PUT", `${path}?apply=true`, agent(appliedBody, { "idempotency-key": "canyon-v1" }));
+    expect(applied.status).toBe(201);
+    const appliedResult = applied.body.result as EventResult;
+    expect(appliedResult).toEqual(await h.repo.getResult("HISTORY-CANYON-2026-09-05-L2", "L2"));
+    expect(appliedResult.playerPoints).toEqual(body.playerPoints);
+    expect(appliedResult.playerPoints).not.toContainEqual(expect.objectContaining({ playerId: "700000003" }));
+    const detail = await h.call("GET", "/events/HISTORY-CANYON-2026-09-05-L2", agent());
+    const detailBody = detail.body as { sessions: { result: EventResult }[]; members: unknown[] };
+    expect(detailBody.sessions[0]?.result).toMatchObject({ allianceScores: body.allianceScores });
+    expect(detailBody.sessions[0]?.result.playerPoints).toHaveLength(2);
+    expect(detailBody.members).toEqual(expect.arrayContaining([
+      expect.objectContaining({ playerId: "700000001", attended: "present", attendedByScore: true }),
+      expect.objectContaining({ playerId: "700000002", attended: "absent", attendedByScore: false }),
+      expect.objectContaining({ playerId: "700000003", attended: null, attendedByScore: false }),
+    ]));
+    expect(JSON.stringify(detail.body)).not.toContain("opponentPlayer");
+
+    const history = await h.call("GET", "/events?from=2026-09-01T00:00:00.000Z", agent());
+    const canyon = (history.body.items as { eventId: string; history?: { results: EventResult[] } }[])
+      .find((item) => item.eventId === "HISTORY-CANYON-2026-09-05-L2");
+    expect(canyon?.history?.results[0]?.allianceScores).toEqual(body.allianceScores);
+
+    const replay = await h.call("PUT", `${path}?apply=true`, agent(appliedBody, { "idempotency-key": "canyon-v1" }));
+    expect(replay.status).toBe(200);
+    expect(replay.body).toMatchObject({ replayed: true, result: { version: 1 } });
+
+    const roundedPreview = await h.call("PUT", path, agent({
+      ...body,
+      allianceScores: body.allianceScores.map((row) => row.allianceTag === "POP"
+        ? { ...row, score: 515_000, precision: { kind: "rounded", display: "515.0K", roundedTo: 100 } }
+        : row),
+      outcome: "win",
+      expectedVersion: 1,
+    }));
+    expect(roundedPreview.status).toBe(200);
+    const roundedAfter = (roundedPreview.body.diff as { after: EventResult }).after;
+    expect(roundedAfter.allianceScores?.[0]).toMatchObject({ score: 515_000, precision: { kind: "rounded", display: "515.0K", roundedTo: 100 } });
+    expect((await h.repo.getResult("HISTORY-CANYON-2026-09-05-L2", "L2"))?.allianceScores?.[0]).toMatchObject({ score: 550_591, precision: { kind: "exact" } });
   });
 
   it("previews, applies and reads the complete guarded historical surface", async () => {

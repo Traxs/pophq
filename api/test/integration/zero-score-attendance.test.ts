@@ -87,7 +87,7 @@ describe("zero-point attendance evidence", () => {
 
   afterAll(() => h.cleanup());
 
-  it("does not turn trusted zero rows into attendance", async () => {
+  it("treats explicit zero result rows as registered no-shows, never attendance", async () => {
     const response = await h.call("GET", "/reward-eligibility", R4);
     expect(response.status).toBe(200);
     const kilwa = (response.body.items as Record<string, unknown>[])
@@ -95,10 +95,10 @@ describe("zero-point attendance evidence", () => {
 
     expect(kilwa).toMatchObject({
       participationRate: 0,
-      participationSample: 2,
+      participationSample: 3,
       participationAttended: 0,
-      participationNoShows: 1,
-      participationUnregistered: 1,
+      participationNoShows: 3,
+      participationUnregistered: 0,
     });
   });
 });

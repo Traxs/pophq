@@ -39,7 +39,7 @@ import {
   buffScore,
 } from "../domain/svs.js";
 import { parseStrategy } from "../domain/strategy.js";
-import { parseEventResult } from "../domain/results.js";
+import { parseEventResult, type EventResult } from "../domain/results.js";
 import { parsePhaseScoreUpsert, parseSelfScore, phaseScoreCounts, phasesForEvent, scorePhaseFor, scoreSubtotal, upsertPhaseScores } from "../domain/eventScores.js";
 import { canonicalJson, issueAgentToken } from "../domain/agentTokens.js";
 import { HISTORICAL_CATEGORIES, parseHistoricalRecord, type HistoricalCategory } from "../domain/historicalRecords.js";
@@ -80,7 +80,7 @@ const PAST_EVENTS_MS = 7 * 24 * 60 * 60 * 1000;
 function personalEventScore(
   key: string,
   label: string,
-  rows: readonly { playerId: string; points: number }[],
+  rows: readonly { playerId: string; points: number; precision?: EventResult["playerPoints"][number]["precision"] }[],
   playerId: string,
 ) {
   const ordered = [...rows].toSorted((a, b) => b.points - a.points || a.playerId.localeCompare(b.playerId));
@@ -90,6 +90,7 @@ function personalEventScore(
     key,
     label,
     points: mine.points,
+    ...(mine.precision ? { precision: mine.precision } : {}),
     // Equal scores share a place; the next distinct score keeps competition ranking.
     place: ordered.findIndex((row) => row.points === mine.points) + 1,
     scoredPlayers: ordered.length,
@@ -197,10 +198,27 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     return undefined;
   };
 
+  const withKnownResultRoles = async (result: EventResult): Promise<EventResult> => {
+    const lineup = await repo.getLineup(result.eventId, result.sessionId);
+    if (!lineup) return result;
+    const roleByPlayer = new Map(lineup.entries.map((entry) => [
+      entry.playerId,
+      entry.role === "sub" ? "substitute" as const : "starter" as const,
+    ] as const));
+    return {
+      ...result,
+      playerPoints: result.playerPoints.map((row) => row.role || !roleByPlayer.has(row.playerId)
+        ? row
+        : { ...row, role: roleByPlayer.get(row.playerId)! }),
+    };
+  };
+
   /** Positive points prove presence; listed rows in an approved officer-bot result are trusted too. */
   const resultEvidence = async (events: readonly AllianceEvent[]) => {
     const byEvent = new Map<string, Set<string>>();
     const byPlayer = new Map<string, Set<string>>();
+    const noShowByEvent = new Map<string, Set<string>>();
+    const noShowByPlayer = new Map<string, Set<string>>();
     const sessionByEventPlayer = new Map<string, string>();
     const completeEvents = new Set<string>();
     await Promise.all(events.map(async (event) => {
@@ -216,10 +234,18 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           .filter((row) => scoreConfirmsAttendance(row, result?.recordedBy ?? ""))
           .map((row) => row.playerId)),
       ]);
-      // Foundry and Canyon results are complete attendance sources: officers can see every
-      // participant in game. State-wide SVS/KOI leaderboards are only complete when every
-      // configured phase was explicitly imported with complete coverage.
-      if ((event.kind === "foundry" || event.kind === "canyon") && sessionResults.length > 0) {
+      const noShows = new Set([
+        ...sessionResults.flatMap((result) => result.playerPoints
+          .filter((row) => row.points === 0)
+          .map((row) => row.playerId)),
+        ...phaseResults.flatMap((result) => (result?.playerPoints ?? [])
+          .filter((row) => row.points === 0)
+          .map((row) => row.playerId)),
+      ]);
+      // Foundry results are complete attendance sources. Canyon stores only explicit POP rows,
+      // so missing players remain unknown. State-wide SVS/KOI leaderboards are complete only
+      // when every configured phase was explicitly imported with complete coverage.
+      if (event.kind === "foundry" && sessionResults.length > 0) {
         completeEvents.add(event.eventId);
       } else if (
         phaseResults.length > 0
@@ -233,13 +259,19 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         }
       }
       byEvent.set(event.eventId, players);
+      noShowByEvent.set(event.eventId, noShows);
       for (const playerId of players) {
         const eventIds = byPlayer.get(playerId) ?? new Set<string>();
         eventIds.add(event.eventId);
         byPlayer.set(playerId, eventIds);
       }
+      for (const playerId of noShows) {
+        const eventIds = noShowByPlayer.get(playerId) ?? new Set<string>();
+        eventIds.add(event.eventId);
+        noShowByPlayer.set(playerId, eventIds);
+      }
     }));
-    return { byEvent, byPlayer, sessionByEventPlayer, completeEvents };
+    return { byEvent, byPlayer, noShowByEvent, noShowByPlayer, sessionByEventPlayer, completeEvents };
   };
 
   /**
@@ -279,14 +311,17 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
             playerId: account.playerId,
             sessionId: scores.sessionByEventPlayer.get(`${eventId}#${account.playerId}`),
           }))).at(0);
+        const zeroScore = [...relatedIds].flatMap((eventId) => accounts
+          .filter((account) => scores.noShowByEvent.get(eventId)?.has(account.playerId))
+          .map((account) => ({ eventId, playerId: account.playerId }))).at(0);
         const selected = answers.find((answer) => relatedIds.has(answer.eventId) && answer.answer === "yes");
         const answered = answers.find((answer) => relatedIds.has(answer.eventId));
         const recorded = attendance.find((record) => relatedIds.has(record.eventId));
-        const evidence = present ?? scored ?? selected ?? answered ?? recorded;
+        const evidence = present ?? scored ?? zeroScore ?? selected ?? answered ?? recorded;
         if (!evidence) return item;
         const playerId = evidence.playerId;
         const evidenceEvent = eventById.get("eventId" in evidence ? evidence.eventId : item.eventId) ?? representative;
-        const explicitSessionId = "sessionId" in evidence ? evidence.sessionId : undefined;
+        const explicitSessionId = "sessionId" in evidence && typeof evidence.sessionId === "string" ? evidence.sessionId : undefined;
         const inferredSession = evidenceEvent.kind === "foundry"
           ? evidenceEvent.title.match(/Legion\s+\d+/i)?.[0]
           : undefined;
@@ -360,6 +395,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           answers: personAnswers(rawAnswers),
           attendance: personAttendance(rawAttendance),
           scoreEvidence: [...new Set(personAccounts.flatMap((item) => [...(scores.byPlayer.get(item.playerId) ?? [])]))],
+          noShowEvidence: [...new Set(personAccounts.flatMap((item) => [...(scores.noShowByPlayer.get(item.playerId) ?? [])]))],
           completeEvidence: [...scores.completeEvents],
           now: at,
           membershipPeriods: periods,
@@ -1161,41 +1197,53 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     if (Date.parse(session.startsAt) > now().getTime()) throw new ValidationError("Record the result after this event part starts.");
     const body = (await readJson(c.req.raw)) as Record<string, unknown>;
     const apply = c.req.query("apply") === "true";
-    const reason = typeof body.reason === "string" ? body.reason.trim() : "";
     const key = c.req.header("idempotency-key") ?? "";
-    const bodyHash = createHash("sha256").update(canonicalJson(body)).digest("hex");
+    const write = agentWriteRequest(body, apply, key, "an agent result");
     if (apply) {
-      if (!reason) throw new ValidationError("Applying an agent result requires a reason.");
-      if (!/^[A-Za-z0-9._:-]{8,100}$/.test(key)) throw new ValidationError("Applying requires an Idempotency-Key of 8–100 safe characters.");
+      if (body.approved !== true) throw new ValidationError("Applying an agent result requires explicit approval of the preview.");
       // Replay before version validation: the original request legitimately carries the old
       // expectedVersion after its first successful application.
       const previous = await repo.getIdempotentResult(token.tokenId, key);
       if (previous) {
-        if (previous.bodyHash !== bodyHash) throw new ConflictError("That Idempotency-Key was already used for different data.");
+        if (previous.bodyHash !== write.bodyHash) throw new ConflictError("That Idempotency-Key was already used for different data.");
         return c.json({ dryRun: false, replayed: true, result: previous.result });
       }
     }
     const current = await repo.getResult(event.eventId, session.id);
-    const result = parseEventResult(body, session, {
+    if (typeof body.expectedVersion === "number" && body.expectedVersion !== (current?.version ?? 0)) {
+      throw new ConflictError("The event result changed. Fetch context and preview again before applying.");
+    }
+    const result = await withKnownResultRoles(parseEventResult(body, session, {
       eventId: event.eventId,
+      eventKind: event.kind,
       recordedBy: `agent:${token.tokenId}`,
       now: now(),
       currentVersion: current?.version ?? 0,
-    });
+    }));
     const known = new Set((await repo.listAccounts(event.alliance)).map((account) => account.playerId));
     const strangers = result.playerPoints.filter((row) => !known.has(row.playerId)).map((row) => row.playerId);
     if (strangers.length > 0) throw new ValidationError(`Not members of ${event.alliance}: ${strangers.join(", ")}.`);
 
-    if (!apply) return c.json({ dryRun: true, diff: { before: current ?? null, after: result } });
+    const diff = { before: current ?? null, after: result };
+    // recordedAt is generated by the server and can cross a clock tick between preview and
+    // apply. Bind approval to the complete semantic result and current state, not wall time.
+    const semanticResult = Object.fromEntries(Object.entries(result).filter(([field]) => field !== "recordedAt"));
+    const expectedHash = stateHash({ before: current ?? null, after: semanticResult });
+    if (!apply) return c.json({ dryRun: true, expectedHash, diff });
+    if (write.expectedHash !== expectedHash) throw new ConflictError("The event result changed after preview. Preview again before applying.");
     await repo.putResultIdempotent(
       result,
-      { id: token.tokenId, via: `agent:${token.tokenId}`, reason },
+      { id: token.tokenId, via: `agent:${token.tokenId}`, reason: write.reason },
       token.tokenId,
       key,
-      bodyHash,
+      write.bodyHash,
     );
+    const readback = await repo.getResult(event.eventId, session.id);
+    if (!readback || canonicalJson(readback) !== canonicalJson(result)) {
+      throw new ConflictError("Result was saved but exact readback did not match. Stop and inspect before retrying.");
+    }
     c.header("x-change-id", key);
-    return c.json({ dryRun: false, replayed: false, result }, 201);
+    return c.json({ dryRun: false, replayed: false, result: readback }, 201);
   });
 
   app.get("/agent/events/:id/phases/:phase/score-context", async (c) => {
@@ -1530,6 +1578,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       const answers = personAnswers(rawAnswers);
       const attendance = personAttendance(rawAttendance);
       const scoreEvidence = new Set(personAccounts.flatMap((account) => [...(scores.byPlayer.get(account.playerId) ?? [])]));
+      const noShowEvidence = new Set(personAccounts.flatMap((account) => [...(scores.noShowByPlayer.get(account.playerId) ?? [])]));
       const knownSince = personAccounts.map((account) => account.createdAt).filter((value): value is string => Boolean(value)).toSorted()[0];
       const periods = await membershipPeriodsFor(personAccounts);
       const eventStarts = new Map(pastEvents.map((event) => [event.eventId, event.startsAt]));
@@ -1542,6 +1591,8 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         answers,
         attendance: eligibleAttendance,
         scoreEvidence: [...scoreEvidence],
+        noShowEvidence: [...noShowEvidence],
+        completeEvidence: [...scores.completeEvents],
         now: at,
         ...(knownSince ? { knownSince } : {}),
         membershipPeriods: periods,
@@ -2034,6 +2085,8 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         answers: personAnswers((await Promise.all(playerIds.map((playerId) => repo.answersForAccount(playerId, from)))).flat()),
         attendance: personAttendance((await Promise.all(playerIds.map((playerId) => repo.attendanceFor(playerId)))).flat()),
         scoreEvidence: [...new Set(playerIds.flatMap((playerId) => [...(scores.byPlayer.get(playerId) ?? [])]))],
+        noShowEvidence: [...new Set(playerIds.flatMap((playerId) => [...(scores.noShowByPlayer.get(playerId) ?? [])]))],
+        completeEvidence: [...scores.completeEvents],
         now: at,
         ...(account?.createdAt ? { knownSince: account.createdAt } : {}),
         membershipPeriods: periods,
@@ -2569,12 +2622,19 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
             )) || phaseRecords.some(({ record }) => record?.playerPoints.some(
               (row) => row.playerId === acting && scoreConfirmsAttendance(row, record.recordedBy),
             )) === true : false;
+            const zeroScoreProvesNoShow = acting ? results.some((result) => result.playerPoints.some(
+              (row) => row.playerId === acting && row.points === 0,
+            )) || phaseRecords.some(({ record }) => record?.playerPoints.some(
+              (row) => row.playerId === acting && row.points === 0,
+            )) === true : false;
             const personalAttendance = scoreProvesAttendance
               ? "attended" as const
               : recordedAttendance === "present"
                 ? "attended" as const
                 : recordedAttendance === "absent"
                   ? "did_not_attend" as const
+                  : zeroScoreProvesNoShow
+                    ? "did_not_attend" as const
                   : recordedAttendance === "excused"
                     ? "excused" as const
                     : "not_reviewed" as const;
@@ -2585,6 +2645,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
                 outcome: result.outcome,
                 ourScore: result.ourScore,
                 opponentScore: result.opponentScore,
+                ...(result.allianceScores ? { allianceScores: result.allianceScores } : {}),
                 ...(officer ? { participants: result.playerPoints.filter((row) => scoreConfirmsAttendance(row, result.recordedBy)).length } : {}),
               })),
               phases,
@@ -2639,6 +2700,14 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         .filter((row) => scoreConfirmsAttendance(row, result?.recordedBy ?? ""))
         .map((row) => row.playerId)),
     ]);
+    const zeroScorePlayers = new Set([
+      ...[...results.values()].flatMap((result) => result.playerPoints
+        .filter((row) => row.points === 0)
+        .map((row) => row.playerId)),
+      ...[...phaseScores.values()].flatMap((result) => (result?.playerPoints ?? [])
+        .filter((row) => row.points === 0)
+        .map((row) => row.playerId)),
+    ]);
     // People in a published lineup need their strength shown too, even if an officer put someone
     // there who never answered.
     const needStrength = [
@@ -2670,6 +2739,8 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
                 answers: await repo.answersForAccount(a.playerId, participationFrom),
                 attendance: await repo.attendanceFor(a.playerId),
                 scoreEvidence: [...(pastScores.byPlayer.get(a.playerId) ?? [])],
+                noShowEvidence: [...(pastScores.noShowByPlayer.get(a.playerId) ?? [])],
+                completeEvidence: [...pastScores.completeEvents],
                 now: now(),
                 ...(knownSince.get(a.playerId) ? { knownSince: knownSince.get(a.playerId)! } : {}),
                 membershipPeriods: membershipByPlayer.get(a.playerId) ?? [],
@@ -2740,6 +2811,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
             outcome: recordedResult.outcome,
             ourScore: recordedResult.ourScore,
             opponentScore: recordedResult.opponentScore,
+            ...(recordedResult.allianceScores ? { allianceScores: recordedResult.allianceScores } : {}),
             ...(recordedResult.ourMatchmakingPower !== undefined ? { ourMatchmakingPower: recordedResult.ourMatchmakingPower } : {}),
             ...(recordedResult.opponentMatchmakingPower !== undefined
               ? { opponentMatchmakingPower: recordedResult.opponentMatchmakingPower }
@@ -2841,7 +2913,11 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           answer: byPlayer.get(account.playerId)?.answer ?? null,
           sessionId: byPlayer.get(account.playerId)?.sessionId ?? null,
           answeredAt: byPlayer.get(account.playerId)?.answeredAt ?? null,
-          attended: scoredPlayers.has(account.playerId) ? "present" : (attendance.get(account.playerId)?.status ?? null),
+          attended: scoredPlayers.has(account.playerId)
+            ? "present"
+            : zeroScorePlayers.has(account.playerId)
+              ? "absent"
+              : (attendance.get(account.playerId)?.status ?? null),
           attendedByScore: scoredPlayers.has(account.playerId),
           lineup: placeOf.get(account.playerId) ?? null,
           strengthTrend: monthlyValues(seriesOf(own, "foundry_strength"), now()),
@@ -2975,12 +3051,13 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     if (Date.parse(session.startsAt) > now().getTime()) throw new ValidationError("Record the result after this event part starts.");
 
     const current = await repo.getResult(event.eventId, session.id);
-    const result = parseEventResult(await readJson(c.req.raw), session, {
+    const result = await withKnownResultRoles(parseEventResult(await readJson(c.req.raw), session, {
       eventId: event.eventId,
+      eventKind: event.kind,
       recordedBy: p.sub,
       now: now(),
       currentVersion: current?.version ?? 0,
-    });
+    }));
     const known = new Set((await repo.listAccounts(event.alliance)).map((account) => account.playerId));
     const strangers = result.playerPoints.filter((row) => !known.has(row.playerId)).map((row) => row.playerId);
     if (strangers.length > 0) throw new ValidationError(`Not members of ${event.alliance}: ${strangers.join(", ")}.`);

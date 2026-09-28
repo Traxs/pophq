@@ -84,6 +84,8 @@ export interface ParticipationInput {
   attendance: readonly AttendanceRecord[];
   /** Event ids where a positive, confirmed player score proves this account took part. */
   scoreEvidence?: readonly string[];
+  /** Event ids where an explicit zero score proves this account registered but did not turn up. */
+  noShowEvidence?: readonly string[];
   /** Event ids whose review is complete, so missing evidence really means no participation. */
   completeEvidence?: readonly string[];
   now: Date;
@@ -131,15 +133,17 @@ function classifyOccurrence(
   answerFor: ReadonlyMap<string, EventAnswer>,
   attendanceFor: ReadonlyMap<string, AttendanceRecord>,
   scoreEvidence: ReadonlySet<string>,
+  noShowEvidence: ReadonlySet<string>,
   completeEvidence: ReadonlySet<string> | undefined,
 ): ParticipationEvent {
   const newest = occurrence.events.toSorted((a, b) => b.startsAt.localeCompare(a.startsAt));
   const present = newest.find((event) => attendanceFor.get(event.eventId)?.status === "present");
   const scored = newest.find((event) => scoreEvidence.has(event.eventId));
+  const zeroScore = newest.find((event) => noShowEvidence.has(event.eventId));
   const selected = newest.find((event) => answerFor.get(event.eventId)?.answer === "yes");
   const answered = newest.find((event) => answerFor.has(event.eventId));
   const recorded = newest.find((event) => attendanceFor.has(event.eventId));
-  const representative = present ?? scored ?? selected ?? answered ?? recorded ?? newest[0]!;
+  const representative = present ?? scored ?? zeroScore ?? selected ?? answered ?? recorded ?? newest[0]!;
   // Undefined preserves the domain's original assumption for callers that do not model
   // completeness. An explicit set lets imported, partial leaderboards stay unknown rather
   // than silently turning every unlisted alliance member into an absence.
@@ -149,6 +153,8 @@ function classifyOccurrence(
   let outcome: Outcome;
   if (present || scored) {
     outcome = "attended";
+  } else if (zeroScore) {
+    outcome = "no_show";
   } else if (selected) {
     const attendance = attendanceFor.get(selected.eventId);
     outcome = attendance
@@ -183,6 +189,7 @@ export function participationOf({
   answers,
   attendance,
   scoreEvidence = [],
+  noShowEvidence = [],
   completeEvidence,
   now,
   window = 10,
@@ -192,6 +199,7 @@ export function participationOf({
   const answerFor = new Map(answers.map((a) => [a.eventId, a]));
   const attendanceFor = new Map(attendance.map((a) => [a.eventId, a]));
   const scoredAt = new Set(scoreEvidence);
+  const noShowAt = new Set(noShowEvidence);
   const completeAt = completeEvidence === undefined ? undefined : new Set(completeEvidence);
 
   const considered = occurrences(events.filter((event) =>
@@ -205,13 +213,14 @@ export function participationOf({
             Date.parse(event.startsAt) >= Date.parse(knownSince) ||
             answerFor.has(event.eventId) ||
             attendanceFor.has(event.eventId) ||
-            scoredAt.has(event.eventId),
+            scoredAt.has(event.eventId) ||
+            noShowAt.has(event.eventId),
         ),
     )
     .toSorted((a, b) => b.startsAt.localeCompare(a.startsAt))
     .slice(0, window);
 
-  const outcomes = considered.map((occurrence) => classifyOccurrence(occurrence, answerFor, attendanceFor, scoredAt, completeAt));
+  const outcomes = considered.map((occurrence) => classifyOccurrence(occurrence, answerFor, attendanceFor, scoredAt, noShowAt, completeAt));
 
   const count = (outcome: Outcome) => outcomes.filter((o) => o.outcome === outcome).length;
   const weight = outcomes.reduce((sum, o) => sum + OUTCOME_WEIGHT[o.outcome], 0);

@@ -21,10 +21,10 @@ The token may call normal `GET /v1/...` routes with exactly the issuer's current
 1. Run `list-events --kind foundry` to discover event and session IDs. Match the requested date, time and session label exactly; ask the officer if more than one item could match.
 2. Fetch `result-context` for that exact event and session. `lineup` is the officer-confirmed participant list when one was published; `players` is the permitted exact Player ID/name registry for legacy events without a lineup. Use only returned Player IDs, and only attach points when the scoreboard name matches exactly. Names must never be fuzzy-matched.
 3. Preserve missing facts as omitted fields. Never turn an unreadable or absent value into zero.
-   Every player row deliberately included in an approved R4/R5 bot result is trusted as
-   attendance evidence, including an explicit zero. Never manufacture a zero for a missing or
-   unreadable score. For historical backfills, preview a matching `present` attendance record
-   for every visibly listed participant; a missing row never proves presence or absence.
+   A positive POP player score proves attendance. An explicit zero proves a registered no-show,
+   including for a substitute. A missing or unreadable score stays unknown. Never manufacture a
+   zero or add opponent player rows. Preserve displayed approximations such as `515.0K` with the
+   documented `precision` object on that player row; never silently expand one into exact points.
 4. Write a JSON payload with the current result's `version` as `expectedVersion`, or `0` when no result exists.
 5. Preview first. Present the returned before/after diff to the officer.
 6. Apply only after the officer explicitly approves that exact diff. Supply a meaningful reason and a stable idempotency key. Retrying the exact approved request with the same key is safe; never reuse the key for changed data.
@@ -32,11 +32,11 @@ The token may call normal `GET /v1/...` routes with exactly the issuer's current
 
 ### Attendance coverage by event
 
-- **Foundry and Canyon:** an R4/R5 can inspect the complete participant list. After reconciling
-  every visible participant to an exact POP HQ Player ID, import a complete attendance review:
-  listed participants are `present`; known alliance accounts not in that complete list may be
-  `absent`. If any visible participant is unresolved, keep the review partial and do not infer
-  absences yet.
+- **Foundry:** an R4/R5 can inspect the complete participant list, so a reviewed result can close
+  attendance coverage for that event.
+- **Canyon:** import only POP player rows actually shown. Positive points mean attended and an
+  explicit zero means registered no-show; an omitted POP member remains unknown. Opponent
+  rosters and attendance are unavailable and must never be invented.
 - **SvS, King of Icefield and FDT:** the statewide ranking exposes only the Top 100 across all
   alliances. Every exact POP player row found there is trusted as `present`, including an explicit
   zero in an approved result, but omission proves nothing. Never mark an unlisted POP member
@@ -51,7 +51,7 @@ python3 scripts/s26.py get /roster
 python3 scripts/s26.py list-events --kind foundry
 python3 scripts/s26.py result-context EVENT_ID SESSION_ID
 python3 scripts/s26.py put-result EVENT_ID SESSION_ID result.json
-python3 scripts/s26.py put-result EVENT_ID SESSION_ID result.json --apply --reason "Reviewed scoreboard" --idempotency-key EVENT_ID-SESSION_ID-v1
+python3 scripts/s26.py put-result EVENT_ID SESSION_ID result.json --apply --expected-hash HASH_FROM_PREVIEW --reason "Reviewed scoreboard" --idempotency-key EVENT_ID-SESSION_ID-v1
 ```
 
 The API defaults guarded writes to dry-run even if the CLI is used incorrectly. `--apply` is intentionally separate from preview. Normal web write routes and every undocumented write family remain forbidden.
