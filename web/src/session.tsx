@@ -138,6 +138,7 @@ export function SessionProvider({
       updateAccount: guard(inner.updateAccount),
       accountIdentity: guard(inner.accountIdentity),
       setPersonMembership: guard(inner.setPersonMembership),
+      correctMembershipDate: guard(inner.correctMembershipDate),
       linkSecondaryAccount: guard(inner.linkSecondaryAccount),
       setPrimaryAccount: guard(inner.setPrimaryAccount),
       unlinkSecondaryAccount: guard(inner.unlinkSecondaryAccount),

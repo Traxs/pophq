@@ -54,6 +54,8 @@ export interface RosterRow extends GameAccount {
   previousPower: number | null;
   foundryStrength: number | null;
   attendance: Participation;
+  /** Effective start of the current absence, separate from when an officer recorded it. */
+  membershipLeftAt: string | null;
   /** The latest Foundry-strength report; separate from the city-power report date below. */
   lastFoundryReportAt: string | null;
   /** The latest city-power report. */
@@ -70,11 +72,14 @@ export interface AccountAlias {
 
 export interface IdentityAuditRecord {
   auditId: string;
-  action: "link_secondary" | "unlink_secondary" | "set_main" | "alias_add" | "membership_left" | "membership_restored";
+  action: "link_secondary" | "unlink_secondary" | "set_main" | "alias_add" | "membership_left" | "membership_restored" | "membership_date_corrected";
   subjectPlayerId: string;
   relatedPlayerId?: string;
   alias?: string;
   affectedPlayerIds?: string[];
+  effectiveAt?: string;
+  targetAuditId?: string;
+  previousEffectiveAt?: string;
   justification: string;
   performedAt: string;
   performedBy: string;
@@ -820,8 +825,10 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
     updateAccount: (playerId: string, changes: AccountChanges) =>
       request<GameAccount>("PATCH", `/accounts/${playerId}`, changes),
     accountIdentity: (playerId: string) => request<AccountIdentity>("GET", `/accounts/${playerId}/identity`),
-    setPersonMembership: (playerId: string, active: boolean, justification: string) =>
-      request<AccountIdentity>("PUT", `/accounts/${playerId}/membership`, { active, justification }),
+    setPersonMembership: (playerId: string, active: boolean, effectiveDate: string, justification: string) =>
+      request<AccountIdentity>("PUT", `/accounts/${playerId}/membership`, { active, effectiveDate, justification }),
+    correctMembershipDate: (playerId: string, effectiveDate: string, justification: string) =>
+      request<AccountIdentity>("PUT", `/accounts/${playerId}/membership/effective-date`, { effectiveDate, justification }),
     linkSecondaryAccount: (playerId: string, secondaryPlayerId: string, justification: string) =>
       request<AccountIdentity>("POST", `/accounts/${playerId}/identity/accounts`, { secondaryPlayerId, justification }),
     setPrimaryAccount: (playerId: string, newPrimaryPlayerId: string, justification: string) =>

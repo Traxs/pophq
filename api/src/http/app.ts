@@ -45,7 +45,7 @@ import { canonicalJson, issueAgentToken } from "../domain/agentTokens.js";
 import { HISTORICAL_CATEGORIES, parseHistoricalRecord, type HistoricalCategory } from "../domain/historicalRecords.js";
 import { authenticateAgent, effectiveBotScopes, publicAgentToken, type BotIssuerGroups } from "./agentAuth.js";
 import { listEventTypes } from "../ops/eventTypes.js";
-import { membershipPeriods, parseGameName, parseIdentityJustification, parsePlayerId, wasMemberAt, type MembershipPeriod } from "../domain/identity.js";
+import { membershipChanges, membershipPeriods, parseGameName, parseIdentityJustification, parseMembershipEffectiveDate, parsePlayerId, wasMemberAt, type IdentityAuditRecord, type MembershipPeriod } from "../domain/identity.js";
 import { allianceAttendance, allianceGrowth, buckets, currentOf, seriesOf } from "../domain/metrics.js";
 import { monthlyAttendance, monthlyValues, trailingAverage } from "../domain/trends.js";
 import { activeReports, currentValues, parseImportedReport, parseReport } from "../domain/measurements.js";
@@ -176,15 +176,21 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     ].filter((group) => group.length > 0);
   };
 
-  const membershipPeriodsFor = async (accounts: readonly GameAccount[]): Promise<MembershipPeriod[]> => {
-    const audits = (await Promise.all(accounts.map((account) => repo.listIdentityAudit(account.playerId)))).flat();
+  const membershipAuditFor = async (accounts: readonly GameAccount[]): Promise<IdentityAuditRecord[]> =>
+    (await Promise.all(accounts.map((account) => repo.listIdentityAudit(account.playerId)))).flat();
+
+  const membershipContextFor = async (accounts: readonly GameAccount[]): Promise<{ audits: IdentityAuditRecord[]; periods: MembershipPeriod[] }> => {
+    const audits = await membershipAuditFor(accounts);
     const currentlyIncluded = accounts.some((account) => account.status === "active" || account.status === "unknown" || account.status === "guest");
-    return membershipPeriods(
+    return { audits, periods: membershipPeriods(
       accounts.map((account) => account.createdAt).filter((value): value is string => Boolean(value)),
       audits,
       currentlyIncluded,
-    );
+    ) };
   };
+
+  const membershipPeriodsFor = async (accounts: readonly GameAccount[]): Promise<MembershipPeriod[]> =>
+    (await membershipContextFor(accounts)).periods;
 
   const attendanceForPerson = (
     attendance: Awaited<ReturnType<Repository["listAttendance"]>>,
@@ -1468,9 +1474,10 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const p = c.get("principal");
     const officer = await requireR4(p);
     const anchorPlayerId = parsePlayerId(c.req.param("pid"));
-    const body = (await readJson(c.req.raw)) as { active?: unknown; justification?: unknown };
+    const body = (await readJson(c.req.raw)) as { active?: unknown; justification?: unknown; effectiveDate?: unknown };
     if (typeof body.active !== "boolean") throw new ValidationError("Choose whether this person is an active member.");
     const justification = parseIdentityJustification(body.justification);
+    const effectiveAt = body.effectiveDate === undefined ? now().toISOString() : parseMembershipEffectiveDate(body.effectiveDate, now());
     const [group, sub] = await Promise.all([repo.identityGroup(anchorPlayerId), repo.linkedLogin(anchorPlayerId)]);
     const playerIds = group?.playerIds ?? (sub ? await repo.linkedAccounts(sub) : [anchorPlayerId]);
     const accounts = await Promise.all(playerIds.map((id) => repo.getAccount(id)));
@@ -1480,6 +1487,11 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       throw new ConflictError(body.active ? "This person is already an active member." : "This person has already left the alliance.");
     }
     if (sub && !logins) throw new ConflictError("Login management is not available.");
+    const priorChanges = membershipChanges(await membershipAuditFor(accounts.filter((account): account is GameAccount => Boolean(account))));
+    const prior = priorChanges.at(-1);
+    if (prior && effectiveAt < prior.effectiveAt) {
+      throw new ValidationError(`The effective date cannot be before the previous membership change on ${prior.effectiveAt.slice(0, 10)}.`);
+    }
 
     // Change Cognito first. Existing tokens still cannot write after the atomic status change;
     // on a database conflict the compensating call restores the previous login state.
@@ -1495,6 +1507,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         justification,
         { id: p.sub, via: "web", reason: body.active ? "member welcomed back" : "member left alliance" },
         officer.name,
+        effectiveAt,
       );
     } catch (error) {
       if (sub) {
@@ -1502,6 +1515,58 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         else await logins!.enableLogin(sub).catch(() => undefined);
       }
       throw error;
+    }
+    return c.json(await identityView(anchorPlayerId));
+  });
+
+  /** Correct a former member's departure boundary while preserving the original audit record. */
+  app.put("/accounts/:pid/membership/effective-date", async (c) => {
+    const p = c.get("principal");
+    const officer = await requireR4(p);
+    const anchorPlayerId = parsePlayerId(c.req.param("pid"));
+    const body = (await readJson(c.req.raw)) as { effectiveDate?: unknown; justification?: unknown };
+    const effectiveAt = parseMembershipEffectiveDate(body.effectiveDate, now());
+    const justification = parseIdentityJustification(body.justification);
+    const [group, sub] = await Promise.all([repo.identityGroup(anchorPlayerId), repo.linkedLogin(anchorPlayerId)]);
+    const playerIds = group?.playerIds ?? (sub ? await repo.linkedAccounts(sub) : [anchorPlayerId]);
+    const accounts = (await Promise.all(playerIds.map((id) => repo.getAccount(id)))).filter((account): account is GameAccount => Boolean(account));
+    if (accounts.length !== playerIds.length) throw new NotFoundError("One of the linked game accounts no longer exists.");
+    if (accounts.some((account) => account.status !== "transferred_out")) {
+      throw new ConflictError("Departure dates can only be edited for former members.");
+    }
+    const audits = await membershipAuditFor(accounts);
+    const rawChanges = audits
+      .filter((audit) => audit.action === "membership_left" || audit.action === "membership_restored")
+      .filter((audit, index, all) => all.findIndex((item) => item.auditId === audit.auditId) === index)
+      .toSorted((a, b) => a.performedAt.localeCompare(b.performedAt));
+    const target = rawChanges.at(-1);
+    if (target && target.action !== "membership_left") throw new ConflictError("The latest membership record is not a departure.");
+    if (target) {
+      const resolved = membershipChanges(audits);
+      const targetIndex = resolved.findIndex((change) => change.auditId === target.auditId);
+      const previous = targetIndex > 0 ? resolved[targetIndex - 1] : undefined;
+      if (previous && effectiveAt < previous.effectiveAt) {
+        throw new ValidationError(`The departure date cannot be before the previous return on ${previous.effectiveAt.slice(0, 10)}.`);
+      }
+      const resolvedTarget = resolved.find((change) => change.auditId === target.auditId);
+      await repo.recordMembershipBoundary(
+        group?.primaryPlayerId ?? anchorPlayerId,
+        playerIds,
+        effectiveAt,
+        justification,
+        { id: p.sub, via: "web", reason: "former-member departure date corrected" },
+        officer.name,
+        resolvedTarget ?? target,
+      );
+    } else {
+      await repo.recordMembershipBoundary(
+        group?.primaryPlayerId ?? anchorPlayerId,
+        playerIds,
+        effectiveAt,
+        justification,
+        { id: p.sub, via: "web", reason: "legacy former-member departure date recorded" },
+        officer.name,
+      );
     }
     return c.json(await identityView(anchorPlayerId));
   });
@@ -1569,6 +1634,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const personParticipation = new Map<string, {
       attendance: ReturnType<typeof participationOf>;
       attendanceTrend: (number | null)[];
+      membershipLeftAt: string | null;
     }>();
     await Promise.all(people.map(async (personAccounts) => {
       const [rawAnswers, rawAttendance] = await Promise.all([
@@ -1580,7 +1646,10 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       const scoreEvidence = new Set(personAccounts.flatMap((account) => [...(scores.byPlayer.get(account.playerId) ?? [])]));
       const noShowEvidence = new Set(personAccounts.flatMap((account) => [...(scores.noShowByPlayer.get(account.playerId) ?? [])]));
       const knownSince = personAccounts.map((account) => account.createdAt).filter((value): value is string => Boolean(value)).toSorted()[0];
-      const periods = await membershipPeriodsFor(personAccounts);
+      const membership = await membershipContextFor(personAccounts);
+      const periods = membership.periods;
+      const changes = membershipChanges(membership.audits);
+      const latestChange = changes.at(-1);
       const eventStarts = new Map(pastEvents.map((event) => [event.eventId, event.startsAt]));
       const eligibleAttendance = attendance.filter((record) => {
         const startsAt = eventStarts.get(record.eventId);
@@ -1601,6 +1670,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       const shared = {
         attendance: explained,
         attendanceTrend: trailingAverage(monthlyAttendance(eligibleAttendance, at)),
+        membershipLeftAt: latestChange?.action === "membership_left" ? latestChange.effectiveAt : null,
       };
       for (const account of personAccounts) personParticipation.set(account.playerId, shared);
     }));
@@ -1637,6 +1707,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           previousPower: series.at(-2)?.power ?? null,
           foundryStrength: foundrySeries.at(-1)?.value ?? null,
           attendance: participation.attendance,
+          membershipLeftAt: participation.membershipLeftAt,
           lastFoundryReportAt: foundrySeries.at(-1)?.at ?? null,
           lastReportAt: series.at(-1)?.at ?? null,
           furnace: cur.furnace_level?.value ?? null,

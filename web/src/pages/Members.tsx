@@ -9,11 +9,12 @@ import {
   type UnresolvedAccountSource,
 } from "../api";
 import { ErrorBanner } from "../components/Chrome";
+import { DepartureDateForm } from "../components/DepartureDateForm";
 import { InviteMemberForm } from "../components/InviteMember";
 import { LineChart } from "../components/LineChart";
 import { Sheet } from "../components/Sheet";
 import { useToast } from "../components/Toast";
-import { compact, full, initials } from "../format";
+import { compact, full, initials, shortDate } from "../format";
 import { navigate } from "../router";
 import { useSession } from "../session";
 
@@ -33,6 +34,7 @@ export function Members() {
   const [seats, setSeats] = useState<Seats | null>(null);
   const [unresolvedSources, setUnresolvedSources] = useState<UnresolvedAccountSource[]>([]);
   const [inviting, setInviting] = useState(false);
+  const [editingDeparture, setEditingDeparture] = useState<RosterRow | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
@@ -117,6 +119,16 @@ export function Members() {
           onChanged={dataChanged}
           onClose={() => setInviting(false)}
         />
+      </Sheet>
+
+      <Sheet open={editingDeparture !== null} title={editingDeparture ? `Edit ${editingDeparture.name}'s departure date` : "Edit departure date"} onClose={() => setEditingDeparture(null)}>
+        {editingDeparture && <DepartureDateForm
+          playerId={editingDeparture.playerId}
+          memberName={editingDeparture.name}
+          currentDate={editingDeparture.membershipLeftAt}
+          onCompleted={() => { setEditingDeparture(null); dataChanged(); }}
+          onClose={() => setEditingDeparture(null)}
+        />}
       </Sheet>
 
       <section className="roster-section" aria-labelledby="roster-title">
@@ -212,7 +224,11 @@ export function Members() {
                       </td>
                       <td>{isOfficer ? <RankPicker row={r} /> : (r.rank ?? "–")}</td>
                       <td>
-                        <StatusPicker row={r} />
+                        {r.status === "transferred_out" ? <div className="former-membership">
+                          <span className="badge badge-none">Former member</span>
+                          <span className="muted small">{r.membershipLeftAt ? `Left ${shortDate(r.membershipLeftAt)}` : "Departure date not recorded"}</span>
+                          <button type="button" className="text-btn" onClick={() => setEditingDeparture(r)}>{r.membershipLeftAt ? "Edit date" : "Set date"}</button>
+                        </div> : <StatusPicker row={r} />}
                       </td>
                       <td className="num roster-strength">{r.foundryStrength !== null ? full(r.foundryStrength) : "–"}</td>
                     </tr>

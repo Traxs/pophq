@@ -31,6 +31,11 @@ const OUTCOME_LABELS: Record<string, string> = {
   not_counted: "Not counted",
 };
 
+function today(): string {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
+}
+
 export function MemberPage({ playerId }: { playerId: string }) {
   const { api, account, isOfficer, dataVersion, dataChanged } = useSession();
   const canManageIdentity = account?.rank === "R4" || account?.rank === "R5";
@@ -272,6 +277,7 @@ function MembershipForm({
 }) {
   const { api } = useSession();
   const [reason, setReason] = useState("");
+  const [effectiveDate, setEffectiveDate] = useState(today());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submit = async (event: FormEvent) => {
@@ -279,7 +285,7 @@ function MembershipForm({
     setSaving(true);
     setError(null);
     try {
-      onCompleted(await api.setPersonMembership(playerId, active, reason));
+      onCompleted(await api.setPersonMembership(playerId, active, effectiveDate, reason));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not change alliance membership.");
     } finally {
@@ -298,6 +304,11 @@ function MembershipForm({
       <ul>{accounts.map((account) => <li key={account.playerId}>{account.name} <span className="muted">· {account.playerId}</span></li>)}</ul>
       {!active && <p className="muted small">Their shared POP HQ login will be disabled. It can be restored later with Welcome back.</p>}
     </section>
+    <div className="field">
+      <label htmlFor="membership-effective-date">{active ? "Date they returned to POP" : "Date they left POP"}</label>
+      <input id="membership-effective-date" type="date" value={effectiveDate} max={today()} onChange={(event) => setEffectiveDate(event.target.value)} required />
+      <span className="field-help">Attendance is counted only while this person belongs to POP. The audit separately records when you saved this change.</span>
+    </div>
     <div className="field identity-reason">
       <label htmlFor="membership-reason">Reason for this change</label>
       <textarea id="membership-reason" value={reason} onChange={(event) => setReason(event.target.value)} minLength={5} maxLength={200} rows={3} required placeholder={active ? "How was their return confirmed?" : "Why are they leaving the alliance?"} />

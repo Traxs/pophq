@@ -1307,6 +1307,8 @@ button.card {
   font-size: 1rem;
   font-weight: 700;
 }
+.former-membership { display: flex; flex-wrap: wrap; align-items: center; gap: 7px 10px; }
+.former-membership .text-btn { font-size: 0.82rem; }
 
 .back-link {
   width: fit-content;

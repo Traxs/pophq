@@ -72,4 +72,18 @@ describe("membership periods", () => {
     expect(wasMemberAt(periods, "2026-04-01T00:00:00.000Z")).toBe(false);
     expect(wasMemberAt(periods, "2026-06-01T00:00:00.000Z")).toBe(true);
   });
+
+  it("uses the effective date and the latest immutable correction instead of the officer action time", () => {
+    const left = { ...change("membership_left", "2026-04-10T12:00:00.000Z", "left"), effectiveAt: "2026-03-01T00:00:00.000Z" };
+    const correction: IdentityAuditRecord = {
+      ...change("membership_left", "2026-04-11T12:00:00.000Z", "correction"),
+      action: "membership_date_corrected",
+      targetAuditId: "left",
+      effectiveAt: "2026-02-15T00:00:00.000Z",
+      previousEffectiveAt: "2026-03-01T00:00:00.000Z",
+    };
+    expect(membershipPeriods(["2026-01-01T00:00:00.000Z"], [left, correction], false)).toEqual([
+      { from: "2026-01-01T00:00:00.000Z", to: "2026-02-15T00:00:00.000Z" },
+    ]);
+  });
 });

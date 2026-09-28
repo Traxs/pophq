@@ -19,6 +19,7 @@ const row = (name: string, playerId: string, hasLogin: boolean): RosterRow => ({
   strengthTrend: [],
   attendanceTrend: [],
   attendance: { attended: 0, noShows: 0, unregistered: 0, excused: 0, sample: 0, events: [] },
+  membershipLeftAt: null,
   reports: 0,
 });
 

@@ -1433,6 +1433,7 @@ export class Repository {
     justification: string,
     actor: Actor,
     performedByName?: string,
+    effectiveAt?: string,
   ): Promise<IdentityAuditRecord> {
     const uniqueIds = [...new Set(playerIds)];
     if (uniqueIds.length === 0 || uniqueIds.length > 50) throw new ConflictError("Invalid number of linked accounts.");
@@ -1448,6 +1449,7 @@ export class Repository {
       affectedPlayerIds: uniqueIds,
       justification,
       performedAt: now.toISOString(),
+      effectiveAt: effectiveAt ?? now.toISOString(),
       performedBy: actor.id,
       ...(performedByName ? { performedByName } : {}),
     };
@@ -1471,6 +1473,57 @@ export class Repository {
           ExpressionAttributeValues: { ":expected": account!.status },
         } })),
         { Put: { TableName: this.table, Item: { ...identityAuditKey(anchorPlayerId, audit.auditId), type: "identity-audit", ...audit, ...meta } } },
+      ] }));
+    } catch (err) {
+      if (cancellationCodes(err)?.some((code) => code === "ConditionalCheckFailed")) {
+        throw new ConflictError("Membership changed while you were saving. Refresh and try again.");
+      }
+      throw err;
+    }
+    return audit;
+  }
+
+  /** Records or corrects a historical membership boundary without changing current status. */
+  async recordMembershipBoundary(
+    anchorPlayerId: string,
+    affectedPlayerIds: readonly string[],
+    effectiveAt: string,
+    justification: string,
+    actor: Actor,
+    performedByName?: string,
+    target?: IdentityAuditRecord,
+  ): Promise<IdentityAuditRecord> {
+    const now = this.clock();
+    const meta = newItemMeta(actor, now);
+    const audit: IdentityAuditRecord = {
+      auditId: meta.changeId,
+      action: target ? "membership_date_corrected" : "membership_left",
+      subjectPlayerId: anchorPlayerId,
+      affectedPlayerIds: [...new Set(affectedPlayerIds)],
+      effectiveAt,
+      ...(target ? {
+        targetAuditId: target.auditId,
+        previousEffectiveAt: target.effectiveAt ?? target.performedAt,
+      } : {}),
+      justification,
+      performedAt: now.toISOString(),
+      performedBy: actor.id,
+      ...(performedByName ? { performedByName } : {}),
+    };
+    try {
+      await this.db.send(new TransactWriteCommand({ TransactItems: [
+        ...audit.affectedPlayerIds!.map((playerId) => ({ ConditionCheck: {
+          TableName: this.table,
+          Key: accountKey(playerId),
+          ConditionExpression: "#status = :former",
+          ExpressionAttributeNames: { "#status": "status" },
+          ExpressionAttributeValues: { ":former": "transferred_out" },
+        } })),
+        { Put: {
+          TableName: this.table,
+          Item: { ...identityAuditKey(anchorPlayerId, audit.auditId), type: "identity-audit", ...audit, ...meta },
+          ConditionExpression: "attribute_not_exists(PK)",
+        } },
       ] }));
     } catch (err) {
       if (cancellationCodes(err)?.some((code) => code === "ConditionalCheckFailed")) {
@@ -2609,6 +2662,9 @@ function toIdentityAudit(item: Record<string, unknown>): IdentityAuditRecord {
     ...(typeof item.relatedPlayerId === "string" ? { relatedPlayerId: item.relatedPlayerId } : {}),
     ...(typeof item.alias === "string" ? { alias: item.alias } : {}),
     ...(Array.isArray(item.affectedPlayerIds) ? { affectedPlayerIds: item.affectedPlayerIds.filter((id): id is string => typeof id === "string") } : {}),
+    ...(typeof item.effectiveAt === "string" ? { effectiveAt: item.effectiveAt } : {}),
+    ...(typeof item.targetAuditId === "string" ? { targetAuditId: item.targetAuditId } : {}),
+    ...(typeof item.previousEffectiveAt === "string" ? { previousEffectiveAt: item.previousEffectiveAt } : {}),
     justification: String(item.justification),
     performedAt: String(item.performedAt),
     performedBy: String(item.performedBy),

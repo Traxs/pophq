@@ -18,6 +18,7 @@ const AUDIT_LABELS: Record<IdentityAuditRecord["action"], string> = {
   alias_add: "Added previous name",
   membership_left: "Left the alliance",
   membership_restored: "Returned to the alliance",
+  membership_date_corrected: "Corrected membership date",
 };
 
 export function AccountIdentityPanel({
@@ -116,6 +117,7 @@ export function AccountIdentityPanel({
           <span>
             <strong>{AUDIT_LABELS[entry.action]}</strong>
             <span className="muted small">{shortDate(entry.performedAt)} · {entry.performedByName ?? "R4/R5"}</span>
+            {entry.effectiveAt && <span className="muted small">Effective {shortDate(entry.effectiveAt)}{entry.previousEffectiveAt ? ` · previously ${shortDate(entry.previousEffectiveAt)}` : ""}</span>}
             <span className="small">{entry.alias ? `“${entry.alias}” · ` : ""}{entry.relatedPlayerId ? `Player ID ${entry.relatedPlayerId} · ` : ""}{entry.justification}</span>
           </span>
         </li>)}
