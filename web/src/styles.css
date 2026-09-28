@@ -2018,6 +2018,125 @@ th[aria-sort="descending"] .th-btn {
   gap: 10px;
   margin-top: 4px;
 }
+
+/* ---------- Home: recent personal event performance ---------- */
+
+.recent-performance-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+}
+.recent-performance-head .text-btn { flex: 0 0 auto; min-height: 32px; padding-right: 0; }
+.recent-performance-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+  gap: 10px;
+}
+.placement-trend { display: grid; gap: 4px; padding: 14px; overflow: hidden; }
+.placement-trend-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.placement-trend-head > span { display: grid; gap: 2px; }
+.placement-trend-head > span small { color: var(--muted); }
+.placement-trend-current {
+  display: grid;
+  justify-items: end;
+  max-width: 55%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  text-align: right;
+  cursor: pointer;
+}
+.placement-trend-current strong { color: var(--accent); font-size: 1.35rem; }
+.placement-trend-current strong small { font-size: .72rem; }
+.placement-trend-current span { overflow: hidden; max-width: 100%; font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
+.placement-chart { margin: 0; min-width: 0; }
+.placement-chart svg { display: block; max-width: 100%; }
+.placement-trend-empty { display: grid; gap: 3px; padding: 14px; }
+.recent-performance-skeleton { min-height: 174px; }
+.recent-performance-card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  border-color: color-mix(in srgb, var(--line) 78%, var(--accent));
+  background: color-mix(in srgb, var(--surface) 97%, var(--accent));
+  text-align: left;
+  cursor: pointer;
+}
+.recent-performance-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.recent-performance-card-head > span:first-child { display: grid; min-width: 0; gap: 2px; }
+.recent-performance-card-head small { color: var(--muted); }
+.recent-performance-card-head strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-performance-card-head .pill { flex: 0 0 auto; }
+.recent-performance-scores { display: grid; gap: 7px; }
+.recent-performance-scores > span {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 9px;
+  padding: 8px 9px;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.recent-performance-scores small { grid-column: 1 / -1; color: var(--muted); }
+.recent-performance-scores b { color: var(--accent); white-space: nowrap; }
+.recent-performance-link {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+  color: var(--accent);
+  font-weight: 750;
+}
+.recent-performance-card-empty {
+  gap: 8px;
+  padding-block: 12px;
+  border-color: var(--line);
+  background: var(--surface-2);
+  box-shadow: none;
+  cursor: default;
+}
+.recent-performance-card-empty .recent-performance-card-head > span:first-child strong { color: var(--muted); }
+.recent-performance-card-missed {
+  border-color: var(--line);
+  border-left: 4px solid var(--muted);
+  background: var(--surface-2);
+  box-shadow: none;
+}
+.recent-performance-card-missed .recent-performance-card-head > span:first-child strong,
+.recent-performance-card-missed .recent-performance-scores strong { color: var(--muted); }
+.recent-performance-card-missed .recent-performance-link { color: var(--muted); }
+.recent-performance-empty-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+}
+.recent-performance-empty { display: grid; gap: 3px; }
+
+@media (max-width: 760px) {
+  .recent-performance-head { align-items: flex-start; }
+  .recent-performance-grid { grid-template-columns: 1fr; }
+  .recent-performance-skeleton { min-height: 132px; }
+  .placement-trend-head { display: grid; gap: 8px; }
+  .placement-trend-current { justify-items: start; max-width: 100%; text-align: left; }
+}
 .event-my-performance {
   display: grid;
   gap: 9px;

@@ -97,7 +97,7 @@ export function Events() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<EventListItem | null>(null);
   const [configuring, setConfiguring] = useState<EventListItem | null>(null);
-  const [showHistory, setShowHistory] = useState(false);
+  const [showHistory, setShowHistory] = useState(() => new URLSearchParams(window.location.search).get("history") === "1");
 
   useEffect(() => {
     api

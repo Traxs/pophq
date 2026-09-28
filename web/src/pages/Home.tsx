@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ApiError, type CurrentRewardCycle, type EventListItem, type KudosSummary, type OfficerJob, type RewardEligibility, type SvsRoundListItem } from "../api";
 import { MemberKudosCard } from "../components/MemberKudos";
 import { MemberRewardCards } from "../components/MemberRewards";
+import { RecentPerformance } from "../components/RecentPerformance";
 import { useToast } from "../components/Toast";
 import { change, compact, dayTime, daysBetween, relativeDay, untilText } from "../format";
 import { navigate } from "../router";
@@ -15,6 +16,7 @@ export function Home() {
   const { me, account, api, isOfficer, dataVersion } = useSession();
   const { latest, previous, loading } = usePower();
   const [nextEvent, setNextEvent] = useState<EventListItem | null>(null);
+  const [recentEvents, setRecentEvents] = useState<EventListItem[] | null | undefined>(undefined);
   const [round, setRound] = useState<SvsRoundListItem | null>(null);
 
   useEffect(() => {
@@ -26,8 +28,12 @@ export function Home() {
           .filter((e) => !e.closed && Date.parse(e.startsAt) >= now)
           .toSorted((a, b) => a.startsAt.localeCompare(b.startsAt));
         setNextEvent(open[0] ?? null);
+        setRecentEvents(r.items.filter((event) => Date.parse(event.startsAt) < now));
       })
-      .catch(() => setNextEvent(null)); // the Events page reports problems
+      .catch(() => {
+        setNextEvent(null);
+        setRecentEvents(null); // the Events page reports problems
+      });
   }, [api, dataVersion]);
 
   useEffect(() => {
@@ -107,6 +113,12 @@ export function Home() {
           </span>
         </button>
       )}
+
+      <RecentPerformance
+        events={recentEvents}
+        onOpen={(eventId) => navigate(`/events/${eventId}`)}
+        onAllHistory={() => navigate("/events?history=1")}
+      />
 
       {latest && (
         <button type="button" className="card summary" onClick={() => navigate("/power")}>
