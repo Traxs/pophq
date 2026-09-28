@@ -112,7 +112,8 @@ describe("reversible person membership", () => {
 
     const result = await h.call("GET", `/accounts/${playerId}/reliability`, { as: "officer", groups: ["officer"] });
     expect(result.status).toBe(200);
-    expect(result.body).toMatchObject({ unregistered: 2, sample: 2, rate: 0 });
+    expect(result.body).toMatchObject({ unregistered: 0, sample: 0 });
+    expect(result.body.rate).toBeUndefined();
     expect((result.body.events as { eventId: string }[]).map((event) => event.eventId)).toEqual(["MEMBER-AFTER", "MEMBER-BEFORE"]);
   });
 });

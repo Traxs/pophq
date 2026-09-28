@@ -83,14 +83,16 @@ describe("attendance", () => {
     expect(mine.body).toMatchObject({ attended: 1, noShows: 0, rate: 1 });
 
     // An account the alliance has known since before that battle, which said nothing about it:
-    // silence counts now, at half weight, instead of reading as "fully reliable".
+    // without a complete attendance source, silence remains unknown rather than becoming an
+    // absence. Complete Foundry/Canyon imports cover this case separately.
     const longStanding = new Repository(h.db, h.tableName, () => new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
     await longStanding.createAccount(
       { playerId: "700000123", name: "Quiet", alliance: "POP", status: "active" },
       { id: "seed", via: "seed" },
     );
     const quiet = await h.call("GET", "/accounts/700000123/reliability", OFFICER);
-    expect(quiet.body).toMatchObject({ attended: 0, unregistered: 1, rate: 0 });
+    expect(quiet.body).toMatchObject({ attended: 0, unregistered: 0, sample: 0 });
+    expect(quiet.body.rate).toBeUndefined();
 
     // And one created only just now is not blamed for a battle it predates.
     const newcomer = await h.call("GET", "/accounts/100000005/reliability", OFFICER);

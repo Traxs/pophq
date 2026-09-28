@@ -136,7 +136,7 @@ describe("SvS and KOI scoreboards", () => {
     const altEvent = (altList.body.items as { eventId: string; history?: { mine?: unknown } }[])
       .find((event) => event.eventId === pastEventId);
     expect(altEvent?.history?.mine).toEqual({
-      attendance: "not_reviewed",
+      attendance: "did_not_attend",
       attendanceEvidence: null,
       scores: [{
         key: "phase:castle_battle",
@@ -151,7 +151,7 @@ describe("SvS and KOI scoreboards", () => {
     expect(officerDetail.body.members).toEqual(expect.arrayContaining([
       expect.objectContaining({ playerId: "100000005", attended: "present" }),
       expect.objectContaining({ playerId: "100000001", attended: "present" }),
-      expect.objectContaining({ playerId: "100000002", attended: null, attendedByScore: false }),
+      expect.objectContaining({ playerId: "100000002", attended: "absent", attendedByScore: false }),
     ]));
   });
 });
