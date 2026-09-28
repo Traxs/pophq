@@ -880,14 +880,9 @@ button.card {
 }
 .join-methods button.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: var(--accent-soft); }
 .join-methods button span { color: var(--muted); font-size: 13px; }
-.login-name-input { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); overflow: hidden; }
-.login-name-input:focus-within { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-.login-name-input input { min-width: 0; border: 0; box-shadow: none; }
-.login-name-input span { padding-right: 12px; color: var(--muted); font-size: 12px; white-space: nowrap; }
 .join-loading { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 100px; color: var(--muted); }
 @media (max-width: 420px) {
   .join-methods { grid-template-columns: 1fr; }
-  .login-name-input span { font-size: 10px; }
 }
 
 .success-mark {
@@ -1121,6 +1116,9 @@ button.card {
   font-size: 2rem;
   letter-spacing: -0.02em;
 }
+
+.signin-form { width: 100%; display: grid; gap: 10px; text-align: left; }
+.signin-form p { margin: 0; text-align: center; }
 
 @media (prefers-reduced-motion: reduce) {
   *,

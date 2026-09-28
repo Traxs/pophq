@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, inspectOnboardingInvitation, redeemOnboardingInvitation, type PublicOnboardingInvitation, type RedeemedOnboardingInvitation } from "../api";
+import { displayLoginName } from "../loginNames";
 import { isValidEmail } from "../rules";
 import { signIn } from "../session";
 
@@ -23,7 +24,7 @@ export function Join() {
   const [result, setResult] = useState<RedeemedOnboardingInvitation>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"login" | "password" | null>(null);
 
   useEffect(() => {
     if (!capturedToken) {
@@ -62,9 +63,16 @@ export function Join() {
   };
 
   if (result) {
-    const credentialText = result.credentials
-      ? `POP HQ\nLogin: ${result.credentials.username}\nTemporary password: ${result.credentials.password}`
-      : "";
+    const friendlyLoginName = result.credentials ? displayLoginName(result.credentials.username) : "";
+    const copy = async (kind: "login" | "password", value: string) => {
+      try {
+        await navigator.clipboard.writeText(value);
+        setCopied(kind);
+      } catch {
+        setCopied(null);
+        setError("Your browser blocked copying. Press and hold the value to copy it manually.");
+      }
+    };
     return <main className="signin join-page">
       <section className="signin-card join-card" aria-labelledby="join-ready-title">
         <img className="signin-logo" src="/pop-logo.png" alt="" aria-hidden="true" />
@@ -77,11 +85,9 @@ export function Join() {
           </button>
         </> : <>
           <p className="muted">Use this temporary credential once. Cognito will require you to choose a private password that meets the POP HQ password policy.</p>
-          <Credential label="Login name" value={result.credentials!.username} />
-          <Credential label="Temporary password" value={result.credentials!.password} />
-          <button className="btn btn-quiet btn-block" type="button" onClick={() => void navigator.clipboard.writeText(credentialText).then(() => setCopied(true))}>
-            {copied ? "Copied" : "Copy temporary login"}
-          </button>
+          <Credential label="Login name" value={friendlyLoginName} copyLabel={copied === "login" ? "Copied" : "Copy login name"} onCopy={() => void copy("login", friendlyLoginName)} />
+          <Credential label="Temporary password" value={result.credentials!.password} copyLabel={copied === "password" ? "Copied" : "Copy password"} onCopy={() => void copy("password", result.credentials!.password)} />
+          {error && <p className="banner banner-error" role="alert">{error}</p>}
           <button className="btn btn-primary btn-block" type="button" onClick={() => signIn(undefined, "/", result.signInIdentifier)}>
             Continue and choose my password
           </button>
@@ -121,7 +127,7 @@ export function Join() {
           <span className="hint">Cognito sends a fresh one-time code whenever you sign in.</span>
         </div> : <div className="field">
           <label htmlFor="join-name">Choose your login name</label>
-          <div className="login-name-input"><input id="join-name" autoComplete="username" autoCapitalize="none" value={loginName} onChange={(event) => setLoginName(event.target.value.toLowerCase())} /><span>@members.pophq.invalid</span></div>
+          <input id="join-name" autoComplete="username" autoCapitalize="none" value={loginName} onChange={(event) => setLoginName(event.target.value.toLowerCase())} placeholder="Your game name" />
           <span className="hint">3–24 letters, numbers, dots, dashes or underscores. Cognito asks you to choose your private password next.</span>
         </div>}
         <button className="btn btn-primary btn-block" type="submit" disabled={!ready || busy}>{busy ? "Creating secure access…" : "Create my access"}</button>
@@ -131,6 +137,6 @@ export function Join() {
   </main>;
 }
 
-function Credential({ label, value }: { label: string; value: string }) {
-  return <div className="credential-row"><span><small>{label}</small><code>{value}</code></span></div>;
+function Credential({ label, value, copyLabel, onCopy }: { label: string; value: string; copyLabel: string; onCopy: () => void }) {
+  return <div className="credential-row"><span><small>{label}</small><code>{value}</code></span><button type="button" className="text-btn" onClick={onCopy}>{copyLabel}</button></div>;
 }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { ApiError, type InviteResult, type IssuedOnboardingInvitation, type RosterRow } from "../api";
 import { inviteSuggestions } from "../inviteCandidates";
 import { summarise } from "../invites";
+import { displayLoginName } from "../loginNames";
 import { isValidEmail, isValidGameName, isValidPlayerId } from "../rules";
 import { useSession } from "../session";
 import { useToast } from "./Toast";
@@ -99,12 +100,13 @@ export function InviteMemberForm({ candidates, initialAccount, onChanged, onClos
   };
 
   if (credentials) {
-    const both = `POP HQ login\nLogin name: ${credentials.username}\nTemporary password: ${credentials.password}`;
+    const friendlyLoginName = displayLoginName(credentials.username);
+    const both = `POP HQ login\nLogin name: ${friendlyLoginName}\nTemporary password: ${credentials.password}\nSign in at ${window.location.origin}`;
     return <section className="invite-credentials" aria-labelledby="credentials-title">
       <div className="success-mark" aria-hidden="true">✓</div>
       <h2 id="credentials-title">Temporary login created</h2>
       <p className="muted">Share this privately with the member. It is shown only now. They must sign in within 7 days and choose a private password.</p>
-      <Credential label="Login name" value={credentials.username} onCopy={() => void copyCredential("Login name", credentials.username)} />
+      <Credential label="Login name" value={friendlyLoginName} onCopy={() => void copyCredential("Login name", friendlyLoginName)} />
       <Credential label="Temporary password" value={credentials.password} onCopy={() => void copyCredential("Password", credentials.password)} />
       <button type="button" className="btn btn-quiet btn-block" onClick={() => void copyCredential("Both", both)}>
         {copiedCredential === "Both" ? "Copied login and password" : "Copy both"}
