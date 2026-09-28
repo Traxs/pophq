@@ -11,7 +11,7 @@ export interface SettingsSection {
 export const ACCOUNTS_SECTION: SettingsSection = {
   id: "accounts",
   title: "Your game accounts",
-  blurb: "The accounts linked to this sign-in. An officer links an alt after checking its Player ID.",
+  blurb: "Switch between every account linked to this one sign-in. Event signups and other personal actions use the selected account.",
 };
 
 export const BOTS_SECTION: SettingsSection = {

@@ -84,6 +84,11 @@ describe("account identity workflow", () => {
     expect(linked.body.audit).toEqual(expect.arrayContaining([
       expect.objectContaining({ action: "link_secondary", relatedPlayerId: "100000003", justification: "Confirmed as the same person" }),
     ]));
+    const me = await h.call("GET", "/me", MEMBER);
+    expect(me.status).toBe(200);
+    expect((me.body.accounts as { playerId: string }[]).map((account) => account.playerId)).toEqual(
+      expect.arrayContaining(["100000001", "100000002", "100000003"]),
+    );
 
     const changed = await h.call("PUT", "/accounts/100000001/identity/main", {
       ...R4,

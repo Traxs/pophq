@@ -4,10 +4,13 @@ import { roleLabel } from "../rules";
 import { navigate, usePath } from "../router";
 import { useSession } from "../session";
 import { Sheet } from "./Sheet";
+import { useToast } from "./Toast";
 
 export function TopBar() {
   const { me, account, setActing, signOut } = useSession();
+  const toast = useToast();
   const [open, setOpen] = useState(false);
+  const hasSeveralAccounts = (me?.accounts.length ?? 0) > 1;
 
   return (
     <header className="topbar">
@@ -24,13 +27,21 @@ export function TopBar() {
       </a>
 
       {account ? (
-        <button type="button" className="account-chip" onClick={() => setOpen(true)} aria-haspopup="dialog">
+        <button
+          type="button"
+          className="account-chip"
+          onClick={() => setOpen(true)}
+          aria-haspopup="dialog"
+          aria-label={`Acting as ${account.name}. ${hasSeveralAccounts ? "Switch game account." : "Open account menu."}`}
+        >
           <span className="avatar" aria-hidden="true">
             {initials(account.name)}
           </span>
           <span className="account-chip-text">
             <span className="account-chip-name">{account.name}</span>
-            <span className="account-chip-sub">{roleLabel(me?.groups ?? [], account.rank, account.alliance)}</span>
+            <span className="account-chip-sub">
+              {hasSeveralAccounts ? `Acting as · ${roleLabel(me?.groups ?? [], account.rank, account.alliance)}` : roleLabel(me?.groups ?? [], account.rank, account.alliance)}
+            </span>
           </span>
           <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
             <path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
@@ -42,7 +53,15 @@ export function TopBar() {
         </button>
       )}
 
-      <Sheet open={open} title="Your game accounts" onClose={() => setOpen(false)}>
+      <Sheet open={open} title="Act as a game account" onClose={() => setOpen(false)}>
+        {hasSeveralAccounts ? (
+          <div className="account-switch-note">
+            <strong>One sign-in, all your linked accounts</strong>
+            <span className="muted small">Choose which account you are using. Event signups, reports, rewards and personal views will apply to that account.</span>
+          </div>
+        ) : (
+          <p className="muted small">This is the only game account linked to your sign-in.</p>
+        )}
         <ul className="account-list">
           {me?.accounts.map((a) => (
             <li key={a.playerId}>
@@ -53,6 +72,7 @@ export function TopBar() {
                 onClick={() => {
                   setActing(a.playerId);
                   setOpen(false);
+                  if (a.playerId !== account?.playerId) toast(`Now acting as ${a.name}`);
                 }}
               >
                 <span className="avatar" aria-hidden="true">
@@ -66,15 +86,13 @@ export function TopBar() {
                   </span>
                 </span>
                 {a.playerId === account?.playerId && (
-                  <svg viewBox="0 0 24 24" width="20" height="20" aria-label="Selected">
-                    <path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
-                  </svg>
+                  <span className="pill pill-flat">Acting now</span>
                 )}
               </button>
             </li>
           ))}
         </ul>
-        <p className="muted small">Alts are linked by an officer after they check the Player ID.</p>
+        <p className="muted small">You remain signed in when switching. An officer links additional accounts after checking their Player IDs.</p>
         {/* Settings live here rather than in the tab bar: one more tab for a rarely used page
             would crowd the phone layout. */}
         <button

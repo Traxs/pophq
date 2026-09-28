@@ -237,6 +237,16 @@ textarea {
   gap: 6px;
 }
 
+.account-switch-note {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
 .account-row {
   display: flex;
   align-items: center;
