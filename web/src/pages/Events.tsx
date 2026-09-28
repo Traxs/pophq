@@ -6,6 +6,7 @@ import { useToast } from "../components/Toast";
 import { compact, dayTime, full, relativeDay, shortTime, untilText } from "../format";
 import { latestKnown, sortForBreakdown, totalsOf, valueOf } from "../eventBreakdown";
 import { withEventAnswer } from "../eventAnswers";
+import { defaultEventSessions, isLegionEvent } from "../eventSetup";
 import { isReportOverdue } from "../rules";
 import {
   DEFAULT_EVENT_HOURS,
@@ -69,25 +70,10 @@ const DEFAULT_LEAD: Record<EventKind, CloseTiming> = {
 const ALL_EVENT_HISTORY = "1970-01-01T00:00:00.000Z";
 
 /**
- * A Foundry is one event with two legions. SvS, KOI and FDT ask for how much of it someone can give,
- * which is the same mechanism: three parts, one pick. Canyon and Tundra League are a plain
- * "are you in?", so they have no parts.
+ * Foundry and Canyon are one event with two legions. SvS, KOI and FDT ask for how much of it
+ * someone can give, which is the same mechanism: three parts, one pick. Tundra League is a plain
+ * "are you in?", so it has no parts.
  */
-const HALVES = [
-  { id: "full", label: "Full time", startsAt: "" },
-  { id: "first", label: "First half", startsAt: "" },
-  { id: "last", label: "Last half", startsAt: "" },
-];
-
-const defaultSessions = (kind: EventKind): { id?: string; label: string; startsAt: string }[] => {
-  if (kind === "foundry") {
-    return [
-      { id: "L1", label: "Legion 1", startsAt: "" },
-      { id: "L2", label: "Legion 2", startsAt: "" },
-    ];
-  }
-  return kind === "svs" || kind === "koi" || kind === "fdt" ? HALVES.map((h) => ({ ...h })) : [];
-};
 
 export function Events() {
   const { api, me, account, isOfficer, dataVersion, dataChanged } = useSession();
@@ -319,7 +305,7 @@ function EventCard({
     <article className={`card event${past ? " event-past" : ""}`}>
       <div className="event-head">
         <span className="badge">
-          {kindLabel(event.kind)}{event.kind === "foundry" && event.sessions.length > 1 ? " · one event" : ""}
+          {kindLabel(event.kind)}{isLegionEvent(event.kind) && event.sessions.length > 1 ? " · one event" : ""}
         </span>
         {past
           ? <span className="event-complete-label">Completed</span>
@@ -355,9 +341,9 @@ function EventCard({
       ) : event.sessions.length > 0 ? (
         <div className="event-signup">
           <div className="event-signup-intro">
-            <strong>{event.kind === "foundry" ? "Sign up for Foundry" : "Choose your attendance"}</strong>
+            <strong>{isLegionEvent(event.kind) ? `Sign up for ${kindLabel(event.kind)}` : "Choose your attendance"}</strong>
             <span className="muted small">
-              {event.kind === "foundry"
+              {isLegionEvent(event.kind)
                 ? "This is one event. Choose either Legion 1 or Legion 2—you can switch until answers close."
                 : "Choose how much of this event you can attend. You can change it until answers close."}
             </span>
@@ -372,7 +358,7 @@ function EventCard({
                 disabled={event.closed || busy !== null}
                 onClick={() => void choose("yes", s.id)}
               >
-                {busy === s.id ? "…" : `${event.kind === "foundry" ? "Join " : ""}${s.label} · ${shortTime(s.startsAt)}`}
+                {busy === s.id ? "…" : `${isLegionEvent(event.kind) ? "Join " : ""}${s.label} · ${shortTime(s.startsAt)}`}
               </button>
             ))}
             <button
@@ -760,7 +746,7 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
   const [sessions, setSessions] = useState<{ id?: string; label: string; startsAt: string }[]>(
     event
       ? event.sessions.map((s) => ({ id: s.id, label: s.label, startsAt: toLocalInput(s.startsAt) }))
-      : defaultSessions("foundry"),
+      : defaultEventSessions("foundry"),
   );
   const existingLeadDays = event ? leadDaysOf(event) : 3;
   const existingGapHours = event ? (Date.parse(event.startsAt) - Date.parse(event.deadlineAt)) / 3_600_000 : 0;
@@ -813,8 +799,8 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
     setKind(value);
     if (editing) return;
     setCloseTiming(DEFAULT_LEAD[value]); // a new event follows its type
-    setSessions(defaultSessions(value));
-    setSignupMode(value === "foundry" ? "parts" : value === "svs" || value === "koi" || value === "fdt" ? "availability" : "rsvp");
+    setSessions(defaultEventSessions(value));
+    setSignupMode(isLegionEvent(value) ? "parts" : value === "svs" || value === "koi" || value === "fdt" ? "availability" : "rsvp");
     // SvS, KOI and FDT normally start at 12:00 UTC, so the officer only has to pick the day.
     if ((value === "svs" || value === "koi" || value === "fdt") && !startsAt) setStartsAt(nextUtcNoon());
   };
@@ -881,7 +867,7 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
         />
       </div>
 
-      {!editing && kind !== "foundry" && (
+      {!editing && !isLegionEvent(kind) && (
         <fieldset className="field">
           <legend>How members answer</legend>
           <div className="chips" role="radiogroup">
@@ -971,7 +957,7 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
         <span className="hint">
           {deadline
             ? `Closes ${dayTime(deadline.toISOString())}${deadline.getTime() < Date.now() ? " — already past, so answers stay closed" : ""}`
-            : "Foundry closes three days before, so officers can register people in game."}
+            : "Choose the event times to preview when answers close."}
         </span>
       </div>
 

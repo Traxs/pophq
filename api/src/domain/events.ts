@@ -37,7 +37,7 @@ export interface AllianceEvent {
   /** Answers are locked from this moment (FM-09). */
   deadlineAt: string;
   notes?: string;
-  /** Empty for a plain event; two legions for Foundry. */
+  /** Empty for a plain event; two legions for Foundry or Canyon. */
   sessions: EventSession[];
   createdBy: string;
   /** The officer's game account that runs this one; checklists on Home hang off it. */

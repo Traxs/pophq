@@ -222,8 +222,16 @@ export async function addDemoEvents(repo: Repository, now: Date, actor: Actor): 
         { id: "L2", label: "Legion 2", startsAt: at(6, 19), starters: 30, subs: 10 },
       ],
     },
-    // Canyon is a plain "are you in?", so it has no parts: the demo covers the RSVP path.
-    { kind: "canyon" as const, title: "Canyon", startsAt: at(1, 18) },
+    // Canyon, like Foundry, is one event with two mutually exclusive legion times.
+    {
+      kind: "canyon" as const,
+      title: "Canyon",
+      startsAt: at(1, 19),
+      sessions: [
+        { id: "L1", label: "Legion 1", startsAt: at(1, 12) },
+        { id: "L2", label: "Legion 2", startsAt: at(1, 19) },
+      ],
+    },
     {
       kind: "svs" as const,
       title: "SvS preparation call",

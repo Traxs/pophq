@@ -71,8 +71,9 @@ describe("STARTER_TYPES", () => {
     expect(byId("koi")).toMatchObject({ name: "King of Icefield (KOI)", leadDays: 3 });
   });
 
-  it("leaves Canyon and Tundra League without parts, so they are a plain are-you-in", () => {
-    expect(byId("canyon").sessions).toEqual([]);
+  it("gives Canyon two legions and leaves Tundra League as a plain are-you-in", () => {
+    expect(byId("canyon").sessions.map((s) => s.label)).toEqual(["Legion 1", "Legion 2"]);
+    expect(byId("canyon").sessions.map((s) => s.id)).toEqual(["L1", "L2"]);
     expect(byId("tundra").sessions).toEqual([]);
   });
 

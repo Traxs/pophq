@@ -136,8 +136,18 @@ export const STARTER_TYPES: readonly Omit<EventType, "createdBy">[] = [
     checklist: STARTER_CHECKLISTS.koi!,
     archived: false,
   },
-  // Canyon and Tundra League are a simple "are you in?", so they carry no parts.
-  { typeId: "canyon", name: "Canyon", leadDays: 1, sessions: [], archived: false },
+  // Canyon is one event with two battle times, just like Foundry.
+  {
+    typeId: "canyon",
+    name: "Canyon",
+    leadDays: 1,
+    sessions: [
+      { id: "L1", label: "Legion 1", defaultMinutes: 12 * 60 },
+      { id: "L2", label: "Legion 2", defaultMinutes: 19 * 60 },
+    ],
+    archived: false,
+  },
+  // Tundra League remains a simple "are you in?" event.
   { typeId: "tundra", name: "Tundra League", leadDays: 1, sessions: [], archived: false },
   // The Bear hunt runs every other day and needs no sign-up; it is kept, archived, so past bear
   // events still have their type behind them.
