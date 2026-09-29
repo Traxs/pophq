@@ -3,6 +3,8 @@ import { InMemoryWebStorage, UserManager, WebStorageStateStore, type User } from
 export interface AuthConfig {
   issuer: string;
   clientId: string;
+  /** Password-only client for friendly, email-free login names. Falls back locally. */
+  passwordClientId?: string;
   /** Cognito managed-login domain, for sign-out and token revocation. Absent locally. */
   authDomain?: string;
 }
@@ -31,7 +33,23 @@ export function parseAuthConfig(value: unknown): AuthConfig {
   if (v.authDomain !== undefined && (typeof v.authDomain !== "string" || !v.authDomain.startsWith("https://"))) {
     throw new Error("config.json has an invalid authDomain");
   }
-  return { issuer: v.issuer, clientId: v.clientId, ...(v.authDomain ? { authDomain: v.authDomain.replace(/\/$/, "") } : {}) };
+  if (v.passwordClientId !== undefined && (typeof v.passwordClientId !== "string" || !v.passwordClientId)) {
+    throw new Error("config.json has an invalid passwordClientId");
+  }
+  return {
+    issuer: v.issuer,
+    clientId: v.clientId,
+    ...(v.passwordClientId ? { passwordClientId: v.passwordClientId } : {}),
+    ...(v.authDomain ? { authDomain: v.authDomain.replace(/\/$/, "") } : {}),
+  };
+}
+
+/** Select the client without exposing Cognito's reserved email-shaped identifier to players. */
+export function clientIdForLogin(identifier: string, authConfig: AuthConfig = config): string {
+  const normalized = identifier.trim().toLowerCase();
+  return !normalized.includes("@") || normalized.endsWith("@members.pophq.invalid")
+    ? (authConfig.passwordClientId ?? authConfig.clientId)
+    : authConfig.clientId;
 }
 
 export interface DevPersona {
@@ -147,6 +165,7 @@ export const forgetSignIn = (): Promise<void> => userManager().removeUser();
  */
 export async function signOutEverywhere(): Promise<boolean> {
   const um = userManager();
+  const activeClientId = readClientId();
   const user = await um.getUser();
   await um.removeUser();
   if (!config.authDomain) return false;
@@ -154,10 +173,10 @@ export async function signOutEverywhere(): Promise<boolean> {
     await fetch(`${config.authDomain}/oauth2/revoke`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ token: user.refresh_token, client_id: config.clientId }),
+      body: new URLSearchParams({ token: user.refresh_token, client_id: activeClientId }),
     }).catch(() => undefined); // best effort; the token expires anyway
   }
-  const params = new URLSearchParams({ client_id: config.clientId, logout_uri: window.location.origin });
+  const params = new URLSearchParams({ client_id: activeClientId, logout_uri: window.location.origin });
   window.location.assign(`${config.authDomain}/logout?${params.toString()}`);
   return true;
 }
@@ -172,6 +191,8 @@ export function startSignIn(returnTo: string, clientId: string = config.clientId
   manager = build(clientId);
   return manager.signinRedirect({
     state: returnTo === "/callback" ? "/" : returnTo,
-    ...(loginHint ? { extraQueryParams: { login_hint: loginHint } } : {}),
+    // A shared phone might still have another member's Cognito session. Force the credential
+    // prompt whenever POP HQ supplied an identifier, and prefill Cognito's immutable email field.
+    ...(loginHint ? { extraQueryParams: { login_hint: loginHint, prompt: "login" } } : {}),
   });
 }

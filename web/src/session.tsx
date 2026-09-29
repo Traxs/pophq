@@ -1,7 +1,7 @@
 import type { User } from "oidc-client-ts";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ApiError, createApi, type GameAccount, type Me } from "./api";
-import { currentUser, forgetSignIn, signOutEverywhere, startSignIn, userManager } from "./auth";
+import { clientIdForLogin, currentUser, forgetSignIn, signOutEverywhere, startSignIn, userManager } from "./auth";
 import { navigate } from "./router";
 
 const ACTING_KEY = "pophq.actingAs";
@@ -76,6 +76,9 @@ export const freshToken = async (): Promise<string | undefined> => (await curren
 export const signIn = (clientId?: string, returnTo = window.location.pathname, loginHint?: string) =>
   void startSignIn(returnTo, clientId, loginHint);
 
+export const signInWithIdentifier = (identifier: string, returnTo = window.location.pathname) =>
+  void startSignIn(returnTo, clientIdForLogin(identifier), identifier);
+
 export function SessionProvider({
   user,
   onSignedOut,
@@ -133,6 +136,7 @@ export function SessionProvider({
       roster: guard(inner.roster),
       invite: guard(inner.invite),
       issueOnboardingInvitation: guard(inner.issueOnboardingInvitation),
+      issuePasswordRecoveryInvitation: guard(inner.issuePasswordRecoveryInvitation),
       accessAudit: guard(inner.accessAudit),
       resetPassword: guard(inner.resetPassword),
       updateAccount: guard(inner.updateAccount),

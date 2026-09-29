@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseAuthConfig, tokenAction } from "./auth";
+import { clientIdForLogin, parseAuthConfig, tokenAction } from "./auth";
 
 describe("parseAuthConfig", () => {
   it("accepts an https issuer and a client id", () => {
@@ -41,5 +41,18 @@ describe("parseAuthConfig authDomain", () => {
   });
   it("rejects a non-https auth domain", () => {
     expect(() => parseAuthConfig({ issuer: "https://i", clientId: "c", authDomain: "http://x" })).toThrow();
+  });
+});
+
+describe("password login routing", () => {
+  it("uses a dedicated client for friendly or private login names", () => {
+    const authConfig = parseAuthConfig({ issuer: "https://i", clientId: "email-client", passwordClientId: "password-client" });
+    expect(clientIdForLogin("doggy", authConfig)).toBe("password-client");
+    expect(clientIdForLogin("doggy@members.pophq.invalid", authConfig)).toBe("password-client");
+    expect(clientIdForLogin("doggy@example.com", authConfig)).toBe("email-client");
+  });
+
+  it("rejects an empty password client id", () => {
+    expect(() => parseAuthConfig({ issuer: "https://i", clientId: "c", passwordClientId: "" })).toThrow();
   });
 });

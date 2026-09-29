@@ -65,7 +65,7 @@ import type { Repository } from "../data/repository.js";
 import type { Actor } from "../data/meta.js";
 import { invite, type LoginDirectory } from "../ops/invite.js";
 import { resetMemberPassword } from "../ops/resetPassword.js";
-import { inspectOnboardingInvite, issueOnboardingInvite, redeemOnboardingInvite } from "../ops/onboardingInvites.js";
+import { inspectOnboardingInvite, issueOnboardingInvite, issuePasswordRecoveryInvite, redeemOnboardingInvite } from "../ops/onboardingInvites.js";
 import { parseAccountOnboardingBatch, planAccountOnboarding } from "../ops/onboardAccounts.js";
 import { parseResetJustification } from "../domain/access.js";
 import type { TokenVerifier } from "./auth.js";
@@ -1695,6 +1695,9 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           aliases: aliases.map((alias) => alias.name),
           hasLogin: linkedAccess !== undefined,
           loginMethod: linkedAccess?.loginMethod ?? null,
+          loginName: linkedAccess?.loginMethod === "password" && linkedAccess.loginIdentifier
+            ? linkedAccess.loginIdentifier.replace(/@members\.pophq\.invalid$/i, "")
+            : null,
           // Six trailing months for the small graphs in the table (MET-02).
           powerTrend: monthlyValues(
             series.map((p) => ({ at: p.at, value: p.power })),
@@ -1766,6 +1769,29 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         playerId: result.invitation.playerId,
         playerName: result.invitation.playerName,
         expiresAt: result.invitation.expiresAt,
+      }, 201);
+    });
+
+    app.post("/accounts/:pid/recovery-invitations", async (c) => {
+      const p = c.get("principal");
+      requireOfficer(p);
+      const playerId = parsePlayerId(c.req.param("pid"));
+      const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+      const result = await issuePasswordRecoveryInvite(
+        repo,
+        playerId,
+        parseResetJustification(body.justification),
+        { id: p.sub, via: "web", reason: "24-hour one-time password recovery invitation issued" },
+        now(),
+      );
+      c.header("Cache-Control", "no-store");
+      return c.json({
+        token: result.token,
+        inviteId: result.invitation.inviteId,
+        playerId: result.invitation.playerId,
+        playerName: result.invitation.playerName,
+        expiresAt: result.invitation.expiresAt,
+        purpose: "password_recovery",
       }, 201);
     });
 

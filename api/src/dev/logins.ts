@@ -24,6 +24,11 @@ export function devLogins(db: DynamoDBDocumentClient, table: string): LoginDirec
       await db.send(new PutCommand({ TableName: table, Item: { ...key(username), type: "dev-login", sub, email: username } }));
       return { sub, username, password };
     },
+    async identifierFor(sub) {
+      const username = sub.replace(/^local-/, "");
+      const existing = await db.send(new GetCommand({ TableName: table, Key: key(username) }));
+      return typeof existing.Item?.email === "string" ? existing.Item.email : undefined;
+    },
     async resetPassword(sub) {
       const username = sub.replace(/^local-/, "");
       const existing = await db.send(new GetCommand({ TableName: table, Key: key(username) }));

@@ -124,6 +124,13 @@ describe("AppStack", () => {
       AccessTokenValidity: 60,
       EnableTokenRevocation: true,
     });
+    template.hasResourceProperties("AWS::Cognito::UserPoolClient", {
+      GenerateSecret: false,
+      AllowedOAuthFlows: ["code"],
+      ExplicitAuthFlows: ["ALLOW_USER_PASSWORD_AUTH"],
+      RefreshTokenRotation: { Feature: "ENABLED", RetryGracePeriodSeconds: 60 },
+      EnableTokenRevocation: true,
+    });
   });
 
   it("sends a strict Content Security Policy and other security headers", () => {
@@ -202,6 +209,7 @@ describe("AppStack", () => {
               "cognito-idp:AdminDeleteUser",
               "cognito-idp:AdminDisableUser",
               "cognito-idp:AdminEnableUser",
+              "cognito-idp:AdminGetUser",
               "cognito-idp:AdminListGroupsForUser",
               "cognito-idp:AdminSetUserPassword",
               "cognito-idp:AdminUserGlobalSignOut",
@@ -215,7 +223,6 @@ describe("AppStack", () => {
     });
     const policies = JSON.stringify(template.findResources("AWS::IAM::Policy"));
     expect(policies).not.toContain("cognito-idp:*");
-    expect(policies).not.toContain("AdminGetUser");
   });
 
   it("defines the app roles as Cognito groups", () => {
@@ -237,8 +244,9 @@ describe("AppStack", () => {
         Match.objectLike({ Category: "FAVICON_SVG", ColorMode: "DARK", Extension: "SVG" }),
       ]),
     });
+    template.resourceCountIs("AWS::Cognito::ManagedLoginBranding", 2);
     // Branding images are inlined into the template, which CloudFormation caps at 1 MB.
-    expect(JSON.stringify(template.toJSON()).length).toBeLessThan(600_000);
+    expect(JSON.stringify(template.toJSON()).length).toBeLessThan(900_000);
   });
 
   it("routes /v1/* to the API uncached and keeps the bucket private", () => {

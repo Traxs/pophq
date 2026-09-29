@@ -1,4 +1,4 @@
-import { AdminCreateUserCommand, AdminDisableUserCommand, AdminEnableUserCommand, AdminSetUserPasswordCommand, AdminUserGlobalSignOutCommand, type CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
+import { AdminCreateUserCommand, AdminDisableUserCommand, AdminEnableUserCommand, AdminGetUserCommand, AdminSetUserPasswordCommand, AdminUserGlobalSignOutCommand, type CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
 import { describe, expect, it, vi } from "vitest";
 import { cognitoLogins } from "./cognitoLogins.js";
 
@@ -51,6 +51,14 @@ describe("cognitoLogins.createPasswordLogin", () => {
     });
     expect(send.mock.calls[1]![0]).toBeInstanceOf(AdminUserGlobalSignOutCommand);
     expect(send.mock.calls[1]![0].input).toEqual({ UserPoolId: "pool-1", Username: "sub-password-user" });
+  });
+
+  it("resolves the reserved sign-in identifier by immutable subject for recovery", async () => {
+    const send = vi.fn().mockResolvedValue({ UserAttributes: [{ Name: "email", Value: "doggy@members.pophq.invalid" }] });
+    const identifier = await cognitoLogins({ send } as unknown as CognitoIdentityProviderClient, "pool-1").identifierFor!("sub-doggy");
+    expect(identifier).toBe("doggy@members.pophq.invalid");
+    expect(send.mock.calls[0]![0]).toBeInstanceOf(AdminGetUserCommand);
+    expect(send.mock.calls[0]![0].input).toEqual({ UserPoolId: "pool-1", Username: "sub-doggy" });
   });
 
   it("suspends and restores a login without deleting it", async () => {

@@ -151,8 +151,8 @@ export class AppStack extends Stack {
     history.grantReadData(api.handler);
     evidence.grantReadWrite(api.handler);
     guard.killSwitch.grantRead(api.handler);
-    // Officer invites create and, on failure, remove logins in this pool (P4.1). No other
-    // Cognito rights: the API never reads passwords, tokens or other pools.
+    // Officer invites create and, on failure, remove logins in this pool (P4.1). Recovery reads
+    // only the sign-in identifier by immutable subject; the API never reads passwords or tokens.
     api.handler.addToRolePolicy(
       new iam.PolicyStatement({
         actions: [
@@ -162,6 +162,7 @@ export class AppStack extends Stack {
           "cognito-idp:AdminUserGlobalSignOut",
           "cognito-idp:AdminDisableUser",
           "cognito-idp:AdminEnableUser",
+          "cognito-idp:AdminGetUser",
           "cognito-idp:AdminDeleteUser",
           "cognito-idp:AdminListGroupsForUser",
         ],
@@ -327,6 +328,28 @@ export class AppStack extends Stack {
     // Tokens are refreshed through the OAuth token endpoint instead, which rotation supports.
     (client.node.defaultChild as cognito.CfnUserPoolClient).addPropertyOverride("ExplicitAuthFlows", ["ALLOW_USER_AUTH"]);
 
+    // Password members use a dedicated client. The pool itself has an immutable email-only
+    // sign-in identifier, so POP HQ maps a friendly name to its reserved @members.pophq.invalid
+    // identifier before redirecting. Keeping EMAIL_OTP off this client prevents managed login
+    // from asking a no-email member to use an email code they can never receive.
+    const passwordClient = users.addClient("PasswordWebClient", {
+      generateSecret: false,
+      authFlows: { userPassword: true },
+      preventUserExistenceErrors: true,
+      enableTokenRevocation: true,
+      accessTokenValidity: Duration.hours(1),
+      idTokenValidity: Duration.hours(1),
+      refreshTokenValidity: Duration.days(90),
+      refreshTokenRotationGracePeriod: Duration.seconds(60),
+      oAuth: {
+        flows: { authorizationCodeGrant: true },
+        scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL],
+        callbackUrls: [...new Set([`${origin}/callback`, `${cdnOrigin}/callback`])],
+        logoutUrls: [...new Set([origin, cdnOrigin])],
+      },
+    });
+    (passwordClient.node.defaultChild as cognito.CfnUserPoolClient).addPropertyOverride("ExplicitAuthFlows", ["ALLOW_USER_PASSWORD_AUTH"]);
+
     // Managed login in the POP HQ style: colors from web/src/styles.css, light and dark mode, and
     // the app's POP logo. settings.json started from Cognito's own default settings document.
     // The images are inlined into the template (1 MB limit), so logo.png is the app logo cut to
@@ -338,17 +361,21 @@ export class AppStack extends Stack {
     // a new one, so the SVG is needed as well. Cognito rejects embedded images in SVG, so it is
     // the logo traced at 32x32 as plain colored paths. Safari uses the .ico instead.
     const faviconSvg = loginAsset("favicon.svg");
-    new cognito.CfnManagedLoginBranding(this, "LoginBranding", {
-      userPoolId: users.userPoolId,
-      clientId: client.userPoolClientId,
-      settings: JSON.parse(readFileSync(join(LOGIN_ASSETS, "settings.json"), "utf8")) as unknown,
-      // The logo has its own background, so both color modes use the same images.
-      assets: (["LIGHT", "DARK"] as const).flatMap((colorMode) => [
-        { category: "FORM_LOGO", colorMode, extension: "PNG", bytes: logo },
-        { category: "FAVICON_ICO", colorMode, extension: "ICO", bytes: favicon },
-        { category: "FAVICON_SVG", colorMode, extension: "SVG", bytes: faviconSvg },
-      ]),
-    });
+    const loginSettings = JSON.parse(readFileSync(join(LOGIN_ASSETS, "settings.json"), "utf8")) as unknown;
+    const loginAssets = (["LIGHT", "DARK"] as const).flatMap((colorMode) => [
+      { category: "FORM_LOGO", colorMode, extension: "PNG", bytes: logo },
+      { category: "FAVICON_ICO", colorMode, extension: "ICO", bytes: favicon },
+      { category: "FAVICON_SVG", colorMode, extension: "SVG", bytes: faviconSvg },
+    ]);
+    for (const [id, brandedClient] of [["LoginBranding", client], ["PasswordLoginBranding", passwordClient]] as const) {
+      new cognito.CfnManagedLoginBranding(this, id, {
+        userPoolId: users.userPoolId,
+        clientId: brandedClient.userPoolClientId,
+        settings: loginSettings,
+        // The logo has its own background, so both color modes use the same images.
+        assets: loginAssets,
+      });
+    }
 
     // Hashed assets never change: cache for a year and keep old files (prune: false) so open
     // tabs still load them after a deploy (FM-15). index.html and config.json are revalidated.
@@ -366,6 +393,7 @@ export class AppStack extends Stack {
         s3deploy.Source.jsonData("config.json", {
           issuer: users.userPoolProviderUrl,
           clientId: client.userPoolClientId,
+          passwordClientId: passwordClient.userPoolClientId,
           authDomain,
         }),
       ],

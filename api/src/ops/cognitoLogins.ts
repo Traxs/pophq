@@ -7,6 +7,7 @@ import {
   AdminDeleteUserCommand,
   AdminDisableUserCommand,
   AdminEnableUserCommand,
+  AdminGetUserCommand,
   AdminSetUserPasswordCommand,
   AdminUserGlobalSignOutCommand,
   ListUsersCommand,
@@ -84,6 +85,11 @@ export function cognitoLogins(client: CognitoIdentityProviderClient, userPoolId:
       const sub = subOf(created.User?.Attributes);
       if (!sub) throw new Error("Cognito returned no subject for the password login");
       return { sub, username, password };
+    },
+
+    async identifierFor(sub) {
+      const user = await client.send(new AdminGetUserCommand({ UserPoolId: userPoolId, Username: sub }));
+      return user.UserAttributes?.find((attribute) => attribute.Name === "email")?.Value;
     },
 
     async resetPassword(sub) {

@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
-import { ApiError, type AccessAuditRecord } from "../api";
+import { ApiError, type AccessAuditRecord, type IssuedOnboardingInvitation } from "../api";
+import { displayLoginName } from "../loginNames";
 import { useSession } from "../session";
 import { useToast } from "./Toast";
 
@@ -7,17 +8,21 @@ export function ResetPasswordForm({
   playerId,
   memberName,
   onCompleted,
+  onInvitationCreated,
   onClose,
 }: {
   playerId: string;
   memberName: string;
   onCompleted: (audit: AccessAuditRecord) => void;
+  onInvitationCreated: () => void;
   onClose: () => void;
 }) {
   const { api } = useSession();
   const toast = useToast();
   const [justification, setJustification] = useState("");
-  const [password, setPassword] = useState<string>();
+  const [mode, setMode] = useState<"link" | "direct">("link");
+  const [invitation, setInvitation] = useState<IssuedOnboardingInvitation>();
+  const [credentials, setCredentials] = useState<{ username?: string; password: string }>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -29,8 +34,15 @@ export function ResetPasswordForm({
     setBusy(true);
     setError(null);
     try {
+      if (mode === "link") {
+        const issued = await api.issuePasswordRecoveryInvitation(playerId, justification.trim());
+        setInvitation(issued);
+        onInvitationCreated();
+        toast(`Secure recovery invitation created for ${memberName}`);
+        return;
+      }
       const result = await api.resetPassword(playerId, justification.trim());
-      setPassword(result.credentials.password);
+      setCredentials(result.credentials);
       onCompleted(result.audit);
       toast(`${memberName}'s password was reset and audited`);
     } catch (err) {
@@ -40,22 +52,50 @@ export function ResetPasswordForm({
     }
   };
 
+  if (invitation) {
+    const url = `${window.location.origin}/join#${invitation.token}`;
+    const copyLink = async () => {
+      try {
+        await navigator.clipboard.writeText(url);
+        setCopied(true);
+      } catch {
+        setCopied(false);
+      }
+    };
+    return <section className="invite-credentials" aria-labelledby="recovery-ready-title">
+      <div className="success-mark" aria-hidden="true">✓</div>
+      <h2 id="recovery-ready-title">Recovery link ready</h2>
+      <p className="muted">Send this privately to {memberName}. Opening it does not require an email address.</p>
+      <div className="invite-link"><code>{url}</code></div>
+      <ul className="small muted">
+        <li>Expires {new Date(invitation.expiresAt).toLocaleString()}</li>
+        <li>Works once and is bound to Player ID {invitation.playerId}</li>
+        <li>The password changes only when {memberName} uses the link</li>
+      </ul>
+      <button type="button" className="btn btn-primary btn-block" onClick={() => void copyLink()}>{copied ? "Recovery link copied" : "Copy recovery link"}</button>
+      <button type="button" className="btn btn-quiet btn-block" onClick={onClose}>Done</button>
+    </section>;
+  }
+
   const copy = async () => {
-    if (!password) return;
+    if (!credentials) return;
     try {
-      await navigator.clipboard.writeText(password);
+      await navigator.clipboard.writeText(credentials.password);
       setCopied(true);
     } catch {
       setCopied(false);
     }
   };
 
-  if (password) return <section className="invite-credentials" aria-labelledby="reset-ready-title">
+  if (credentials) return <section className="invite-credentials" aria-labelledby="reset-ready-title">
     <div className="success-mark" aria-hidden="true">✓</div>
     <h2 id="reset-ready-title">Temporary password created</h2>
-    <p className="muted">Share it privately with {memberName}. It is shown only now. Their login name stays the same.</p>
+    <p className="muted">Share it privately with {memberName}. It is shown only now.</p>
+    {credentials.username && <div className="credential-row">
+      <span><small>Login name</small><code>{displayLoginName(credentials.username)}</code></span>
+    </div>}
     <div className="credential-row">
-      <span><small>Temporary password</small><code>{password}</code></span>
+      <span><small>Temporary password</small><code>{credentials.password}</code></span>
       <button type="button" className="btn btn-quiet btn-small" onClick={() => void copy()}>{copied ? "Copied" : "Copy"}</button>
     </div>
     <p className="banner banner-warn small">They must sign in within 7 days and choose a new private password.</p>
@@ -63,7 +103,15 @@ export function ResetPasswordForm({
   </section>;
 
   return <form className="form" onSubmit={submit}>
-    <p className="banner banner-warn">This immediately invalidates {memberName}'s current password. The officer, reason, time, and outcome are permanently audited.</p>
+    <div className="segmented" role="radiogroup" aria-label="Recovery method">
+      <button type="button" className={mode === "link" ? "selected" : ""} aria-pressed={mode === "link"} onClick={() => setMode("link")}>Recovery link</button>
+      <button type="button" className={mode === "direct" ? "selected" : ""} aria-pressed={mode === "direct"} onClick={() => setMode("direct")}>Officer reset</button>
+    </div>
+    <p className={`banner ${mode === "direct" ? "banner-warn" : "banner-info"}`}>
+      {mode === "link"
+        ? `Recommended: ${memberName} opens a private one-time link and receives their login and temporary password directly.`
+        : `This immediately invalidates ${memberName}'s current password. You must share the temporary password privately.`}
+    </p>
     <div className="field">
       <label htmlFor="reset-justification">Why is access being reset?</label>
       <textarea
@@ -77,8 +125,8 @@ export function ResetPasswordForm({
       <span className="hint">5–200 characters · never include a password</span>
     </div>
     {error && <p className="banner banner-error" role="alert">{error}</p>}
-    <button type="submit" className="btn btn-danger btn-block" disabled={busy || !ready}>
-      {busy ? "Resetting…" : "Reset password"}
+    <button type="submit" className={`btn ${mode === "link" ? "btn-primary" : "btn-danger"} btn-block`} disabled={busy || !ready}>
+      {busy ? (mode === "link" ? "Creating link…" : "Resetting…") : mode === "link" ? "Create 24-hour recovery link" : "Reset password now"}
     </button>
   </form>;
 }

@@ -6,12 +6,15 @@ export const ONBOARDING_TOKEN_BYTES = 32;
 
 export type OnboardingInviteStatus = "issued" | "redeeming" | "redeemed" | "failed";
 export type OnboardingLoginMethod = "email" | "password";
+export type OnboardingInvitePurpose = "onboarding" | "password_recovery";
 
 export interface OnboardingInvite {
   inviteId: string;
   playerId: string;
   playerName: string;
   status: OnboardingInviteStatus;
+  /** Missing on older records and therefore treated as onboarding. */
+  purpose?: OnboardingInvitePurpose;
   createdAt: string;
   createdBy: string;
   expiresAt: string;
@@ -20,6 +23,7 @@ export interface OnboardingInvite {
   redeemedAt?: string;
   failedAt?: string;
   failureCode?: string;
+  justification?: string;
 }
 
 /** A 256-bit bearer secret. Only its SHA-256 digest is persisted. */

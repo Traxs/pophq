@@ -46,6 +46,8 @@ export interface RosterRow extends GameAccount {
   hasLogin: boolean;
   /** How access is recovered; null for older or externally linked accounts. */
   loginMethod: "email" | "password" | null;
+  /** Friendly username for a password login; never a real email address. */
+  loginName?: string | null;
   /** Six trailing months, oldest first; null for a month with nothing to say. */
   powerTrend: (number | null)[];
   strengthTrend: (number | null)[];
@@ -156,6 +158,7 @@ export interface OnboardingInvitationAudit {
   playerId: string;
   playerName: string;
   status: "issued" | "redeeming" | "redeemed" | "failed";
+  purpose?: "onboarding" | "password_recovery";
   createdAt: string;
   createdBy: string;
   expiresAt: string;
@@ -163,10 +166,11 @@ export interface OnboardingInvitationAudit {
   redeemedAt?: string;
   failedAt?: string;
   failureCode?: string;
+  justification?: string;
 }
 
 export interface PasswordResetResult {
-  credentials: { password: string };
+  credentials: { username?: string; password: string };
   audit: AccessAuditRecord;
 }
 
@@ -176,12 +180,14 @@ export interface IssuedOnboardingInvitation {
   playerId: string;
   playerName: string;
   expiresAt: string;
+  purpose?: "onboarding" | "password_recovery";
 }
 
 export interface PublicOnboardingInvitation {
   playerId: string;
   playerName: string;
   expiresAt: string;
+  purpose: "onboarding" | "password_recovery";
 }
 
 export interface RedeemedOnboardingInvitation {
@@ -819,6 +825,8 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
     invite: (input: InviteInput) => request<InviteResult>("POST", "/invites", input),
     issueOnboardingInvitation: (input: { playerId: string; name: string; rank?: string }) =>
       request<IssuedOnboardingInvitation>("POST", "/onboarding-invitations", input),
+    issuePasswordRecoveryInvitation: (playerId: string, justification: string) =>
+      request<IssuedOnboardingInvitation>("POST", `/accounts/${playerId}/recovery-invitations`, { justification }),
     accessAudit: (playerId: string) => request<{ items: AccessAuditRecord[]; invitations: OnboardingInvitationAudit[] }>("GET", `/accounts/${playerId}/access-audit`),
     resetPassword: (playerId: string, justification: string) =>
       request<PasswordResetResult>("POST", `/accounts/${playerId}/password-reset`, { justification }),
@@ -947,5 +955,5 @@ export const inspectOnboardingInvitation = (token: string) =>
 
 export const redeemOnboardingInvitation = (
   token: string,
-  input: { method: "email"; email: string } | { method: "password"; loginName: string },
+  input: { method: "email"; email: string } | { method: "password"; loginName?: string },
 ) => publicRequest<RedeemedOnboardingInvitation>("POST", "/onboarding-invitations/redeem", { token, ...input });

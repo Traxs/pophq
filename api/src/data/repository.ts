@@ -222,7 +222,15 @@ export class Repository {
               ExpressionAttributeValues: WRITABLE_STATUSES,
             },
           },
-          {
+          invite.purpose === "password_recovery" ? {
+            Update: {
+              TableName: this.table,
+              Key: accountLinkLockKey(invite.playerId),
+              UpdateExpression: "SET activeRecoveryInviteId = :inviteId, activeRecoveryInviteExpiresAt = :expires REMOVE activeRecoveryInviteClaimedAt",
+              ConditionExpression: "attribute_exists(PK) AND loginMethod = :password AND attribute_not_exists(activeRecoveryInviteClaimedAt)",
+              ExpressionAttributeValues: { ":password": "password", ":inviteId": invite.inviteId, ":expires": invite.expiresAt },
+            },
+          } : {
             ConditionCheck: {
               TableName: this.table,
               Key: accountLinkLockKey(invite.playerId),
@@ -248,7 +256,11 @@ export class Repository {
     } catch (err) {
       const reasons = cancellationCodes(err);
       if (reasons?.[0] === "ConditionalCheckFailed") throw new ConflictError("This account is not active and cannot be invited.");
-      if (reasons?.[1] === "ConditionalCheckFailed") throw new ConflictError("This player already has POP HQ access.");
+      if (reasons?.[1] === "ConditionalCheckFailed") {
+        throw new ConflictError(invite.purpose === "password_recovery"
+          ? "Password recovery links are available only for password-based POP HQ access."
+          : "This player already has POP HQ access.");
+      }
       throw err;
     }
   }
@@ -302,7 +314,15 @@ export class Repository {
               },
             },
           },
-          {
+          invite.purpose === "password_recovery" ? {
+            Update: {
+              TableName: this.table,
+              Key: accountLinkLockKey(invite.playerId),
+              UpdateExpression: "SET activeRecoveryInviteClaimedAt = :at",
+              ConditionExpression: "attribute_exists(PK) AND loginMethod = :password AND activeRecoveryInviteId = :inviteId AND attribute_not_exists(activeRecoveryInviteClaimedAt)",
+              ExpressionAttributeValues: { ":password": "password", ":inviteId": invite.inviteId, ":at": at.toISOString() },
+            },
+          } : {
             ConditionCheck: {
               TableName: this.table,
               Key: accountLinkLockKey(invite.playerId),
@@ -346,6 +366,13 @@ export class Repository {
       TransactItems: [
         { Update: { TableName: this.table, Key: onboardingInviteTokenKey(tokenHash), ...common } },
         { Update: { TableName: this.table, Key: onboardingInviteAuditKey(invite.playerId, invite.inviteId), ...common } },
+        ...(invite.purpose === "password_recovery" ? [{ Update: {
+          TableName: this.table,
+          Key: accountLinkLockKey(invite.playerId),
+          UpdateExpression: "REMOVE activeRecoveryInviteId, activeRecoveryInviteExpiresAt, activeRecoveryInviteClaimedAt",
+          ConditionExpression: "activeRecoveryInviteId = :inviteId",
+          ExpressionAttributeValues: { ":inviteId": invite.inviteId },
+        } }] : []),
       ],
     }));
   }
@@ -372,7 +399,7 @@ export class Repository {
    * Links a game account to a login. One transaction: the account must exist, and the lock item
    * guarantees a Player ID is never linked to two logins, even under concurrent requests.
    */
-  async linkAccount(sub: string, playerId: string, actor: Actor, loginMethod?: LoginMethod): Promise<void> {
+  async linkAccount(sub: string, playerId: string, actor: Actor, loginMethod?: LoginMethod, loginIdentifier?: string): Promise<void> {
     if (!(await this.getAccount(playerId))) throw new NotFoundError(`Game account ${playerId} not found.`);
     const now = this.clock();
     const meta = newItemMeta(actor, now);
@@ -392,7 +419,7 @@ export class Repository {
             {
               Put: {
                 TableName: this.table,
-                Item: { ...accountLinkLockKey(id), type: "link-lock", sub, ...(loginMethod ? { loginMethod } : {}), ...meta },
+                Item: { ...accountLinkLockKey(id), type: "link-lock", sub, ...(loginMethod ? { loginMethod } : {}), ...(loginIdentifier ? { loginIdentifier } : {}), ...meta },
                 ConditionExpression: "attribute_not_exists(PK)",
               },
             },
@@ -1611,10 +1638,11 @@ export class Repository {
       }));
       if (sub) {
         const loginMethod = anchorAccess?.loginMethod ?? secondaryAccess?.loginMethod;
+        const loginIdentifier = anchorAccess?.loginIdentifier ?? secondaryAccess?.loginIdentifier;
         playerIds.forEach((id, index) => {
           if (access[index]) return;
           items.push(
-            { Put: { TableName: this.table, Item: { ...accountLinkLockKey(id), type: "link-lock", sub, ...(loginMethod ? { loginMethod } : {}), ...meta }, ConditionExpression: "attribute_not_exists(PK)" } },
+            { Put: { TableName: this.table, Item: { ...accountLinkLockKey(id), type: "link-lock", sub, ...(loginMethod ? { loginMethod } : {}), ...(loginIdentifier ? { loginIdentifier } : {}), ...meta }, ConditionExpression: "attribute_not_exists(PK)" } },
             { Put: { TableName: this.table, Item: { ...loginLinkKey(sub, id), GSI1PK: `ACCOUNT#${id}`, GSI1SK: `LOGIN#${sub}`, type: "login-link", sub, playerId: id, ...meta }, ConditionExpression: "attribute_not_exists(PK)" } },
           );
         });
@@ -1764,13 +1792,34 @@ export class Repository {
   }
 
   /** Login metadata used for officer access management. The subject never leaves the API. */
-  async linkedLoginAccess(playerId: string): Promise<{ sub: string; loginMethod: LoginMethod | null } | undefined> {
+  async linkedLoginAccess(playerId: string): Promise<{ sub: string; loginMethod: LoginMethod | null; loginIdentifier?: string; activeRecoveryInviteId?: string } | undefined> {
     const res = await this.db.send(new GetCommand({ TableName: this.table, Key: accountLinkLockKey(playerId), ConsistentRead: true }));
     if (typeof res.Item?.sub !== "string") return undefined;
     const loginMethod = res.Item.loginMethod === "email" || res.Item.loginMethod === "password"
       ? res.Item.loginMethod
       : null;
-    return { sub: res.Item.sub, loginMethod };
+    return {
+      sub: res.Item.sub,
+      loginMethod,
+      ...(typeof res.Item.loginIdentifier === "string" ? { loginIdentifier: res.Item.loginIdentifier } : {}),
+      ...(typeof res.Item.activeRecoveryInviteId === "string" ? { activeRecoveryInviteId: res.Item.activeRecoveryInviteId } : {}),
+    };
+  }
+
+  /** Backfills the non-secret sign-in mapping after recovery of a legacy password login. */
+  async rememberLoginIdentifier(playerId: string, sub: string, loginIdentifier: string, actor: Actor): Promise<void> {
+    const group = await this.identityGroup(playerId);
+    const linked = group?.playerIds ?? await this.linkedAccounts(sub);
+    const playerIds = linked.length > 0 ? linked : [playerId];
+    const at = this.clock().toISOString();
+    await Promise.all(playerIds.map((id) => this.db.send(new UpdateCommand({
+      TableName: this.table,
+      Key: accountLinkLockKey(id),
+      UpdateExpression: "SET loginIdentifier = :identifier, updatedAt = :at, updatedBy = :by",
+      ConditionExpression: "#sub = :sub",
+      ExpressionAttributeNames: { "#sub": "sub" },
+      ExpressionAttributeValues: { ":identifier": loginIdentifier, ":at": at, ":by": actor.id, ":sub": sub },
+    }))));
   }
 
   /** Starts an auditable password reset before Cognito is changed. */
@@ -2647,6 +2696,8 @@ function toOnboardingInvite(item: Record<string, unknown>): OnboardingInvite {
     createdBy: String(item.createdBy),
     expiresAt: String(item.expiresAt),
     expiresAtEpoch: typeof item.expiresAtEpoch === "number" ? item.expiresAtEpoch : Math.floor(Date.parse(String(item.expiresAt)) / 1000),
+    ...(item.purpose === "onboarding" || item.purpose === "password_recovery" ? { purpose: item.purpose } : {}),
+    ...(typeof item.justification === "string" ? { justification: item.justification } : {}),
     ...(item.method === "email" || item.method === "password" ? { method: item.method } : {}),
     ...(typeof item.redeemedAt === "string" ? { redeemedAt: item.redeemedAt } : {}),
     ...(typeof item.failedAt === "string" ? { failedAt: item.failedAt } : {}),

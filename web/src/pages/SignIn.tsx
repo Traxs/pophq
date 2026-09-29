@@ -2,13 +2,13 @@ import { useState, type FormEvent } from "react";
 import { DEV_PERSONAS } from "../auth";
 import { initials } from "../format";
 import { cognitoLoginIdentifier } from "../loginNames";
-import { signIn } from "../session";
+import { signIn, signInWithIdentifier } from "../session";
 
 export function SignIn() {
   const [login, setLogin] = useState("");
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (login.trim()) void signIn(undefined, "/", cognitoLoginIdentifier(login));
+    if (login.trim()) signInWithIdentifier(cognitoLoginIdentifier(login), "/");
   };
   return (
     <main className="signin">

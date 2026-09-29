@@ -8,7 +8,7 @@ export async function resetMemberPassword(
   { repo, logins, actor }: { repo: Repository; logins: LoginDirectory; actor: Actor },
   playerId: string,
   justification: string,
-): Promise<{ credentials: { password: string }; audit: AccessAuditRecord }> {
+): Promise<{ credentials: { username?: string; password: string }; audit: AccessAuditRecord }> {
   if (!(await repo.getAccount(playerId))) throw new NotFoundError(`Game account ${playerId} not found.`);
   const access = await repo.linkedLoginAccess(playerId);
   if (!access) throw new NotFoundError("This member does not have a sign-in.");
@@ -27,5 +27,9 @@ export async function resetMemberPassword(
     throw error;
   }
   const audit = await repo.finishPasswordReset(playerId, requested.auditId, "completed", actor);
-  return { credentials, audit };
+  const username = access.loginIdentifier ?? await logins.identifierFor?.(access.sub);
+  if (username && !access.loginIdentifier) {
+    await repo.rememberLoginIdentifier(playerId, access.sub, username, actor).catch(() => undefined);
+  }
+  return { credentials: { ...(username ? { username } : {}), password: credentials.password }, audit };
 }

@@ -123,6 +123,7 @@ export function MemberPage({ playerId }: { playerId: string }) {
           playerId={row.playerId}
           memberName={row.name}
           onCompleted={(audit) => setAccessAudit((items) => [audit, ...items.filter((item) => item.auditId !== audit.auditId)])}
+          onInvitationCreated={dataChanged}
           onClose={() => setResettingPassword(false)}
         />
       </Sheet>
@@ -179,6 +180,7 @@ export function MemberPage({ playerId }: { playerId: string }) {
               Reset password
             </button>}
           </div>
+          {row.loginMethod === "password" && row.loginName && <p className="muted">Login name: <strong>{row.loginName}</strong></p>}
           {row.loginMethod === "email" && <p className="muted">This member signs in with emailed codes; there is no password to reset.</p>}
           {row.loginMethod === null && <p className="muted">The sign-in method predates access tracking. Reset is disabled until it is verified.</p>}
           {accessAudit.length === 0 ? <p className="muted">No password resets recorded.</p> : <ul className="detail-list access-audit-list">
@@ -195,9 +197,10 @@ export function MemberPage({ playerId }: { playerId: string }) {
             <h3>Invitation history</h3>
             <ul className="detail-list access-audit-list">{invitationAudit.map((invite) => <li key={invite.inviteId}>
               <span>
-                <strong>Onboarding invitation {invite.status}</strong>
+                <strong>{invite.purpose === "password_recovery" ? "Recovery invitation" : "Onboarding invitation"} {invite.status}</strong>
                 <span className="muted small">Created {new Date(invite.createdAt).toLocaleString()} · expires {new Date(invite.expiresAt).toLocaleString()}</span>
                 {invite.method && <span className="small">Selected {invite.method === "email" ? "email code" : "login and password"}</span>}
+                {invite.justification && <span className="small">{invite.justification}</span>}
               </span>
               <span className={`badge ${invite.status === "failed" ? "badge-none" : ""}`}>{invite.status}</span>
             </li>)}</ul>
