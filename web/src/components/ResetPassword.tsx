@@ -26,6 +26,7 @@ export function ResetPasswordForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedRecovery, setCopiedRecovery] = useState<"message" | "link" | null>(null);
   const ready = justification.trim().length >= 5 && justification.trim().length <= 200;
 
   const submit = async (event: FormEvent) => {
@@ -54,12 +55,16 @@ export function ResetPasswordForm({
 
   if (invitation) {
     const url = `${window.location.origin}/join#${invitation.token}`;
-    const copyLink = async () => {
+    const message = `This is your POP HQ recovery link for ${memberName}.\n\nOpen this private link within 24 hours:\n${url}\n\nIt works once. Tap Continue to copy the temporary password, paste it into Cognito, then choose your own password.`;
+    const copyRecovery = async (kind: "message" | "link", value: string, success: string) => {
       try {
-        await navigator.clipboard.writeText(url);
-        setCopied(true);
+        await navigator.clipboard.writeText(value);
+        setCopiedRecovery(kind);
+        setError(null);
+        toast(success);
       } catch {
-        setCopied(false);
+        setCopiedRecovery(null);
+        setError("Your browser blocked copying. Select and copy the recovery link manually.");
       }
     };
     return <section className="invite-credentials" aria-labelledby="recovery-ready-title">
@@ -72,7 +77,9 @@ export function ResetPasswordForm({
         <li>Works once and is bound to Player ID {invitation.playerId}</li>
         <li>The password changes only when {memberName} uses the link</li>
       </ul>
-      <button type="button" className="btn btn-primary btn-block" onClick={() => void copyLink()}>{copied ? "Recovery link copied" : "Copy recovery link"}</button>
+      {error && <p className="banner banner-error" role="alert">{error}</p>}
+      <button type="button" className="btn btn-primary btn-block" onClick={() => void copyRecovery("message", message, `Recovery message copied for ${memberName}`)}>{copiedRecovery === "message" ? "Recovery message copied" : "Copy recovery message"}</button>
+      <button type="button" className="btn btn-quiet btn-block" onClick={() => void copyRecovery("link", url, "Recovery link copied")}>{copiedRecovery === "link" ? "Recovery link copied" : "Copy link only"}</button>
       <button type="button" className="btn btn-quiet btn-block" onClick={onClose}>Done</button>
     </section>;
   }
