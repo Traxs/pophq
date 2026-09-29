@@ -106,7 +106,6 @@ function HeroCard({ latest, previous, series }: { latest: PowerPoint; previous?:
 }
 
 const STAT_LABELS: [string, string][] = [
-  ["hero_power_total", "Hero power"],
   ["furnace_level", "Furnace"],
   ["troop_level_infantry", "Infantry troops"],
   ["helios_infantry", "Infantry Helios"],
@@ -194,7 +193,6 @@ function ReportForm({
     return typeof v === "number" ? formatDigitsInput(String(v)) : "";
   };
   const [power, setPower] = useState(initialNumber("city_power"));
-  const [hero, setHero] = useState(initialNumber("hero_power_total"));
   const [furnace, setFurnace] = useState(String(current.furnace_level?.value ?? ""));
   const [furnaceTouched, setFurnaceTouched] = useState(false);
   const furnaceInvalid = furnace.trim() !== "" && !isValidLevel(furnace);
@@ -228,8 +226,6 @@ function ReportForm({
       return;
     }
     const values: { metric: string; value: string | number }[] = [{ metric: "city_power", value: powerValue }];
-    const heroValue = parseDigits(hero);
-    if (heroValue !== undefined) values.push({ metric: "hero_power_total", value: heroValue });
     if (furnace.trim()) values.push({ metric: "furnace_level", value: furnace.trim() });
     values.push(...troopValues(troops));
     setBusy(true);
@@ -265,18 +261,6 @@ function ReportForm({
         <span id="f-power-hint" className="hint">
           From your profile screen in game.
         </span>
-      </div>
-
-      <div className="field">
-        <label htmlFor="f-hero">Total hero power</label>
-        <input
-          id="f-hero"
-          inputMode="numeric"
-          autoComplete="off"
-          value={hero}
-          onChange={(e) => setHero(formatDigitsInput(e.target.value))}
-          placeholder="Optional"
-        />
       </div>
 
       <div className="field">
