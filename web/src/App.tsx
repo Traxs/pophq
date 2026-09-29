@@ -14,6 +14,7 @@ import { Svs } from "./pages/Svs";
 import { BuffDetail, Buffs } from "./pages/Buffs";
 import { SignIn } from "./pages/SignIn";
 import { Join } from "./pages/Join";
+import { GuestMinistry } from "./pages/GuestMinistry";
 import { usePath } from "./router";
 import { SessionProvider, useAuth, useSession } from "./session";
 
@@ -23,6 +24,9 @@ export function App() {
 
   if (auth.status === "loading") return <div className="boot" aria-busy="true" />;
   if (path === "/join") return <Join />;
+  if (path === "/ministry/manage") return <GuestMinistry manage />;
+  if (path === "/ministry") return <GuestMinistry />;
+  if (path.startsWith("/ministry/")) return <GuestMinistry roundId={decodeURIComponent(path.slice("/ministry/".length))} />;
   if (auth.status === "signedOut") return <SignIn />;
   return (
     <ToastProvider>

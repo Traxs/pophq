@@ -21,7 +21,7 @@ import { ErrorBanner } from "../components/Chrome";
 import { LineChart } from "../components/LineChart";
 import { useToast } from "../components/Toast";
 import { MiniChart } from "../components/MiniChart";
-import { compact, dayTime, full, relativeDay, shortDate, shortTime, untilText } from "../format";
+import { compact, dayTime, eventDayTime, eventTime, full, relativeDay, shortDate, untilText } from "../format";
 import { countDraft, draftFor, entriesToPublish, type LineupDraftRow } from "../lineup";
 import { navigate } from "../router";
 import { useSession } from "../session";
@@ -143,8 +143,8 @@ export function EventPage({ eventId }: { eventId: string }) {
         <h1 className="page-title">{event.title}</h1>
       </div>
       <p className="muted">
-        {dayTime(event.startsAt)} ·{" "}
-        {completed ? "event completed" : event.closed ? "answers closed" : `answers close ${untilText(event.deadlineAt)} (${dayTime(event.deadlineAt)})`}
+        {eventDayTime(event.startsAt)} ·{" "}
+        {completed ? "event completed" : event.closed ? "answers closed" : `answers close ${untilText(event.deadlineAt)} (${eventDayTime(event.deadlineAt)})`}
       </p>
       {event.closed && !completed && isOfficer && (
         <p className="banner banner-warn">
@@ -571,7 +571,7 @@ function SessionCard({
     <article className={`card session${joined ? " session-joined" : ""}`}>
       <div className="event-head">
         <h2 className="event-title">
-          {session.label} · {shortTime(session.startsAt)}
+          {session.label} · {eventTime(session.startsAt)}
         </h2>
         {canAnswer && (
           <button type="button" className={joined ? "btn btn-quiet btn-small" : "btn btn-primary btn-small"} disabled={closed || busy !== null} onClick={onJoin}>

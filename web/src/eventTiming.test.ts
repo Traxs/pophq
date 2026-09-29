@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { halfSpan, halvesFor, leadDaysOf, nextUtcNoon, previewDeadlineHours, toLocalInput } from "./eventTiming";
+import { halfSpan, halvesFor, leadDaysOf, nextUtcNoon, previewDeadlineHours, toUtcInput, utcInputDate } from "./eventTiming";
 
 describe("leadDaysOf", () => {
   it("recognises a Foundry closing three days before", () => {
@@ -48,12 +48,19 @@ describe("halvesFor", () => {
 describe("nextUtcNoon", () => {
   it("is today's 12:00 UTC while it is still ahead", () => {
     // 09:00 UTC, so noon has not happened yet.
-    expect(nextUtcNoon(new Date("2026-10-05T09:00:00Z"))).toBe(toLocalInput("2026-10-05T12:00:00Z"));
+    expect(nextUtcNoon(new Date("2026-10-05T09:00:00Z"))).toBe(toUtcInput("2026-10-05T12:00:00Z"));
   });
 
   it("rolls to tomorrow once today's has passed", () => {
-    expect(nextUtcNoon(new Date("2026-10-05T12:00:00Z"))).toBe(toLocalInput("2026-10-06T12:00:00Z"));
-    expect(nextUtcNoon(new Date("2026-10-05T23:30:00Z"))).toBe(toLocalInput("2026-10-06T12:00:00Z"));
+    expect(nextUtcNoon(new Date("2026-10-05T12:00:00Z"))).toBe(toUtcInput("2026-10-06T12:00:00Z"));
+    expect(nextUtcNoon(new Date("2026-10-05T23:30:00Z"))).toBe(toUtcInput("2026-10-06T12:00:00Z"));
+  });
+});
+
+describe("UTC event inputs", () => {
+  it("round-trips the wall clock without applying the device timezone", () => {
+    expect(toUtcInput("2026-10-04T19:00:00Z")).toBe("2026-10-04T19:00");
+    expect(utcInputDate("2026-10-04T19:00").toISOString()).toBe("2026-10-04T19:00:00.000Z");
   });
 });
 

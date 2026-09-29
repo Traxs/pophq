@@ -1,222 +1,160 @@
-import { useEffect, useState } from "react";
-import { ApiError, type BuffDayView, type SvsRoundDetail } from "../api";
+import { useEffect, useMemo, useState } from "react";
+import { ApiError, type BuffDayView, type MinistryBooking, type MinistrySlotProtection, type SvsRoundDetail } from "../api";
 import { ErrorBanner } from "../components/Chrome";
 import { useToast } from "../components/Toast";
-import {
-  draftFrom,
-  rankOf,
-  setAnyTime,
-  setUnavailable,
-  slotLabel,
-  spillsOver,
-  summarise,
-  toPayload,
-  toggleSlot,
-  MAX_PREFERENCES_PER_DAY,
-  SLOTS_PER_DAY,
-  type DayDraft,
-} from "../buffSlots";
-import { dayTime, shortDate, untilText } from "../format";
+import { shortDate } from "../format";
 import { navigate } from "../router";
 import { useSession } from "../session";
 
 const BUFF_LABEL: Record<string, string> = {
-  construction: "Construction",
-  research: "Research",
-  training: "Training",
+  construction: "Vice President · Construction",
+  research: "Vice President · Research",
+  training: "Minister of Education · Troop training",
 };
 
-/** One Ministry registration: when you could take an SvS buff on each day (BUF-02). */
 export function Svs({ roundId }: { roundId: string }) {
-  const { api, account, dataVersion, dataChanged } = useSession();
-  const [round, setRound] = useState<SvsRoundDetail | null>(null);
-  const [drafts, setDrafts] = useState<DayDraft[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  const { api, account, isOfficer, dataVersion, dataChanged } = useSession();
+  const [round, setRound] = useState<SvsRoundDetail>();
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
   const toast = useToast();
 
   useEffect(() => {
-    api
-      .svsRound(roundId)
-      .then((r) => {
-        setRound(r);
-        setDrafts(draftFrom(r.days, r.yourPreferences));
-        setError(null);
-      })
-      .catch((e: Error) => setError(e.message));
+    api.svsRound(roundId).then(setRound).catch((reason: Error) => setError(reason.message));
   }, [api, roundId, dataVersion]);
 
   if (error && !round) return <ErrorBanner message={error} onRetry={() => navigate("/")} />;
-  if (!round) return <div className="card skeleton" style={{ height: 220 }} />;
+  if (!round) return <div className="card skeleton" style={{ height: 260 }} />;
 
-  const open = round.state === "collecting";
-  const update = (dayId: string, fn: (d: DayDraft) => DayDraft) =>
-    setDrafts((current) => current.map((d) => (d.dayId === dayId ? fn(d) : d)));
-
-  const save = async () => {
-    if (!account) return;
-    setSaving(true);
-    setError(null);
+  const book = async (dayId: string, slot: number) => {
+    setBusy(true);
+    setError(undefined);
     try {
-      await api.saveBuffPreferences(round.roundId, account.playerId, toPayload(drafts));
-      toast("Your buff times are saved");
+      await api.bookMinistrySlot(roundId, dayId, slot);
+      toast("Your Ministry appointment is booked");
       dataChanged();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Couldn't save your times.");
+    } catch (reason) {
+      setError(reason instanceof ApiError ? reason.message : "Couldn't book that time.");
     } finally {
-      setSaving(false);
+      setBusy(false);
     }
   };
 
-  return (
-    <>
-      <button type="button" className="text-btn" onClick={() => navigate("/")}>
-        ‹ Home
-      </button>
+  const cancel = async (booking: MinistryBooking) => {
+    setBusy(true);
+    try {
+      await api.cancelMinistryBooking(booking);
+      toast("Appointment cancelled");
+      dataChanged();
+    } catch (reason) {
+      setError(reason instanceof ApiError ? reason.message : "Couldn't cancel that appointment.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
-      <div className="page-head">
+  return <>
+    <button type="button" className="text-btn" onClick={() => navigate("/")}>‹ Home</button>
+    <div className="page-head ministry-title-row">
+      <div>
+        <span className="section-label">Two-week Ministry term</span>
         <h1 className="page-title">{round.label}</h1>
+        <p className="muted">{dateRange(round.term.startsOn, round.term.endsOn)} · times shown in your local time</p>
       </div>
-      <p className="muted">
-        {open
-          ? `Times close ${untilText(round.preferenceDeadline)} (${dayTime(round.preferenceDeadline)})`
-          : round.state === "planning"
-            ? "Times are closed. Officers are assigning the slots."
-            : round.state === "published"
-              ? "The plan is published."
-              : "This round is over."}
-        {" · "}
-        {round.answeredBy} {round.answeredBy === 1 ? "person has" : "people have"} answered
-      </p>
-      <p className="event-notes">SvS Ministry scheduling · Construction, Research and Training buffs</p>
-
-      {error && (
-        <p className="banner banner-error" role="alert">
-          {error}
-        </p>
-      )}
-      {!account && <p className="banner banner-warn">An officer has to link your game account before you can answer.</p>}
-
-      <ul className="stack">
-        {round.days.map((day) => {
-          const draft = drafts.find((d) => d.dayId === day.id);
-          if (!draft) return null;
-          return (
-            <li key={day.id}>
-              <DayCard
-                day={day}
-                draft={draft}
-                open={open && account !== undefined}
-                onToggle={(slot) => update(day.id, (d) => toggleSlot(d, slot))}
-                onAnyTime={(on) => update(day.id, (d) => setAnyTime(d, on))}
-                onUnavailable={(on) => update(day.id, (d) => setUnavailable(d, on))}
-              />
-            </li>
-          );
-        })}
-      </ul>
-
-      {open && account && (
-        <button type="button" className="btn btn-primary btn-block" disabled={saving} onClick={() => void save()}>
-          {saving ? "Saving…" : "Save my times"}
-        </button>
-      )}
-    </>
-  );
+      <span className="pill pill-up">Booking open</span>
+    </div>
+    {error && <p className="banner banner-error" role="alert">{error}</p>}
+    {!account && <p className="banner banner-warn">Choose a linked POP account before booking.</p>}
+    <section className="ministry-explainer card">
+      <strong>Pick a free time and it is yours.</strong>
+      <span className="muted">Occupied appointments are hidden. Each account can hold one appointment per Ministry day.</span>
+    </section>
+    {isOfficer && <RallyLeadProtection round={round} disabled={busy} onSave={async (protections) => {
+      setBusy(true);
+      try { await api.setMinistryProtections(roundId, protections); toast("Rally-lead times updated"); dataChanged(); }
+      catch (reason) { setError(reason instanceof ApiError ? reason.message : "Couldn't reserve those times."); }
+      finally { setBusy(false); }
+    }} />}
+    <div className="stack ministry-days">
+      {round.days.map((day) => {
+        const booking = round.yourBookings.find((item) => item.dayId === day.id);
+        return <MinistryDayCard key={day.id} day={day} {...(booking ? { booking } : {})} disabled={busy || !account} onBook={book} onCancel={cancel} />;
+      })}
+    </div>
+    <a className="card ministry-guest-share" href={`/ministry/${round.roundId}`}>
+      <span><strong>Booking for another alliance?</strong><span className="muted small">Open the guest form or share this page.</span></span>
+      <span className="chevron">›</span>
+    </a>
+  </>;
 }
 
-function DayCard({
-  day,
-  draft,
-  open,
-  onToggle,
-  onAnyTime,
-  onUnavailable,
-}: {
+function MinistryDayCard({ day, booking, disabled, onBook, onCancel }: {
   day: BuffDayView;
-  draft: DayDraft;
-  open: boolean;
-  onToggle: (slot: number) => void;
-  onAnyTime: (on: boolean) => void;
-  onUnavailable: (on: boolean) => void;
+  booking?: MinistryBooking;
+  disabled: boolean;
+  onBook: (dayId: string, slot: number) => Promise<void>;
+  onCancel: (booking: MinistryBooking) => Promise<void>;
 }) {
-  const full = draft.slots.length >= MAX_PREFERENCES_PER_DAY;
-  const busiest = Math.max(1, ...day.demand);
-
-  return (
-    <article className="card stack">
-      <div className="event-head">
-        <h2 className="event-title">
-          {BUFF_LABEL[day.buff] ?? day.buff} · {shortDate(day.startsAt)}
-        </h2>
+  const [period, setPeriod] = useState<"morning" | "afternoon" | "evening">("evening");
+  const slots = useMemo(() => (day.freeSlots ?? []).filter((slot) => periodOf(day, slot) === period), [day, period]);
+  return <section className="card ministry-day-card">
+    <div className="event-head">
+      <div><h2 className="event-title">{BUFF_LABEL[day.buff] ?? day.buff}</h2><p className="muted">{shortDate(day.startsAt)}</p></div>
+      {booking && <span className="pill pill-up">Booked</span>}
+    </div>
+    {booking ? <div className="ministry-confirmed">
+      <div><span className="section-label">Your appointment</span><strong>{slotDateTime(day, booking.slot)}</strong><span className="muted small">UTC {utcTime(day, booking.slot)} · reminder delivery is coming later</span></div>
+      <button type="button" className="btn btn-quiet btn-small" disabled={disabled} onClick={() => void onCancel(booking)}>Cancel</button>
+    </div> : <>
+      <div className="ministry-periods" role="tablist" aria-label="Time of day">
+        {(["morning", "afternoon", "evening"] as const).map((value) => <button key={value} type="button" aria-selected={period === value} onClick={() => setPeriod(value)}>{value[0]!.toUpperCase() + value.slice(1)}</button>)}
       </div>
-      <p className="muted small">{summarise(draft, day)}</p>
-
-      <div className="row-actions">
-        <button
-          type="button"
-          className={draft.anyTime ? "btn btn-primary btn-small" : "btn btn-quiet btn-small"}
-          disabled={!open}
-          aria-pressed={draft.anyTime}
-          onClick={() => onAnyTime(!draft.anyTime)}
-        >
-          Any time works
-        </button>
-        <button
-          type="button"
-          className={draft.unavailable ? "btn btn-primary btn-small" : "btn btn-quiet btn-small"}
-          disabled={!open}
-          aria-pressed={draft.unavailable}
-          onClick={() => onUnavailable(!draft.unavailable)}
-        >
-          Can't this day
-        </button>
-      </div>
-
-      {!draft.unavailable && !draft.anyTime && (
-        <>
-          <p className="muted small">
-            Pick up to {MAX_PREFERENCES_PER_DAY} times, best first. Times are in your time zone;
-            <strong> +1</strong> means it falls on the next day where you are.
-            {full && <strong> That's three — tap one again to change it.</strong>}
-          </p>
-          <div className="slot-grid">
-            {Array.from({ length: SLOTS_PER_DAY }, (_, slot) => {
-              const rank = rankOf(draft, slot);
-              const wanted = day.demand[slot] ?? 0;
-              return (
-                <button
-                  key={slot}
-                  type="button"
-                  className={rank ? "slot slot-picked" : "slot"}
-                  disabled={!open}
-                  aria-pressed={rank !== undefined}
-                  aria-label={`${slotLabel(day, slot)}${spillsOver(day, slot) ? " next day" : ""}, ${wanted} ${wanted === 1 ? "person wants" : "people want"} this time`}
-                  onClick={() => onToggle(slot)}
-                >
-                  <span className="slot-time">
-                    {slotLabel(day, slot)}
-                    {/* East of UTC the later slots land on the next local day; saying so stops
-                        someone picking Tuesday 01:00 while thinking of Monday. */}
-                    {spillsOver(day, slot) && <span className="slot-next">+1</span>}
-                  </span>
-                  {rank && <span className="slot-rank">{rank}</span>}
-                  {/* Demand as a quiet bar: a member can aim for an hour nobody else wants. */}
-                  <span className="slot-demand" style={{ opacity: wanted === 0 ? 0 : 0.25 + (wanted / busiest) * 0.75 }} />
-                </button>
-              );
-            })}
-          </div>
-        </>
-      )}
-
-      {(day.anyTime > 0 || day.unavailable > 0) && (
-        <p className="muted small">
-          {day.anyTime > 0 && `${day.anyTime} flexible`}
-          {day.anyTime > 0 && day.unavailable > 0 && " · "}
-          {day.unavailable > 0 && `${day.unavailable} can't make it`}
-        </p>
-      )}
-    </article>
-  );
+      {slots.length > 0 ? <div className="ministry-free-slots">
+        {slots.map((slot) => <button key={slot} type="button" className={(day.prioritySlots ?? []).includes(slot) ? "ministry-priority-slot" : ""} disabled={disabled} onClick={() => void onBook(day.id, slot)}><strong>{localTime(day, slot)}</strong><span>{(day.prioritySlots ?? []).includes(slot) ? "Rally lead priority" : "Free"}</span></button>)}
+      </div> : <p className="ministry-no-slots muted">No free times in this part of the day.</p>}
+    </>}
+  </section>;
 }
+
+function RallyLeadProtection({ round, disabled, onSave }: { round: SvsRoundDetail; disabled: boolean; onSave: (protections: MinistrySlotProtection[]) => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [dayId, setDayId] = useState(round.days[0]?.id ?? "");
+  const [from, setFrom] = useState(36);
+  const [to, setTo] = useState(39);
+  const [label, setLabel] = useState("Special event rally leads");
+  const [players, setPlayers] = useState("");
+  const [release, setRelease] = useState("");
+  const protections = round.protections ?? [];
+  if (!open) return <button type="button" className="text-btn ministry-protection-toggle" onClick={() => setOpen(true)}>Manage rally-lead priority times{protections.length ? ` (${protections.length})` : ""}</button>;
+  const day = round.days.find((item) => item.id === dayId) ?? round.days[0]!;
+  const ids = players.split(/[,\s]+/).map((value) => value.trim()).filter(Boolean);
+  const canAdd = label.trim().length >= 3 && ids.length > 0 && release && from <= to;
+  const add = async () => {
+    if (!canAdd) return;
+    await onSave([...protections, { protectionId: crypto.randomUUID(), dayId, slots: Array.from({ length: to - from + 1 }, (_, index) => from + index), label: label.trim(), eligiblePlayerIds: ids, releasesAt: new Date(release).toISOString() }]);
+  };
+  return <section className="card stack ministry-protection-manager">
+    <div className="event-head"><div><h2 className="event-title">Rally-lead priority times</h2><p className="muted small">Hidden from everyone else until the release time, then automatically public.</p></div><button type="button" className="text-btn" onClick={() => setOpen(false)}>Close</button></div>
+    {protections.map((protection) => <div key={protection.protectionId} className="ministry-protection-row"><span><strong>{protection.label}</strong><small>{protection.eligiblePlayerIds.length} eligible · releases {new Date(protection.releasesAt).toLocaleString()}</small></span><button type="button" className="text-btn danger" disabled={disabled} onClick={() => void onSave(protections.filter((item) => item.protectionId !== protection.protectionId))}>Remove</button></div>)}
+    <div className="ministry-protection-form">
+      <label className="field"><span>Ministry day</span><select value={dayId} onChange={(event) => setDayId(event.target.value)}>{round.days.map((item) => <option key={item.id} value={item.id}>{BUFF_LABEL[item.buff]}</option>)}</select></label>
+      <label className="field"><span>From</span><select value={from} onChange={(event) => setFrom(Number(event.target.value))}>{Array.from({ length: 48 }, (_, slot) => <option key={slot} value={slot}>{localTime(day, slot)}</option>)}</select></label>
+      <label className="field"><span>Through</span><select value={to} onChange={(event) => setTo(Number(event.target.value))}>{Array.from({ length: 48 }, (_, slot) => <option key={slot} value={slot}>{localTime(day, slot)}</option>)}</select></label>
+      <label className="field ministry-protection-wide"><span>Reason shown to eligible players</span><input value={label} maxLength={80} onChange={(event) => setLabel(event.target.value)} /></label>
+      <label className="field ministry-protection-wide"><span>Eligible rally-lead Player IDs</span><input value={players} onChange={(event) => setPlayers(event.target.value)} placeholder="Separate IDs with commas" /></label>
+      <label className="field ministry-protection-wide"><span>Release to everyone</span><input type="datetime-local" value={release} onChange={(event) => setRelease(event.target.value)} /></label>
+    </div>
+    <button type="button" className="btn btn-primary btn-small" disabled={disabled || !canAdd} onClick={() => void add()}>Protect these times</button>
+  </section>;
+}
+
+export const slotInstant = (day: Pick<BuffDayView, "startsAt">, slot: number) => new Date(Date.parse(day.startsAt) + slot * 30 * 60_000);
+export const localTime = (day: Pick<BuffDayView, "startsAt">, slot: number) => slotInstant(day, slot).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+export const utcTime = (day: Pick<BuffDayView, "startsAt">, slot: number) => slotInstant(day, slot).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
+export const slotDateTime = (day: Pick<BuffDayView, "startsAt">, slot: number) => slotInstant(day, slot).toLocaleString([], { weekday: "long", hour: "2-digit", minute: "2-digit" });
+const periodOf = (day: Pick<BuffDayView, "startsAt">, slot: number) => {
+  const hour = slotInstant(day, slot).getHours();
+  return hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
+};
+export const ministryDateRange = (start: string, end: string) => `${new Date(`${start}T12:00:00Z`).toLocaleDateString([], { day: "numeric", month: "short" })}–${new Date(`${end}T12:00:00Z`).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" })}`;
+const dateRange = ministryDateRange;

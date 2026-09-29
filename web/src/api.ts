@@ -669,6 +669,56 @@ export interface BuffDayView {
   demand: number[];
   anyTime: number;
   unavailable: number;
+  /** Only currently claimable slots. Occupied identities are never exposed. */
+  freeSlots?: number[];
+  prioritySlots?: number[];
+}
+export interface MinistrySlotProtection {
+  protectionId: string;
+  dayId: string;
+  slots: number[];
+  label: string;
+  eligiblePlayerIds: string[];
+  releasesAt: string;
+}
+
+export interface MinistryTermRange { startsOn: string; endsOn: string }
+export interface MinistryBooking {
+  bookingId: string;
+  roundId: string;
+  dayId: string;
+  slot: number;
+  kind: "member" | "guest";
+  playerId: string;
+  playerName: string;
+  alliance: string;
+  createdAt: string;
+}
+
+export interface PublicMinistryDay {
+  id: string;
+  buff: Buff;
+  date: string;
+  startsAt: string;
+  endsAt: string;
+  freeSlots: number[];
+}
+
+export interface PublicMinistryTerm {
+  roundId: string;
+  label: string;
+  alliance: string;
+  term: MinistryTermRange;
+  state: RoundState;
+  days: PublicMinistryDay[];
+}
+
+export interface GuestMinistryBookingView {
+  booking: MinistryBooking;
+  token?: string;
+  term: MinistryTermRange;
+  day: { id: string; buff: Buff; date: string };
+  manageUntil: string;
 }
 
 export interface DayPreferenceInput {
@@ -689,12 +739,17 @@ export interface SvsRoundListItem {
   /** Whether the account you are acting as has answered. */
   answered: boolean;
   days: { id: string; buff: Buff; date: string }[];
+  term?: MinistryTermRange;
+  nextBooking?: MinistryBooking & { startsAt: string; buff: Buff };
 }
 
 export interface SvsRoundDetail extends Omit<SvsRoundListItem, "days" | "answered"> {
   days: BuffDayView[];
   answeredBy: number;
   yourPreferences: DayPreferenceInput[] | null;
+  term: MinistryTermRange;
+  yourBookings: MinistryBooking[];
+  protections?: MinistrySlotProtection[];
 }
 
 export interface NewEvent {
@@ -900,6 +955,12 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
     svsRound: (roundId: string) => request<SvsRoundDetail>("GET", `/svs-rounds/${roundId}`),
     saveBuffPreferences: (roundId: string, playerId: string, days: DayPreferenceInput[]) =>
       request<{ days: DayPreferenceInput[] }>("PUT", `/svs-rounds/${roundId}/preferences/${playerId}`, { days }),
+    bookMinistrySlot: (roundId: string, dayId: string, slot: number) =>
+      request<MinistryBooking>("POST", `/svs-rounds/${roundId}/bookings`, { dayId, slot }),
+    cancelMinistryBooking: (booking: Pick<MinistryBooking, "roundId" | "dayId" | "slot">) =>
+      request<{ cancelled: boolean }>("DELETE", `/svs-rounds/${booking.roundId}/bookings/${encodeURIComponent(booking.dayId)}/${booking.slot}`),
+    setMinistryProtections: (roundId: string, protections: MinistrySlotProtection[]) =>
+      request<{ protections: MinistrySlotProtection[] }>("PUT", `/svs-rounds/${roundId}/protections`, { protections }),
     publishLineup: (
       eventId: string,
       sessionId: string,
@@ -957,3 +1018,14 @@ export const redeemOnboardingInvitation = (
   token: string,
   input: { method: "email"; email: string } | { method: "password"; loginName?: string },
 ) => publicRequest<RedeemedOnboardingInvitation>("POST", "/onboarding-invitations/redeem", { token, ...input });
+
+export const publicMinistryTerms = () =>
+  publicRequest<{ items: PublicMinistryTerm[] }>("GET", "/ministry/public/terms");
+export const publicMinistryTerm = (roundId: string) =>
+  publicRequest<PublicMinistryTerm>("GET", `/ministry/public/terms/${encodeURIComponent(roundId)}`);
+export const bookGuestMinistrySlot = (roundId: string, input: { playerId: string; playerName: string; alliance: string; dayId: string; slot: number }) =>
+  publicRequest<GuestMinistryBookingView & { token: string }>("POST", `/ministry/public/terms/${encodeURIComponent(roundId)}/book`, input);
+export const inspectGuestMinistryBooking = (token: string) =>
+  publicRequest<GuestMinistryBookingView>("POST", "/ministry/public/manage", { token });
+export const cancelGuestMinistryBooking = (token: string) =>
+  publicRequest<{ cancelled: boolean }>("POST", "/ministry/public/manage/cancel", { token });

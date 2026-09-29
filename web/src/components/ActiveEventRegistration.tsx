@@ -1,5 +1,5 @@
 import type { EventKind, EventListItem } from "../api";
-import { dayTime, untilText } from "../format";
+import { eventDayTime, untilText } from "../format";
 
 const KIND_LABELS: Record<EventKind, string> = {
   foundry: "Foundry",
@@ -63,7 +63,7 @@ export function ActiveEventRail({ events, onOpen }: { events: readonly EventList
             <button type="button" onClick={() => onOpen(event.eventId)}>
               <span>
                 <strong>{KIND_LABELS[event.kind]}</strong>
-                <small>{dayTime(event.startsAt)}</small>
+                <small>{eventDayTime(event.startsAt)}</small>
               </span>
               <span className={`active-event-status ${event.myAnswer === null ? "active-event-status-open" : "active-event-status-done"}`}>
                 {event.myAnswer === null ? "Respond" : event.myAnswer === "no" ? "Not attending" : "Answered"}

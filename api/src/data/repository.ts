@@ -18,7 +18,7 @@ import type { KudosAward } from "../domain/kudos.js";
 import { DEFAULT_REWARD_VALUATIONS, type FortressBuffAssignment, type FortressBuffPool } from "../domain/fortressBuffs.js";
 import type { Checklist } from "../domain/checklists.js";
 import type { Lineup } from "../domain/lineups.js";
-import type { SlotPreferences, SvsRound } from "../domain/svs.js";
+import type { MinistryBooking, MinistrySlotProtection, SlotPreferences, SvsRound } from "../domain/svs.js";
 import type { Strategy } from "../domain/strategy.js";
 import type { EventResult } from "../domain/results.js";
 import type { AgentTokenRecord } from "../domain/agentTokens.js";
@@ -64,6 +64,10 @@ import {
   seatKey,
   strategyKey,
   svsPreferencesKey,
+  ministryBookingKey,
+  ministryBookingAuditKey,
+  ministryBookerKey,
+  ministryGuestTokenKey,
   svsRoundIndexKey,
   svsRoundKey,
 } from "./keys.js";
@@ -1965,6 +1969,21 @@ export class Repository {
     return res.Item ? toRound(res.Item) : undefined;
   }
 
+  async setMinistryProtections(roundId: string, protections: MinistrySlotProtection[], actor: Actor): Promise<void> {
+    try {
+      await this.db.send(new UpdateCommand({
+        TableName: this.table,
+        Key: svsRoundKey(roundId),
+        UpdateExpression: "SET protections = :protections, updatedAt = :now, updatedBy = :actor ADD version :one",
+        ConditionExpression: "attribute_exists(PK)",
+        ExpressionAttributeValues: { ":protections": protections, ":now": this.clock().toISOString(), ":actor": actor.id, ":one": 1 },
+      }));
+    } catch (error) {
+      if (error instanceof ConditionalCheckFailedException) throw new NotFoundError("Ministry term not found.");
+      throw error;
+    }
+  }
+
   /** Rounds of an alliance whose first buff day is on or after `from`, earliest first. */
   async listRounds(alliance: string, from: string, limit = 20): Promise<SvsRound[]> {
     const items = await this.queryAll({
@@ -2042,6 +2061,91 @@ export class Repository {
       ExpressionAttributeValues: { ":pk": `SVS#${roundId}`, ":sk": "PREF#" },
     });
     return items.map(toPreferences);
+  }
+
+  async listMinistryBookings(roundId: string): Promise<MinistryBooking[]> {
+    const items = await this.queryAll({
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+      ExpressionAttributeValues: { ":pk": `SVS#${roundId}`, ":sk": "BOOKING#" },
+    });
+    return items.map(toMinistryBooking);
+  }
+
+  async getMinistryBooking(roundId: string, dayId: string, slot: number): Promise<MinistryBooking | undefined> {
+    const result = await this.db.send(new GetCommand({ TableName: this.table, Key: ministryBookingKey(roundId, dayId, slot) }));
+    return result.Item ? toMinistryBooking(result.Item) : undefined;
+  }
+
+  async getMinistryBookingByGuestToken(tokenHash: string): Promise<MinistryBooking | undefined> {
+    const token = await this.db.send(new GetCommand({ TableName: this.table, Key: ministryGuestTokenKey(tokenHash) }));
+    if (!token.Item) return undefined;
+    return this.getMinistryBooking(String(token.Item.roundId), String(token.Item.dayId), Number(token.Item.slot));
+  }
+
+  /** Slot and per-day claimant locks are written together, preventing races and duplicate claims. */
+  async claimMinistryBooking(booking: MinistryBooking, actor: Actor, guestTokenHash?: string): Promise<void> {
+    const meta = newItemMeta(actor, this.clock());
+    const transaction: NonNullable<ConstructorParameters<typeof TransactWriteCommand>[0]["TransactItems"]> = [
+      { ConditionCheck: { TableName: this.table, Key: svsRoundKey(booking.roundId), ConditionExpression: "attribute_exists(PK)" } },
+      { Put: {
+        TableName: this.table,
+        Item: { ...ministryBookingKey(booking.roundId, booking.dayId, booking.slot), type: "ministry-booking", ...booking, ...meta },
+        ConditionExpression: "attribute_not_exists(PK)",
+      } },
+      { Put: {
+        TableName: this.table,
+        Item: { ...ministryBookingAuditKey(booking.roundId, booking.bookingId), type: "ministry-booking-audit", action: "booked", booking, reason: actor.reason, ...meta },
+        ConditionExpression: "attribute_not_exists(PK)",
+      } },
+      { Put: {
+        TableName: this.table,
+        Item: { ...ministryBookerKey(booking.roundId, booking.dayId, booking.bookerKey), type: "ministry-booker", bookingId: booking.bookingId, slot: booking.slot, ...meta },
+        ConditionExpression: "attribute_not_exists(PK)",
+      } },
+    ];
+    if (guestTokenHash) transaction.push({ Put: {
+      TableName: this.table,
+      Item: { ...ministryGuestTokenKey(guestTokenHash), type: "ministry-guest-token", roundId: booking.roundId, dayId: booking.dayId, slot: booking.slot, ...meta },
+      ConditionExpression: "attribute_not_exists(PK)",
+    } });
+    try {
+      await this.db.send(new TransactWriteCommand({ TransactItems: transaction }));
+    } catch (error) {
+      if (cancellationCodes(error)?.some((code) => code === "ConditionalCheckFailed")) {
+        throw new ConflictError("That time was just taken, or you already have a booking for this Ministry day.");
+      }
+      throw error;
+    }
+  }
+
+  async cancelMinistryBooking(booking: MinistryBooking, actor: Actor, guestTokenHash?: string): Promise<void> {
+    const meta = newItemMeta(actor, this.clock());
+    const transaction: NonNullable<ConstructorParameters<typeof TransactWriteCommand>[0]["TransactItems"]> = [
+      { Delete: {
+        TableName: this.table,
+        Key: ministryBookingKey(booking.roundId, booking.dayId, booking.slot),
+        ConditionExpression: "bookerKey = :booker",
+        ExpressionAttributeValues: { ":booker": booking.bookerKey },
+      } },
+      { Put: {
+        TableName: this.table,
+        Item: { ...ministryBookingAuditKey(booking.roundId, `${booking.bookingId}#CANCELLED`), type: "ministry-booking-audit", action: "cancelled", booking, reason: actor.reason, ...meta },
+        ConditionExpression: "attribute_not_exists(PK)",
+      } },
+      { Delete: {
+        TableName: this.table,
+        Key: ministryBookerKey(booking.roundId, booking.dayId, booking.bookerKey),
+      } },
+    ];
+    if (guestTokenHash) transaction.push({ Delete: { TableName: this.table, Key: ministryGuestTokenKey(guestTokenHash) } });
+    try {
+      await this.db.send(new TransactWriteCommand({ TransactItems: transaction }));
+    } catch (error) {
+      if (cancellationCodes(error)?.some((code) => code === "ConditionalCheckFailed")) {
+        throw new ConflictError("This booking has already changed.");
+      }
+      throw error;
+    }
   }
 
   // ---- Distributable Fortress rewards ----
@@ -2454,6 +2558,7 @@ function toRound(item: Record<string, unknown>): SvsRound {
     createdBy: String(item.createdBy),
   };
   if (item.publishedAt) round.publishedAt = String(item.publishedAt);
+  if (Array.isArray(item.protections)) round.protections = item.protections as NonNullable<SvsRound["protections"]>;
   return round;
 }
 
@@ -2464,6 +2569,23 @@ function toPreferences(item: Record<string, unknown>): SlotPreferences {
     days: Array.isArray(item.days) ? (item.days as SlotPreferences["days"]) : [],
     updatedAt: String(item.updatedAt),
   };
+}
+
+function toMinistryBooking(item: Record<string, unknown>): MinistryBooking {
+  const booking: MinistryBooking = {
+    bookingId: String(item.bookingId),
+    roundId: String(item.roundId),
+    dayId: String(item.dayId),
+    slot: Number(item.slot),
+    kind: item.kind as MinistryBooking["kind"],
+    bookerKey: String(item.bookerKey),
+    playerId: String(item.playerId),
+    playerName: String(item.playerName),
+    alliance: String(item.alliance),
+    createdAt: String(item.createdAt),
+  };
+  if (item.notification) booking.notification = item.notification as NonNullable<MinistryBooking["notification"]>;
+  return booking;
 }
 
 function toKudos(item: Record<string, unknown>): KudosAward {

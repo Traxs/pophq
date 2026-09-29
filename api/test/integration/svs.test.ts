@@ -66,6 +66,74 @@ describe("SvS rounds and preferences", () => {
     expect(days[2]!.unavailable).toBe(1);
   });
 
+  it("lets a POP member claim a free slot immediately and hides it from availability", async () => {
+    const claim = await h.call("POST", `/svs-rounds/${roundId}/bookings`, {
+      ...PLAYER,
+      body: { dayId: "construction", slot: 30 },
+    });
+    expect(claim.status).toBe(201);
+    expect(claim.body).toMatchObject({ playerId: "100000001", kind: "member", dayId: "construction", slot: 30 });
+
+    const detail = await h.call("GET", `/svs-rounds/${roundId}`, PLAYER);
+    expect(detail.body.term).toBeTruthy();
+    expect(detail.body.yourBookings).toEqual([expect.objectContaining({ slot: 30 })]);
+    const construction = (detail.body.days as { id: string; freeSlots: number[] }[]).find((day) => day.id === "construction")!;
+    expect(construction.freeSlots).not.toContain(30);
+
+    const duplicate = await h.call("POST", `/svs-rounds/${roundId}/bookings`, {
+      ...PLAYER,
+      body: { dayId: "construction", slot: 31 },
+    });
+    expect(duplicate.status).toBe(409);
+  });
+
+  it("hides protected rally-lead times from guests while allowing an eligible lead to claim", async () => {
+    const protection = {
+      protectionId: "special-event-leads",
+      dayId: "research",
+      slots: [34],
+      label: "Special event rally leads",
+      eligiblePlayerIds: ["100000001"],
+      releasesAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    };
+    expect((await h.call("PUT", `/svs-rounds/${roundId}/protections`, { ...OFFICER, body: { protections: [protection] } })).status).toBe(200);
+
+    const guest = await h.call("GET", `/ministry/public/terms/${roundId}`);
+    const guestDay = (guest.body.days as { id: string; freeSlots: number[] }[]).find((day) => day.id === "research")!;
+    expect(guestDay.freeSlots).not.toContain(34);
+
+    const member = await h.call("GET", `/svs-rounds/${roundId}`, PLAYER);
+    const memberDay = (member.body.days as { id: string; freeSlots: number[]; prioritySlots: number[] }[]).find((day) => day.id === "research")!;
+    expect(memberDay.freeSlots).toContain(34);
+    expect(memberDay.prioritySlots).toContain(34);
+    expect((await h.call("POST", `/svs-rounds/${roundId}/bookings`, { ...PLAYER, body: { dayId: "research", slot: 34 } })).status).toBe(201);
+  });
+
+  it("supports a login-free guest booking and private return link without exposing identities", async () => {
+    const publicBefore = await h.call("GET", `/ministry/public/terms/${roundId}`);
+    expect(publicBefore.status).toBe(200);
+    expect(JSON.stringify(publicBefore.body)).not.toContain("100000001");
+
+    const claim = await h.call("POST", `/ministry/public/terms/${roundId}/book`, {
+      body: { playerId: "987654321", playerName: "State Guest", alliance: "ICE", dayId: "research", slot: 32 },
+    });
+    expect(claim.status).toBe(201);
+    expect(claim.body.token).toMatch(/^[A-Za-z0-9_-]{40,60}$/);
+
+    const managed = await h.call("POST", "/ministry/public/manage", { body: { token: claim.body.token } });
+    expect(managed.status).toBe(200);
+    expect(managed.body.booking).toMatchObject({ playerName: "State Guest", alliance: "ICE", slot: 32 });
+
+    const publicAfter = await h.call("GET", `/ministry/public/terms/${roundId}`);
+    expect(JSON.stringify(publicAfter.body)).not.toContain("State Guest");
+    const research = (publicAfter.body.days as { id: string; freeSlots: number[] }[]).find((day) => day.id === "research")!;
+    expect(research.freeSlots).not.toContain(32);
+
+    const cancelled = await h.call("POST", "/ministry/public/manage/cancel", { body: { token: claim.body.token } });
+    expect(cancelled.status).toBe(200);
+    expect((await h.call("POST", "/ministry/public/manage", { body: { token: claim.body.token } })).status).toBe(404);
+  });
+
   it("replaces the previous answer rather than adding to it", async () => {
     await h.call("PUT", `/svs-rounds/${roundId}/preferences/100000001`, {
       ...PLAYER,

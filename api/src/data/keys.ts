@@ -141,6 +141,26 @@ export const svsPreferencesKey = (roundId: string, playerId: string) => ({
   SK: `PREF#${playerId}`,
 });
 
+/** One claimed Ministry slot. Slot and claimant locks make double-booking impossible. */
+export const ministryBookingKey = (roundId: string, dayId: string, slot: number) => ({
+  PK: `SVS#${roundId}`,
+  SK: `BOOKING#${dayId}#${String(slot).padStart(2, "0")}`,
+});
+export const ministryBookerKey = (roundId: string, dayId: string, bookerKey: string) => ({
+  PK: `SVS#${roundId}`,
+  SK: `BOOKER#${dayId}#${bookerKey}`,
+});
+
+/** Guest management links resolve through a digest; the bearer secret is never stored. */
+export const ministryGuestTokenKey = (tokenHash: string) => ({
+  PK: `MINISTRY_GUEST#${tokenHash}`,
+  SK: "META",
+});
+export const ministryBookingAuditKey = (roundId: string, auditId: string) => ({
+  PK: `SVS#${roundId}`,
+  SK: `BOOKING_AUDIT#${auditId}`,
+});
+
 /** Kudos are immutable awards on an account, newest last by ULID. */
 export const kudosKey = (playerId: string, awardId: string) => ({
   PK: `ACCOUNT#${playerId}`,

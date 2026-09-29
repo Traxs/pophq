@@ -81,6 +81,31 @@ const timeFmt = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2
 /** Just the clock time, for a second session on the same day. */
 export const shortTime = (iso: string): string => timeFmt.format(new Date(iso));
 
+const eventDayTimeFmt = new Intl.DateTimeFormat("en-GB", {
+  weekday: "short",
+  day: "numeric",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+  timeZone: "UTC",
+  timeZoneName: "short",
+});
+
+const eventTimeFmt = new Intl.DateTimeFormat("en-GB", {
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+  timeZone: "UTC",
+  timeZoneName: "short",
+});
+
+/** Game event date and time in the alliance's shared UTC clock. */
+export const eventDayTime = (iso: string): string => eventDayTimeFmt.format(new Date(iso));
+
+/** Game event clock time in UTC, including the label so it cannot be mistaken for device time. */
+export const eventTime = (iso: string): string => eventTimeFmt.format(new Date(iso));
+
 export function initials(name: string): string {
   const caps = name.match(/\p{Lu}/gu);
   if (caps && caps.length >= 2) return (caps[0]! + caps[1]!).toUpperCase();

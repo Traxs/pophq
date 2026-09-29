@@ -5,7 +5,7 @@ import type { AllianceEvent } from "./api";
 export function previewDeadline(startsAt: Date, leadDays: number): Date {
   if (leadDays <= 0) return new Date(startsAt.getTime() - 60 * 60 * 1000);
   const day = new Date(startsAt.getTime() - leadDays * 24 * 60 * 60 * 1000);
-  day.setHours(23, 59, 59, 999);
+  day.setUTCHours(23, 59, 59, 999);
   return day;
 }
 
@@ -14,11 +14,12 @@ export function previewDeadlineHours(startsAt: Date, leadHours: number): Date {
   return new Date(startsAt.getTime() - leadHours * 60 * 60 * 1000);
 }
 
-/** "2026-09-20T19:00:00Z" as the value a datetime-local input expects, in local time. */
-export function toLocalInput(iso: string): string {
-  const d = new Date(iso);
-  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60 * 1000);
-  return local.toISOString().slice(0, 16);
+/** "2026-09-20T19:00:00Z" as the wall-clock value shown by a UTC datetime input. */
+export const toUtcInput = (iso: string): string => new Date(iso).toISOString().slice(0, 16);
+
+/** A timezone-less datetime input interpreted as UTC rather than as the browser's timezone. */
+export function utcInputDate(value: string): Date {
+  return new Date(`${value}:00.000Z`);
 }
 
 /** How many whole days before the start an existing event closes; used to prefill the form. */
@@ -35,34 +36,29 @@ export function leadDaysOf(event: Pick<AllianceEvent, "startsAt" | "deadlineAt">
 export const DEFAULT_EVENT_HOURS = 6;
 export const HALF_IDS = ["full", "first", "last"] as const;
 
-export function halvesFor(startLocalInput: string, hours: number): { id: string; label: string; startsAt: string }[] {
-  const start = new Date(startLocalInput);
-  if (!startLocalInput || Number.isNaN(start.getTime())) {
+export function halvesFor(startUtcInput: string, hours: number): { id: string; label: string; startsAt: string }[] {
+  const start = utcInputDate(startUtcInput);
+  if (!startUtcInput || Number.isNaN(start.getTime())) {
     return HALF_IDS.map((id, i) => ({ id, label: HALF_LABELS[i]!, startsAt: "" }));
   }
   const midpoint = new Date(start.getTime() + (hours / 2) * 60 * 60 * 1000);
   return [
-    { id: "full", label: "Full time", startsAt: startLocalInput },
-    { id: "first", label: "First half", startsAt: startLocalInput },
-    { id: "last", label: "Last half", startsAt: localInputOf(midpoint) },
+    { id: "full", label: "Full time", startsAt: startUtcInput },
+    { id: "first", label: "First half", startsAt: startUtcInput },
+    { id: "last", label: "Last half", startsAt: toUtcInput(midpoint.toISOString()) },
   ];
 }
 
 const HALF_LABELS = ["Full time", "First half", "Last half"];
 
-/** A Date as the value a datetime-local input expects, in local time. */
-export function localInputOf(date: Date): string {
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60 * 1000).toISOString().slice(0, 16);
-}
-
 /**
- * The next 12:00 UTC that has not happened yet, as a local input value. SvS, KOI and FDT start there,
+ * The next 12:00 UTC that has not happened yet, as a UTC input value. SvS, KOI and FDT start there,
  * so an officer scheduling one only has to change the date.
  */
 export function nextUtcNoon(now: Date = new Date()): string {
   const noon = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12, 0, 0, 0));
   if (noon.getTime() <= now.getTime()) noon.setUTCDate(noon.getUTCDate() + 1);
-  return localInputOf(noon);
+  return toUtcInput(noon.toISOString());
 }
 
 /**

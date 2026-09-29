@@ -181,6 +181,9 @@ export function SessionProvider({
       createSvsRound: guard(inner.createSvsRound),
       svsRound: guard(inner.svsRound),
       saveBuffPreferences: guard(inner.saveBuffPreferences),
+      bookMinistrySlot: guard(inner.bookMinistrySlot),
+      cancelMinistryBooking: guard(inner.cancelMinistryBooking),
+      setMinistryProtections: guard(inner.setMinistryProtections),
       publishStrategy: guard(inner.publishStrategy),
       recordResult: guard(inner.recordResult),
     };

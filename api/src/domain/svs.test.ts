@@ -91,9 +91,10 @@ describe("roundState", () => {
     expect(roundState(round(), new Date("2026-10-01T00:00:00Z"))).toBe("collecting");
     expect(roundState(round(), new Date("2026-10-04T23:59:59.999Z"))).toBe("planning");
     expect(roundState(round({ publishedAt: "2026-10-05T06:00:00Z" }), new Date("2026-10-05T07:00:00Z"))).toBe("published");
-    // Closed once the last buff day is over, published or not.
-    expect(roundState(round({ publishedAt: "2026-10-05T06:00:00Z" }), new Date("2026-10-09T00:00:00Z"))).toBe("closed");
-    expect(roundState(round(), new Date("2026-10-09T00:00:00Z"))).toBe("closed");
+    // The booking term remains live for two weeks, even after its configured buff days.
+    expect(roundState(round({ publishedAt: "2026-10-05T06:00:00Z" }), new Date("2026-10-09T00:00:00Z"))).toBe("published");
+    expect(roundState(round({ publishedAt: "2026-10-05T06:00:00Z" }), new Date("2026-10-19T00:00:00Z"))).toBe("closed");
+    expect(roundState(round(), new Date("2026-10-19T00:00:00Z"))).toBe("closed");
   });
 });
 

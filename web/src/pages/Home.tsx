@@ -3,9 +3,10 @@ import { ApiError, type CurrentRewardCycle, type EventListItem, type KudosSummar
 import { MemberKudosCard } from "../components/MemberKudos";
 import { MemberRewardCards } from "../components/MemberRewards";
 import { RecentPerformance } from "../components/RecentPerformance";
-import { HomeRegistrationPrompt } from "../components/ActiveEventRegistration";
+import { HomePriorities } from "../components/HomePriorities";
 import { useToast } from "../components/Toast";
-import { change, compact, daysBetween, relativeDay, untilText } from "../format";
+import { change, compact, daysBetween, relativeDay } from "../format";
+import { homePriorities } from "../homePriority";
 import { navigate } from "../router";
 import { REPORT_DUE_DAYS } from "../rules";
 import { useSession } from "../session";
@@ -15,10 +16,12 @@ import { ChangePill } from "./Power";
 
 export function Home() {
   const { me, account, api, isOfficer, dataVersion } = useSession();
-  const { latest, previous, loading } = usePower();
+  const { reports, latest, previous, loading, error: powerError } = usePower();
   const [registrationEvents, setRegistrationEvents] = useState<EventListItem[] | null | undefined>(undefined);
   const [recentEvents, setRecentEvents] = useState<EventListItem[] | null | undefined>(undefined);
-  const [round, setRound] = useState<SvsRoundListItem | null>(null);
+  const [round, setRound] = useState<SvsRoundListItem | null | undefined>(undefined);
+  const [officerJobs, setOfficerJobs] = useState<OfficerJob[] | null | undefined>(undefined);
+  const [clock, setClock] = useState(() => new Date());
 
   useEffect(() => {
     api
@@ -35,11 +38,25 @@ export function Home() {
   }, [api, dataVersion]);
 
   useEffect(() => {
+    if (!isOfficer) {
+      setOfficerJobs(null);
+      return;
+    }
+    setOfficerJobs(undefined);
+    api.officerJobs().then((result) => setOfficerJobs(result.items)).catch(() => setOfficerJobs([]));
+  }, [api, dataVersion, isOfficer]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
     api
       .svsRounds()
       .then((r) => {
         // The round that still wants an answer comes first; otherwise the next one running.
-        const live = r.items.filter((x) => x.state === "collecting" || x.state === "published");
+        const live = r.items.filter((x) => x.state !== "closed");
         setRound(live.toSorted((a, b) => Number(b.state === "collecting") - Number(a.state === "collecting"))[0] ?? null);
       })
       .catch(() => setRound(null));
@@ -50,88 +67,40 @@ export function Home() {
   const age = latest ? daysBetween(new Date(latest.effectiveAt), new Date()) : undefined;
   const due = age === undefined || age >= REPORT_DUE_DAYS;
   const delta = latest ? change(latest.power, previous?.power) : undefined;
+  const powerLoaded = !loading && (reports !== null || powerError !== null);
+  const prioritiesLoading = registrationEvents === undefined || round === undefined || !powerLoaded || (isOfficer && officerJobs === undefined);
+  const priorities = homePriorities({
+    events: registrationEvents ?? [],
+    round: round ?? null,
+    ...(latest ? { latestPowerAt: latest.effectiveAt } : {}),
+    powerLoaded,
+    officerJobs: officerJobs ?? [],
+    now: clock,
+  });
 
   return (
     <>
       <h1 className="page-title">{account ? `Hi, ${account.name}` : " "}</h1>
+      <HomePriorities candidates={priorities} loading={prioritiesLoading} onOpen={navigate} />
 
-      <section aria-labelledby="todo-title" className="stack">
-        <h2 id="todo-title" className="section-label">
-          To do
-        </h2>
-        <HomeRegistrationPrompt events={registrationEvents} onOpen={() => navigate("/events")} />
-        {loading && !latest ? (
-          <div className="card skeleton" style={{ height: 88 }} />
-        ) : due ? (
-          <button type="button" className="card todo todo-due" onClick={() => navigate("/power?update=1")}>
-            <span className="todo-icon" aria-hidden="true">
-              !
-            </span>
-            <span className="todo-text">
-              <strong>{latest ? "Power report due" : "Submit your first power report"}</strong>
-              <span className="muted">
-                {latest ? `Last one was ${relativeDay(latest.effectiveAt)}.` : "Takes 30 seconds."}
-              </span>
-            </span>
-            <span className="chevron" aria-hidden="true">
-              ›
-            </span>
-          </button>
-        ) : (
-          <div className="card todo todo-done">
-            <span className="todo-icon" aria-hidden="true">
-              ✓
-            </span>
-            <span className="todo-text">
-              <strong>Power report up to date</strong>
-              <span className="muted">
-                Last one {relativeDay(latest!.effectiveAt)}. Next due in {REPORT_DUE_DAYS - (age ?? 0)} days.
-              </span>
-            </span>
-          </div>
-        )}
-      </section>
-
-      <MemberRewards />
-
-      <MemberKudos />
-
-      <RecentPerformance
-        events={recentEvents}
-        onOpen={(eventId) => navigate(`/events/${eventId}`)}
-        onAllHistory={() => navigate("/events?history=1")}
-      />
-
-      {latest && (
-        <button type="button" className="card summary" onClick={() => navigate("/power")}>
+      <section className="home-dashboard-section stack" aria-labelledby="your-status-title">
+        <h2 id="your-status-title" className="section-label">Your status</h2>
+        <MemberRewards />
+        <MemberKudos />
+        {latest && <button type="button" className="card summary" onClick={() => navigate("/power")}>
           <span className="summary-label">Power</span>
           <span className="summary-value">{compact(latest.power)}</span>
+          <span className="muted small">Reported {relativeDay(latest.effectiveAt)}{!due ? ` · next update in ${REPORT_DUE_DAYS - (age ?? 0)} days` : " · update due"}</span>
           {delta && <ChangePill change={delta} since={previous!.effectiveAt} />}
-        </button>
-      )}
+        </button>}
+      </section>
 
-      {round && (
-        <button type="button" className="card todo-row" onClick={() => navigate(`/svs/${round.roundId}`)}>
-          <span className={round.state === "collecting" && !round.answered ? "todo-mark todo-open" : "todo-mark todo-done"} aria-hidden="true">
-            {round.state === "collecting" && !round.answered ? "?" : "✓"}
-          </span>
-          <span className="todo-text">
-            <strong>{round.label}</strong>
-            <span className="muted">
-              {round.state === "collecting"
-                ? round.answered
-                  ? `Your Ministry times are registered · you can change them, closes ${untilText(round.preferenceDeadline)}`
-                  : `Register your Ministry buff times · closes ${untilText(round.preferenceDeadline)}`
-                : "Ministry schedule published"}
-            </span>
-          </span>
-          <span className="chevron" aria-hidden="true">
-            ›
-          </span>
-        </button>
-      )}
+      <section className="home-dashboard-section stack" aria-labelledby="your-progress-title">
+        <h2 id="your-progress-title" className="section-label">Your progress</h2>
+        <RecentPerformance events={recentEvents} onOpen={(eventId) => navigate(`/events/${eventId}`)} onAllHistory={() => navigate("/events?history=1")} />
+      </section>
 
-      {isOfficer && <OfficerJobs />}
+      {isOfficer && <OfficerJobs jobs={officerJobs ?? []} />}
 
       {!round && isOfficer && <NewRoundCard />}
     </>
@@ -178,20 +147,11 @@ function MemberRewards() {
  * What an officer still has to do (the legacy checklist, with times). Their own events first,
  * then everyone else's, so nothing quietly belongs to nobody.
  */
-function OfficerJobs() {
-  const { api, dataVersion, dataChanged } = useSession();
-  const [jobs, setJobs] = useState<OfficerJob[] | null>(null);
+function OfficerJobs({ jobs }: { jobs: OfficerJob[] }) {
+  const { api, dataChanged } = useSession();
   const [busy, setBusy] = useState<string | null>(null);
   const toast = useToast();
-
-  useEffect(() => {
-    api
-      .officerJobs()
-      .then((r) => setJobs(r.items))
-      .catch(() => setJobs([]));
-  }, [api, dataVersion]);
-
-  if (!jobs || jobs.length === 0) return null;
+  if (jobs.length === 0) return null;
   const mine = jobs.filter((j) => j.mine);
   const others = jobs.filter((j) => !j.mine);
 
@@ -288,15 +248,15 @@ function NewRoundCard() {
         New Ministry registration
       </h2>
       <p className="muted small">
-        Open registration for the SvS Construction, Research and Training Ministry buffs on
-        Monday, Tuesday and Thursday. Members then choose their preferred half-hour time slots.
+        Open a two-week Ministry term. POP members claim free half-hour appointments immediately;
+        guests use the public booking link and provide their Player ID, name and alliance.
       </p>
       <label className="field">
         <span>Name</span>
         <input value={label} maxLength={60} placeholder="Ministry · SvS week 41" onChange={(e) => setLabel(e.target.value)} />
       </label>
       <label className="field">
-        <span>Monday of the SvS week</span>
+        <span>First Monday of the two-week term</span>
         <input type="date" value={weekStart} onChange={(e) => setWeekStart(e.target.value)} />
       </label>
       {error && (

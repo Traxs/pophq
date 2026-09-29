@@ -37,6 +37,15 @@ import {
   BUFF_KUDOS_WEIGHT,
   BUFF_STRENGTH_WEIGHT,
   buffScore,
+  ministryGuestTokenHash,
+  ministryTerm,
+  newGuestSecret,
+  parseGuestBooking,
+  parseMinistryProtections,
+  parseSlotClaim,
+  validateClaim,
+  type MinistryBooking,
+  type SvsRound,
 } from "../domain/svs.js";
 import { parseStrategy } from "../domain/strategy.js";
 import { parseEventResult, type EventResult } from "../domain/results.js";
@@ -623,6 +632,109 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
   }
 
   app.get("/health", (c) => c.json({ status: "ok" }));
+
+  const ministryDayView = (round: SvsRound, bookings: readonly MinistryBooking[], playerId?: string) =>
+    round.days.map((day) => {
+      const taken = new Set(bookings.filter((booking) => booking.dayId === day.id).map((booking) => booking.slot));
+      const activeProtections = (round.protections ?? []).filter((protection) => protection.dayId === day.id && Date.parse(protection.releasesAt) > now().getTime());
+      const protectedForOthers = new Set(activeProtections
+        .filter((protection) => !playerId || !protection.eligiblePlayerIds.includes(playerId))
+        .flatMap((protection) => protection.slots));
+      const prioritySlots = activeProtections
+        .filter((protection) => playerId && protection.eligiblePlayerIds.includes(playerId))
+        .flatMap((protection) => protection.slots);
+      return {
+        ...day,
+        startsAt: slotStartsAt(day, 0),
+        endsAt: dayEndsAt(day),
+        freeSlots: Array.from({ length: SLOTS_PER_DAY }, (_, slot) => slot)
+          .filter((slot) => !taken.has(slot) && !protectedForOthers.has(slot) && Date.parse(slotStartsAt(day, slot)) > now().getTime()),
+        prioritySlots,
+      };
+    });
+
+  const publicMinistryRound = async (roundId: string) => {
+    const round = await repo.getRound(roundId);
+    if (!round) throw new NotFoundError("Ministry term not found.");
+    const bookings = await repo.listMinistryBookings(round.roundId);
+    return {
+      roundId: round.roundId,
+      label: round.label,
+      alliance: round.alliance,
+      term: ministryTerm(round),
+      state: roundState(round, now()),
+      days: ministryDayView(round, bookings),
+    };
+  };
+  const guestManageUntil = (round: SvsRound) => {
+    const { endsOn } = ministryTerm(round);
+    return new Date(Date.parse(`${endsOn}T00:00:00.000Z`) + 8 * 24 * 60 * 60 * 1000).toISOString();
+  };
+
+  /** Public guest surface exposes only open times—never another player's booking or identity. */
+  app.get("/ministry/public/terms", async (c) => {
+    const from = new Date(now().getTime() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const rounds = await repo.listRounds("POP", from);
+    const items = await Promise.all(rounds
+      .filter((round) => ministryTerm(round).endsOn >= now().toISOString().slice(0, 10))
+      .map((round) => publicMinistryRound(round.roundId)));
+    return c.json({ items });
+  });
+
+  app.get("/ministry/public/terms/:id", async (c) => c.json(await publicMinistryRound(c.req.param("id"))));
+
+  app.post("/ministry/public/terms/:id/book", async (c) => {
+    const input = parseGuestBooking(await readJson(c.req.raw));
+    const round = await repo.getRound(c.req.param("id"));
+    if (!round) throw new NotFoundError("Ministry term not found.");
+    validateClaim(round, input, now());
+    if ((round.protections ?? []).some((protection) => protection.dayId === input.dayId && protection.slots.includes(input.slot) && Date.parse(protection.releasesAt) > now().getTime())) {
+      throw new ConflictError("That time is reserved for rally leads until its public release time.");
+    }
+    const known = await repo.getAccount(input.playerId);
+    if (known && known.status === "active") throw new ConflictError("This Player ID belongs to a POP member. Sign in to book instantly with your saved details.");
+    const secret = newGuestSecret();
+    const booking: MinistryBooking = {
+      bookingId: ulid(),
+      roundId: round.roundId,
+      dayId: input.dayId,
+      slot: input.slot,
+      kind: "guest",
+      bookerKey: `GUEST#${input.playerId}`,
+      playerId: input.playerId,
+      playerName: input.playerName,
+      alliance: input.alliance,
+      createdAt: now().toISOString(),
+    };
+    await repo.claimMinistryBooking(booking, { id: `guest:${booking.bookingId}`, via: "web", reason: "guest Ministry booking" }, secret.tokenHash);
+    c.header("Cache-Control", "no-store");
+    c.header("Referrer-Policy", "no-referrer");
+    return c.json({ booking, token: secret.token, manageUntil: guestManageUntil(round), term: ministryTerm(round), day: round.days.find((day) => day.id === booking.dayId) }, 201);
+  });
+
+  app.post("/ministry/public/manage", async (c) => {
+    const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+    const booking = await repo.getMinistryBookingByGuestToken(ministryGuestTokenHash(body.token));
+    if (!booking) throw new NotFoundError("This booking link is invalid or the booking was cancelled.");
+    const round = await repo.getRound(booking.roundId);
+    if (!round) throw new NotFoundError("Ministry term not found.");
+    if (Date.parse(guestManageUntil(round)) <= now().getTime()) throw new NotFoundError("This private booking link has expired.");
+    c.header("Cache-Control", "no-store");
+    c.header("Referrer-Policy", "no-referrer");
+    return c.json({ booking, manageUntil: guestManageUntil(round), term: ministryTerm(round), day: round.days.find((day) => day.id === booking.dayId) });
+  });
+
+  app.post("/ministry/public/manage/cancel", async (c) => {
+    const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+    const tokenHash = ministryGuestTokenHash(body.token);
+    const booking = await repo.getMinistryBookingByGuestToken(tokenHash);
+    if (!booking) throw new NotFoundError("This booking link is invalid or the booking was cancelled.");
+    const round = await repo.getRound(booking.roundId);
+    if (!round) throw new NotFoundError("Ministry term not found.");
+    if (Date.parse(`${ministryTerm(round).endsOn}T23:59:59.999Z`) <= now().getTime()) throw new ConflictError("This Ministry term has ended, so the appointment can no longer be changed.");
+    await repo.cancelMinistryBooking(booking, { id: `guest:${booking.bookingId}`, via: "web", reason: "guest cancelled Ministry booking" }, tokenHash);
+    return c.json({ cancelled: true });
+  });
 
   // Public bearer-link endpoints intentionally live before authentication. The secret is sent in
   // a JSON body (the browser receives it as a URL fragment), never in a request URL or server log.
@@ -2212,11 +2324,25 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const rounds = await repo.listRounds(alliance, from);
     const acting = defaultActing(p);
     const items = await Promise.all(
-      rounds.map(async (round) => ({
-        ...round,
-        state: roundState(round, at),
-        answered: acting ? (await repo.getPreferences(round.roundId, acting)) !== undefined : false,
-      })),
+      rounds.map(async (round) => {
+        const bookings = await repo.listMinistryBookings(round.roundId);
+        const mine = acting ? bookings.filter((booking) => booking.playerId === acting) : [];
+        const nextBooking = mine
+          .map((booking) => {
+            const day = round.days.find((candidate) => candidate.id === booking.dayId);
+            return day ? { ...booking, startsAt: slotStartsAt(day, booking.slot), buff: day.buff } : undefined;
+          })
+          .filter((booking): booking is NonNullable<typeof booking> => Boolean(booking))
+          .filter((booking) => Date.parse(booking.startsAt) + 30 * 60 * 1000 > at.getTime())
+          .toSorted((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt))[0];
+        return {
+          ...round,
+          state: roundState(round, at),
+          answered: acting ? (await repo.getPreferences(round.roundId, acting)) !== undefined || mine.length > 0 : false,
+          term: ministryTerm(round),
+          ...(nextBooking ? { nextBooking } : {}),
+        };
+      }),
     );
     return c.json({ items });
   });
@@ -2231,6 +2357,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     if (!round) throw new NotFoundError("Round not found.");
     const at = now();
     const preferences = await repo.listPreferences(round.roundId);
+    const bookings = await repo.listMinistryBookings(round.roundId);
     const acting = defaultActing(p);
 
     const days = round.days.map((day) => {
@@ -2243,6 +2370,8 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         demand,
         anyTime: answers.filter((a) => a.anyTime).length,
         unavailable: answers.filter((a) => a.unavailable).length,
+        freeSlots: ministryDayView(round, bookings, acting).find((candidate) => candidate.id === day.id)?.freeSlots ?? [],
+        prioritySlots: ministryDayView(round, bookings, acting).find((candidate) => candidate.id === day.id)?.prioritySlots ?? [],
       };
     });
 
@@ -2252,7 +2381,67 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       days,
       answeredBy: preferences.length,
       yourPreferences: acting ? ((await repo.getPreferences(round.roundId, acting))?.days ?? null) : null,
+      term: ministryTerm(round),
+      yourBookings: acting ? bookings.filter((booking) => booking.playerId === acting) : [],
+      ...(isOfficer(p) ? { protections: round.protections ?? [] } : {}),
     });
+  });
+
+  app.put("/svs-rounds/:id/protections", async (c) => {
+    const p = c.get("principal");
+    requireOfficer(p);
+    const round = await repo.getRound(c.req.param("id"));
+    if (!round) throw new NotFoundError("Ministry term not found.");
+    const protections = parseMinistryProtections(round, await readJson(c.req.raw));
+    const bookings = await repo.listMinistryBookings(round.roundId);
+    if (protections.some((protection) => bookings.some((booking) => booking.dayId === protection.dayId && protection.slots.includes(booking.slot)))) {
+      throw new ConflictError("A protected range includes an appointment that is already booked.");
+    }
+    await repo.setMinistryProtections(round.roundId, protections, { id: p.sub, via: "web", reason: "Ministry rally-lead reservations updated" });
+    return c.json({ protections });
+  });
+
+  /** POP members claim a free slot immediately; their saved game identity supplies all details. */
+  app.post("/svs-rounds/:id/bookings", async (c) => {
+    const p = c.get("principal");
+    const playerId = defaultActing(p);
+    if (!playerId) throw new ForbiddenError("Choose a linked game account before booking.");
+    const account = await repo.getAccount(playerId);
+    if (!account || !["active", "guest", "unknown"].includes(account.status)) throw new ForbiddenError("This account cannot book a Ministry slot.");
+    const round = await repo.getRound(c.req.param("id"));
+    if (!round) throw new NotFoundError("Ministry term not found.");
+    const claim = parseSlotClaim(await readJson(c.req.raw));
+    validateClaim(round, claim, now());
+    if ((round.protections ?? []).some((protection) => protection.dayId === claim.dayId && protection.slots.includes(claim.slot) && Date.parse(protection.releasesAt) > now().getTime() && !protection.eligiblePlayerIds.includes(playerId))) {
+      throw new ConflictError("That time is currently reserved for rally leads.");
+    }
+    const booking: MinistryBooking = {
+      bookingId: ulid(),
+      roundId: round.roundId,
+      dayId: claim.dayId,
+      slot: claim.slot,
+      kind: "member",
+      bookerKey: `MEMBER#${playerId}`,
+      playerId,
+      playerName: account.name,
+      alliance: account.alliance,
+      createdAt: now().toISOString(),
+    };
+    await repo.claimMinistryBooking(booking, { id: p.sub, via: "web", reason: "member Ministry booking" });
+    return c.json(booking, 201);
+  });
+
+  app.delete("/svs-rounds/:id/bookings/:dayId/:slot", async (c) => {
+    const p = c.get("principal");
+    const playerId = defaultActing(p);
+    if (!playerId) throw new ForbiddenError("Choose a linked game account before changing a booking.");
+    const slot = Number(c.req.param("slot"));
+    if (!Number.isInteger(slot)) throw new ValidationError("Invalid Ministry slot.");
+    const booking = await repo.getMinistryBooking(c.req.param("id"), c.req.param("dayId"), slot);
+    if (!booking) throw new NotFoundError("Booking not found.");
+    if (booking.playerId !== playerId || booking.kind !== "member") throw new ForbiddenError("You can only cancel your own booking.");
+    await repo.cancelMinistryBooking(booking, { id: p.sub, via: "web", reason: "member cancelled Ministry booking" });
+    return c.json({ cancelled: true });
   });
 
   /** Your times for a round. Members answer for their own accounts, until the deadline. */

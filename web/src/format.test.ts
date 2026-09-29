@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { change, compact, formatDigitsInput, initials, parseDigits, relativeDay, untilText } from "./format";
+import { change, compact, eventDayTime, eventTime, formatDigitsInput, initials, parseDigits, relativeDay, untilText } from "./format";
 
 describe("number input", () => {
   it("formats while typing and strips everything but digits", () => {
@@ -64,5 +64,12 @@ describe("untilText", () => {
     ["2026-09-19T11:00:00Z", "now"],
   ])("%s -> %s", (iso, expected) => {
     expect(untilText(iso, now)).toBe(expected);
+  });
+});
+
+describe("shared event time", () => {
+  it("always renders in UTC with an explicit label", () => {
+    expect(eventTime("2026-10-04T19:00:00Z")).toBe("19:00 UTC");
+    expect(eventDayTime("2026-10-04T19:00:00Z")).toContain("19:00 UTC");
   });
 });

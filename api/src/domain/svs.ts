@@ -1,12 +1,11 @@
 /**
- * SvS buff slots (BUF-01..BUF-06). A round has three buff days — Construction, Research and
- * Training — each cut into 48 half-hour slots from 00:00 UTC. Members say when they could take a
- * buff; officers assign, because first-come gave the good hours to whoever refreshed fastest.
- *
- * Two caps, both enforced in the write rather than only here: one slot per person per buff day,
- * and at most two slots per person across the round, so the best hours reach more people.
+ * State Ministry terms. A two-week term contains the configured Construction, Research and
+ * Training days, each cut into 48 half-hour UTC slots. Ordinary appointments are claimed
+ * directly; selected times may be protected temporarily for special-event rally leads.
+ * Legacy preference records remain readable while existing rounds migrate to direct booking.
  */
 import { z } from "zod";
+import { createHash, randomBytes } from "node:crypto";
 import { ValidationError } from "./errors.js";
 
 export const BUFFS = ["construction", "research", "training"] as const;
@@ -38,6 +37,117 @@ export interface SvsRound {
   /** Set when officers publish the plan; absent while planning. */
   publishedAt?: string;
   createdBy: string;
+  /** Slots held for named rally leads until release; ordinary players never see them as free. */
+  protections?: MinistrySlotProtection[];
+}
+
+export interface MinistrySlotProtection {
+  protectionId: string;
+  dayId: string;
+  slots: number[];
+  label: string;
+  eligiblePlayerIds: string[];
+  releasesAt: string;
+}
+
+export type MinistryBookingKind = "member" | "guest";
+export type ReminderChannel = "discord" | "email";
+
+export interface MinistryBooking {
+  bookingId: string;
+  roundId: string;
+  dayId: string;
+  slot: number;
+  kind: MinistryBookingKind;
+  bookerKey: string;
+  playerId: string;
+  playerName: string;
+  alliance: string;
+  createdAt: string;
+  /** Reserved for verified reminder delivery; the first release does not collect it. */
+  notification?: { channel: ReminderChannel; destination: string; verifiedAt: string; consentedAt: string };
+}
+
+export interface PublicGuestBookingInput {
+  playerId: string;
+  playerName: string;
+  alliance: string;
+  dayId: string;
+  slot: number;
+}
+
+const GuestBookingSchema = z.object({
+  playerId: z.string().trim().regex(/^\d{6,20}$/, "Enter the numeric Player ID from the game."),
+  playerName: z.string().trim().min(2, "Enter your in-game name.").max(40),
+  alliance: z.string().trim().min(2, "Enter your alliance tag.").max(12).transform((value) => value.toUpperCase()),
+  dayId: z.string().trim().min(1),
+  slot: z.number().int().min(0).max(SLOTS_PER_DAY - 1),
+});
+
+const SlotClaimSchema = z.object({
+  dayId: z.string().trim().min(1),
+  slot: z.number().int().min(0).max(SLOTS_PER_DAY - 1),
+});
+
+const ProtectionSchema = z.object({
+  protectionId: z.string().trim().min(1).max(40),
+  dayId: z.string().trim().min(1),
+  slots: z.array(z.number().int().min(0).max(SLOTS_PER_DAY - 1)).min(1).max(SLOTS_PER_DAY),
+  label: z.string().trim().min(3).max(80),
+  eligiblePlayerIds: z.array(z.string().trim().regex(/^\d{6,20}$/)).min(1).max(30),
+  releasesAt: z.string().trim().refine((value) => !Number.isNaN(Date.parse(value)), "Use a release date and time."),
+});
+
+export function parseGuestBooking(input: unknown): PublicGuestBookingInput {
+  const parsed = GuestBookingSchema.safeParse(input);
+  if (!parsed.success) throw new ValidationError("Check your booking details.", z.flattenError(parsed.error).fieldErrors);
+  return parsed.data;
+}
+
+export function parseSlotClaim(input: unknown): { dayId: string; slot: number } {
+  const parsed = SlotClaimSchema.safeParse(input);
+  if (!parsed.success) throw new ValidationError("Choose an available Ministry time.", z.flattenError(parsed.error).fieldErrors);
+  return parsed.data;
+}
+
+export function parseMinistryProtections(round: Pick<SvsRound, "days">, input: unknown): MinistrySlotProtection[] {
+  const parsed = z.object({ protections: z.array(ProtectionSchema).max(20) }).safeParse(input);
+  if (!parsed.success) throw new ValidationError("Check the rally-lead reservation.", z.flattenError(parsed.error).fieldErrors);
+  const dayIds = new Set(round.days.map((day) => day.id));
+  const used = new Set<string>();
+  return parsed.data.protections.map((protection) => {
+    if (!dayIds.has(protection.dayId)) throw new ValidationError("That Ministry day is not part of this term.");
+    const slots = [...new Set(protection.slots)].toSorted((a, b) => a - b);
+    for (const slot of slots) {
+      const key = `${protection.dayId}:${slot}`;
+      if (used.has(key)) throw new ValidationError("Protected slot ranges cannot overlap.");
+      used.add(key);
+    }
+    return { ...protection, slots, eligiblePlayerIds: [...new Set(protection.eligiblePlayerIds)], releasesAt: new Date(protection.releasesAt).toISOString() };
+  });
+}
+
+export function ministryTerm(round: Pick<SvsRound, "days">): { startsOn: string; endsOn: string } {
+  const startsOn = [...round.days].map((day) => day.date).toSorted()[0]!;
+  const endsOn = addDays(startsOn, 13);
+  return { startsOn, endsOn };
+}
+
+export function validateClaim(round: Pick<SvsRound, "days">, claim: { dayId: string; slot: number }, now: Date): BuffDay {
+  const day = round.days.find((candidate) => candidate.id === claim.dayId);
+  if (!day) throw new ValidationError("That Ministry day is not part of this term.");
+  if (Date.parse(slotStartsAt(day, claim.slot)) <= now.getTime()) throw new ValidationError("That Ministry time has already started.");
+  return day;
+}
+
+export function newGuestSecret(): { token: string; tokenHash: string } {
+  const token = randomBytes(32).toString("base64url");
+  return { token, tokenHash: ministryGuestTokenHash(token) };
+}
+
+export function ministryGuestTokenHash(token: unknown): string {
+  if (typeof token !== "string" || !/^[A-Za-z0-9_-]{40,60}$/.test(token)) throw new ValidationError("This booking link is invalid.");
+  return createHash("sha256").update(token).digest("hex");
 }
 
 /** Where a round is in its life, derived rather than stored so it can never get stuck. */
@@ -55,7 +165,9 @@ export function dayEndsAt(day: Pick<BuffDay, "date">): string {
 }
 
 export function roundState(round: Pick<SvsRound, "days" | "preferenceDeadline" | "publishedAt">, now: Date): RoundState {
-  const last = [...round.days].map((d) => dayEndsAt(d)).toSorted().at(-1);
+  const first = [...round.days].map((day) => day.date).toSorted()[0];
+  const termEnd = first ? `${addDays(first, 14)}T00:00:00.000Z` : undefined;
+  const last = [...round.days.map((d) => dayEndsAt(d)), ...(termEnd ? [termEnd] : [])].toSorted().at(-1);
   if (last && Date.parse(last) <= now.getTime()) return "closed";
   if (round.publishedAt) return "published";
   return Date.parse(round.preferenceDeadline) > now.getTime() ? "collecting" : "planning";

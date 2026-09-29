@@ -4,7 +4,7 @@ import { ErrorBanner } from "../components/Chrome";
 import { ActiveEventRail } from "../components/ActiveEventRegistration";
 import { Sheet } from "../components/Sheet";
 import { useToast } from "../components/Toast";
-import { compact, dayTime, full, relativeDay, shortTime, untilText } from "../format";
+import { compact, eventDayTime, eventTime, full, relativeDay, untilText } from "../format";
 import { latestKnown, sortForBreakdown, totalsOf, valueOf } from "../eventBreakdown";
 import { withEventAnswer } from "../eventAnswers";
 import { defaultEventSessions, isLegionEvent } from "../eventSetup";
@@ -17,7 +17,8 @@ import {
   nextUtcNoon,
   previewDeadline,
   previewDeadlineHours,
-  toLocalInput,
+  toUtcInput,
+  utcInputDate,
 } from "../eventTiming";
 import { navigate } from "../router";
 import { useSession } from "../session";
@@ -334,9 +335,9 @@ function EventCard({
           // Halves are one sitting with a midpoint, so they read as a span; legions are separate
           // times and read as "and".
           const span = halfSpan(event.sessions);
-          if (span) return `${dayTime(span.startsAt)} – ${shortTime(span.endsAt)}`;
-          if (event.sessions.length === 0) return dayTime(event.startsAt);
-          return `${dayTime(event.sessions[0]!.startsAt)}${event.sessions.length > 1 ? ` and ${shortTime(event.sessions.at(-1)!.startsAt)}` : ""}`;
+          if (span) return `${eventDayTime(span.startsAt)} – ${eventTime(span.endsAt)}`;
+          if (event.sessions.length === 0) return eventDayTime(event.startsAt);
+          return event.sessions.map((session) => eventDayTime(session.startsAt)).join(" and ");
         })()}
         {!past && ` · ${untilText(event.startsAt)}`}
       </p>
@@ -371,7 +372,7 @@ function EventCard({
                 disabled={event.closed || busy !== null}
                 onClick={() => void choose("yes", s.id)}
               >
-                {busy === s.id ? "…" : `${isLegionEvent(event.kind) ? "Join " : ""}${s.label} · ${shortTime(s.startsAt)}`}
+                {busy === s.id ? "…" : `${isLegionEvent(event.kind) ? "Join " : ""}${s.label} · ${eventTime(s.startsAt)}`}
               </button>
             ))}
             <button
@@ -577,7 +578,7 @@ function LegacySessionForm({ event, onDone }: { event: EventListItem; onDone: ()
         </select>
       </div>
       <div className="field">
-        <span className="hint">The session will use the existing event time: {dayTime(event.startsAt)}.</span>
+        <span className="hint">The session will use the existing event time: {eventDayTime(event.startsAt)}.</span>
       </div>
       {error && (
         <p className="banner banner-error" role="alert">
@@ -747,18 +748,18 @@ function BreakdownTable({
   );
 }
 
-/** Officers schedule an event, or change one. Times are in the officer's own time zone. */
+/** Officers schedule an event, or change one. Game event times use UTC for every player. */
 function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => void }) {
   const { api } = useSession();
   const toast = useToast();
   const editing = event !== undefined;
   const [kind, setKind] = useState<EventKind>(event?.kind ?? "foundry");
   const [title, setTitle] = useState(event?.title ?? "");
-  const [startsAt, setStartsAt] = useState(event ? toLocalInput(event.startsAt) : "");
+  const [startsAt, setStartsAt] = useState(event ? toUtcInput(event.startsAt) : "");
   // Foundry runs two legions in one event; everyone picks one.
   const [sessions, setSessions] = useState<{ id?: string; label: string; startsAt: string }[]>(
     event
-      ? event.sessions.map((s) => ({ id: s.id, label: s.label, startsAt: toLocalInput(s.startsAt) }))
+      ? event.sessions.map((s) => ({ id: s.id, label: s.label, startsAt: toUtcInput(s.startsAt) }))
       : defaultEventSessions("foundry"),
   );
   const existingLeadDays = event ? leadDaysOf(event) : 3;
@@ -788,7 +789,7 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
   const usesHalves = signupMode === "availability";
   const effectiveSessions = signupMode === "availability" ? halvesFor(startsAt, hours) : signupMode === "rsvp" ? [] : sessions;
   const usesSessions = effectiveSessions.length > 0;
-  const sessionTimes = effectiveSessions.map((s) => (s.startsAt ? new Date(s.startsAt) : null));
+  const sessionTimes = effectiveSessions.map((s) => (s.startsAt ? utcInputDate(s.startsAt) : null));
   const sessionsValid = usesSessions && sessionTimes.every((d) => d !== null && !Number.isNaN(d.getTime()));
   // With legions the event starts when the first one does; otherwise the single start applies.
   const start = usesSessions
@@ -796,7 +797,7 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
       ? new Date(Math.min(...sessionTimes.map((d) => d!.getTime())))
       : null
     : startsAt
-      ? new Date(startsAt)
+      ? utcInputDate(startsAt)
       : null;
   const startValid = start !== null && !Number.isNaN(start.getTime());
   const ready = title.trim().length >= 3 && startValid && (editing || start.getTime() > Date.now());
@@ -835,12 +836,12 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
             sessions: effectiveSessions.map((s) => ({
               ...(s.id ? { id: s.id } : {}),
               label: s.label.trim(),
-              startsAt: new Date(s.startsAt).toISOString(),
+              startsAt: utcInputDate(s.startsAt).toISOString(),
             })),
           }
         : {}),
       ...(closesInHours ? { answersCloseHoursBefore: closeValue } : { answersCloseDaysBefore: closeValue }),
-      timeZoneOffsetMinutes: -new Date().getTimezoneOffset(),
+      timeZoneOffsetMinutes: 0,
       notes: notes.trim(),
     };
     try {
@@ -914,7 +915,7 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
       {usesSessions && !usesHalves ? (
         <fieldset className="field">
           <legend>Legions</legend>
-          <span className="hint">One event, two battles. Everyone signs up for one of them.</span>
+          <span className="hint">One event, two battles. Everyone signs up for one of them. All times are UTC.</span>
           {sessions.map((s, i) => (
             <div key={s.id ?? i} className="session-row">
               <input
@@ -936,7 +937,7 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
         <div className="field">
           <label htmlFor="e-start">Starts</label>
           <input id="e-start" type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
-          <span className="hint">Your local time.</span>
+          <span className="hint">UTC. Every player sees this same time.</span>
         </div>
       )}
 
@@ -952,7 +953,7 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
           </select>
           <span className="hint">
             {startValid
-              ? `Full time and first half from ${shortTime(effectiveSessions[0]!.startsAt)}, last half from ${shortTime(effectiveSessions[2]!.startsAt)}.`
+              ? `Full time and first half from ${eventTime(utcInputDate(effectiveSessions[0]!.startsAt).toISOString())}, last half from ${eventTime(utcInputDate(effectiveSessions[2]!.startsAt).toISOString())}.`
               : "Full time and first half start with the event; the last half starts halfway through."}
           </span>
         </div>
@@ -969,7 +970,7 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
         </select>
         <span className="hint">
           {deadline
-            ? `Closes ${dayTime(deadline.toISOString())}${deadline.getTime() < Date.now() ? " — already past, so answers stay closed" : ""}`
+            ? `Closes ${eventDayTime(deadline.toISOString())}${deadline.getTime() < Date.now() ? " — already past, so answers stay closed" : ""}`
             : "Choose the event times to preview when answers close."}
         </span>
       </div>
