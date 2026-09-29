@@ -1,6 +1,6 @@
 ---
 name: state2612
-description: Read POP HQ information available to the bot token's issuing user, and safely preview or apply login-free account onboarding, event maintenance, results, Fortress rewards, historical backfills, and evidence. Use for POP HQ questions, exact-ID shell reconciliation, screenshot reward registration, historical event setup, roster-history imports, corrections, and scoreboard data; undocumented writes remain forbidden.
+description: Read POP HQ information available to the bot token's issuing user, and safely preview or apply login-free account onboarding, event maintenance, named event registrations, results, Fortress rewards, historical backfills, and evidence. Use for POP HQ questions, exact-ID shell reconciliation, officer-supplied signup lists, screenshot reward registration, historical event setup, roster-history imports, corrections, and scoreboard data; undocumented writes remain forbidden.
 ---
 
 # POP HQ bot access
@@ -65,6 +65,8 @@ SvS and King of Icefield player points belong to configured phases, not signup s
 ## Event workflow
 
 With `events:write`, an officer-issued bot may create events (including historical ones) and edit event/session metadata. Preview every exact change first, then apply only after an officer approves that diff. Creation requires a stable caller-selected event id. Editing cannot remove or rename existing session ids because dependent records use them as foreign keys. Follow [references/events-api.md](references/events-api.md) for payloads, preview hashes and commands.
+
+With the separate `registrations:write` permission, the bot may register an exact list of named Player IDs into existing event sessions. Use `answer: "yes"`; add `role: "substitute"` only when the officer explicitly supplied that designation. No role means unspecified, never starter. Omitted players and their existing answers remain untouched. This operation does not record attendance, results, or a published lineup. Preview `put-registrations`, obtain approval for that exact diff, then apply and read `/events/{eventId}` back. The complete schema and safeguards are in [references/events-api.md](references/events-api.md).
 
 ## Fortress reward workflow
 

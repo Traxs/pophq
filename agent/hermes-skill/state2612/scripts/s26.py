@@ -120,6 +120,13 @@ def main() -> None:
     edit_event.add_argument("--reason")
     edit_event.add_argument("--idempotency-key")
     edit_event.add_argument("--expected-hash", help="expectedHash returned by the reviewed preview")
+    registrations = sub.add_parser("put-registrations", help="Preview or apply named event registrations")
+    registrations.add_argument("event_id")
+    registrations.add_argument("json_file", help="JSON file, or - for stdin")
+    registrations.add_argument("--apply", action="store_true")
+    registrations.add_argument("--reason")
+    registrations.add_argument("--idempotency-key")
+    registrations.add_argument("--expected-hash", help="expectedHash returned by the reviewed preview")
     rewards = sub.add_parser("put-rewards", help="Preview or apply one Fortress/Stronghold reward haul")
     rewards.add_argument("json_file", help="JSON file, or - for stdin")
     rewards.add_argument("--apply", action="store_true")
@@ -213,6 +220,17 @@ def main() -> None:
         event = urllib.parse.quote(args.event_id, safe="")
         suffix = "?apply=true" if args.apply else ""
         result = request("PATCH", f"/agent/events/{event}{suffix}", payload, args.idempotency_key)
+    elif args.command == "put-registrations":
+        if args.apply and (not args.reason or not args.idempotency_key or not args.expected_hash):
+            raise SystemExit("--apply requires --reason, --idempotency-key and --expected-hash.")
+        payload = load_payload(args.json_file)
+        if args.apply:
+            payload["reason"] = args.reason
+            payload["expectedHash"] = args.expected_hash
+            payload["approved"] = True
+        event = urllib.parse.quote(args.event_id, safe="")
+        suffix = "?apply=true" if args.apply else ""
+        result = request("PUT", f"/agent/events/{event}/registrations{suffix}", payload, args.idempotency_key)
     elif args.command == "put-rewards":
         if args.apply and (not args.reason or not args.idempotency_key or not args.expected_hash):
             raise SystemExit("--apply requires --reason, --idempotency-key and --expected-hash.")

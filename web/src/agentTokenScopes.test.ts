@@ -3,10 +3,11 @@ import { missingIssuedScopes, requestedAgentScopes } from "./agentTokenScopes";
 
 describe("bot token scope issuance", () => {
   it("includes account onboarding when its checkbox is selected", () => {
-    expect(requestedAgentScopes({ results: true, events: true, history: true, rewards: true, accounts: true })).toEqual([
+    expect(requestedAgentScopes({ results: true, events: true, registrations: true, history: true, rewards: true, accounts: true })).toEqual([
       "all:read",
       "results:write",
       "events:write",
+      "registrations:write",
       "history:write",
       "rewards:write",
       "accounts:write",

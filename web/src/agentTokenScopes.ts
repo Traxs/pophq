@@ -3,6 +3,7 @@ import type { AgentScope } from "./api";
 export interface AgentWriteSelections {
   results: boolean;
   events: boolean;
+  registrations: boolean;
   history: boolean;
   rewards: boolean;
   accounts: boolean;
@@ -14,6 +15,7 @@ export function requestedAgentScopes(selected: AgentWriteSelections): AgentScope
     "all:read",
     ...(selected.results ? ["results:write" as const] : []),
     ...(selected.events ? ["events:write" as const] : []),
+    ...(selected.registrations ? ["registrations:write" as const] : []),
     ...(selected.history ? ["history:write" as const] : []),
     ...(selected.rewards ? ["rewards:write" as const] : []),
     ...(selected.accounts ? ["accounts:write" as const] : []),

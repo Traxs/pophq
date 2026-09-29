@@ -52,6 +52,13 @@ export function clientIdForLogin(identifier: string, authConfig: AuthConfig = co
     : authConfig.clientId;
 }
 
+/** Keep a protected deep link through Cognito without ever accepting an external return target. */
+export function signInReturnPath(pathname: string, search = ""): string {
+  const safePath = pathname.startsWith("/") && !pathname.startsWith("//") ? pathname : "/";
+  if (safePath === "/callback") return "/";
+  return `${safePath}${search.startsWith("?") ? search : ""}`;
+}
+
 export interface DevPersona {
   clientId: string;
   name: string;

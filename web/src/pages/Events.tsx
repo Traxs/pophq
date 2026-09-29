@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, type Answer, type EventDetail, type EventListItem, type EventKind, type EventMember } from "../api";
 import { ErrorBanner } from "../components/Chrome";
 import { ActiveEventRail } from "../components/ActiveEventRegistration";
+import { EventSignupShare } from "../components/EventSignupShare";
 import { Sheet } from "../components/Sheet";
 import { useToast } from "../components/Toast";
 import { compact, eventDayTime, eventTime, full, relativeDay, untilText } from "../format";
@@ -408,10 +409,15 @@ function EventCard({
         </p>
       )}
 
-      {isOfficer && onEdit && (
-        <button type="button" className="text-btn" onClick={() => onEdit(event)}>
-          Edit event
-        </button>
+      {isOfficer && !past && (
+        <div className="event-officer-actions">
+          <EventSignupShare event={event} />
+          {onEdit && (
+            <button type="button" className="text-btn" onClick={() => onEdit(event)}>
+              Edit event
+            </button>
+          )}
+        </div>
       )}
 
 

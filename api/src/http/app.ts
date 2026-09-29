@@ -11,6 +11,7 @@ import {
   countAnswers,
   isClosed,
   parseAgentEventChanges,
+  parseAgentEventRegistrations,
   parseAgentNewEvent,
   parseAnswerChoice,
   parseEventChanges,
@@ -1275,6 +1276,104 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     );
     c.header("x-change-id", key);
     return c.json({ dryRun: false, replayed: false, event: updated });
+  });
+
+  /** Guarded, named-only registration upsert. It never publishes a lineup or attendance. */
+  app.put("/agent/events/:id/registrations", async (c) => {
+    const { token } = await authenticateAgent(
+      repo,
+      c.req.header("authorization"),
+      c.req.header("origin"),
+      "registrations:write",
+      now(),
+      botIssuerGroups,
+    );
+    const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+    const write = agentWriteRequest(body, c.req.query("apply") === "true", c.req.header("idempotency-key"), "event registrations");
+    if (write.apply) {
+      if (body.approved !== true) throw new ValidationError("Applying event registrations requires explicit approval.");
+      const replay = await repo.getIdempotentChange(token.tokenId, write.key);
+      if (replay) return replayAgentChange(c, replay, write.bodyHash, "result");
+    }
+    const event = await repo.getEvent(c.req.param("id"));
+    if (!event) throw new NotFoundError("Event not found.");
+    if (Date.parse(event.startsAt) <= now().getTime()) throw new ConflictError("Registrations cannot be changed after the event starts.");
+    const requested = parseAgentEventRegistrations(event, body);
+    const accounts = await Promise.all(requested.map((row) => repo.getAccount(row.playerId)));
+    const invalid = requested.filter((row, index) => {
+      const account = accounts[index];
+      return !account || account.alliance !== event.alliance || !["active", "guest", "unknown"].includes(account.status);
+    }).map((row) => row.playerId);
+    if (invalid.length > 0) throw new ValidationError("Some registrations reference unavailable Player IDs.", { playerIds: invalid });
+
+    const current = await Promise.all(requested.map((row) => repo.getAnswer(event.eventId, row.playerId)));
+    const semantic = (answer: EventAnswer | undefined) => answer ? {
+      playerId: answer.playerId,
+      answer: answer.answer,
+      sessionId: answer.sessionId ?? null,
+      role: answer.registrationRole ?? null,
+    } : null;
+    const desired = requested.map((row) => ({
+      playerId: row.playerId,
+      answer: row.answer,
+      sessionId: row.sessionId,
+      role: row.role ?? null,
+    }));
+    const previewState = {
+      event: { eventId: event.eventId, startsAt: event.startsAt, sessions: event.sessions },
+      before: current.map(semantic),
+      after: desired,
+    };
+    const expectedHash = stateHash(previewState);
+    if (write.apply && write.expectedHash !== expectedHash) {
+      throw new ConflictError("The event or a named registration changed after preview. Preview again before applying.");
+    }
+    const diff = requested.map((row, index) => ({ before: semantic(current[index]), after: desired[index] }));
+    if (!write.apply) return c.json({ dryRun: true, expectedHash, event: previewState.event, diff });
+
+    const appliedAt = now().toISOString();
+    const changed = requested.flatMap((row, index) => {
+      const before = current[index];
+      if (canonicalJson(semantic(before)) === canonicalJson(desired[index])) return [];
+      const after: EventAnswer = {
+        eventId: event.eventId,
+        playerId: row.playerId,
+        answer: "yes",
+        sessionId: row.sessionId,
+        ...(row.role ? { registrationRole: row.role } : {}),
+        answeredAt: appliedAt,
+        source: "officer",
+        ...(before?.note ? { note: before.note } : {}),
+      };
+      return [{ before, after }];
+    });
+    const saved = requested.map((row, index) => {
+      const updated = changed.find((entry) => entry.after.playerId === row.playerId)?.after;
+      return updated ?? current[index]!;
+    });
+    const result = {
+      event: previewState.event,
+      changed: changed.length,
+      unchanged: requested.length - changed.length,
+      registrations: saved,
+      diff,
+    };
+    await repo.putEventRegistrationsIdempotent(
+      event,
+      changed,
+      saved.filter((answer) => !changed.some((entry) => entry.after.playerId === answer.playerId)),
+      agentActor(token.tokenId, write.reason),
+      token.tokenId,
+      write.key,
+      write.bodyHash,
+      result,
+    );
+    const readback = await Promise.all(requested.map((row) => repo.getAnswer(event.eventId, row.playerId)));
+    if (canonicalJson(readback) !== canonicalJson(saved)) {
+      throw new ConflictError("Registrations were saved but exact readback did not match. Stop and inspect before retrying.");
+    }
+    c.header("x-change-id", write.key);
+    return c.json({ dryRun: false, replayed: false, result });
   });
 
   app.get("/agent/events/:id/sessions/:sid/result-context", async (c) => {
@@ -3044,6 +3143,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           strength: strengthOf.get(a.playerId),
           attendanceRate: participationOfPlayer.get(a.playerId)?.rate,
           answeredAt: a.answeredAt,
+          registrationRole: a.registrationRole,
         }));
       const standing = acting ? standingFor(session.id, entries, acting, session.starters) : undefined;
       // Everyone sees who signed up with their Foundry strength and likely role (that is what
@@ -3055,6 +3155,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         ...(isOfficer(p) ? { attendanceRate: entry.attendanceRate ?? null } : {}),
         position: entry.position,
         likely: entry.likely,
+        ...(entry.registrationRole ? { registrationRole: entry.registrationRole } : {}),
       }));
       // Once officers publish, the lineup replaces the estimate as the answer to "am I playing?".
       const published = lineups.get(session.id);
@@ -3165,6 +3266,10 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         const acting = defaultActing(p);
         return acting ? (answers.find((a) => a.playerId === acting)?.sessionId ?? null) : null;
       })(),
+      myRegistrationRole: (() => {
+        const acting = defaultActing(p);
+        return acting ? (answers.find((a) => a.playerId === acting)?.registrationRole ?? null) : null;
+      })(),
       ...(eventType?.strategyTemplate ? { strategyTemplate: eventType.strategyTemplate } : {}),
       ...(scoreboards ? { scoreboards } : {}),
     };
@@ -3199,6 +3304,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           answer: byPlayer.get(account.playerId)?.answer ?? null,
           sessionId: byPlayer.get(account.playerId)?.sessionId ?? null,
           answeredAt: byPlayer.get(account.playerId)?.answeredAt ?? null,
+          registrationRole: byPlayer.get(account.playerId)?.registrationRole ?? null,
           attended: scoredPlayers.has(account.playerId)
             ? "present"
             : zeroScorePlayers.has(account.playerId)

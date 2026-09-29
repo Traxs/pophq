@@ -55,7 +55,41 @@ export interface EventAnswer {
   answeredAt: string;
   /** Who recorded it: the player themselves, or an officer acting for them. */
   source: "player" | "officer" | "import";
+  /** An officer explicitly registered this player as a substitute. Absence is not "starter". */
+  registrationRole?: "substitute";
   note?: string;
+}
+
+export interface AgentEventRegistration {
+  playerId: string;
+  answer: "yes";
+  sessionId: string;
+  /** Only an explicit substitute designation is stored; no role means unspecified. */
+  role?: "substitute" | undefined;
+}
+
+const AgentRegistrationBatchSchema = z.object({
+  registrations: z.array(z.object({
+    playerId: z.string().trim().regex(/^[1-9][0-9]{4,14}$/, "That is not a Player ID."),
+    answer: z.literal("yes"),
+    sessionId: z.string().trim().regex(/^[A-Za-z0-9_-]{1,8}$/, "That is not a session id."),
+    role: z.literal("substitute").optional(),
+  })).min(1, "At least one registration is required.").max(40, "At most 40 registrations may be changed at once."),
+});
+
+/** Parses an officer-reviewed batch without guessing a starter role. */
+export function parseAgentEventRegistrations(event: AllianceEvent, input: unknown): AgentEventRegistration[] {
+  const parsed = AgentRegistrationBatchSchema.safeParse(input);
+  if (!parsed.success) throw new ValidationError("Invalid event registrations.", z.flattenError(parsed.error).fieldErrors);
+  const seen = new Set<string>();
+  for (const row of parsed.data.registrations) {
+    if (seen.has(row.playerId)) throw new ValidationError(`Player ID ${row.playerId} appears more than once.`);
+    seen.add(row.playerId);
+    if (!event.sessions.some((session) => session.id === row.sessionId)) {
+      throw new ValidationError(`Session ${row.sessionId} does not exist on this event.`);
+    }
+  }
+  return parsed.data.registrations;
 }
 
 const ISO = z
@@ -511,6 +545,8 @@ export interface SignUp {
   /** Share of kept commitments, 0–1. Undefined until attendance is tracked. */
   attendanceRate?: number | undefined;
   answeredAt: string;
+  /** Officer-supplied role; absence remains deliberately unspecified. */
+  registrationRole?: "substitute" | undefined;
 }
 
 export interface RankedSignUp extends SignUp {

@@ -3061,6 +3061,7 @@ td:nth-child(3) .inline-select {
   gap: 10px;
 }
 .page-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.event-officer-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px; margin-top: 12px; }
 .reward-value-summary > span { display: grid; gap: 3px; }
 .reward-value-summary small { color: var(--muted); }
 .reward-value-summary strong { color: var(--accent); font-size: 1rem; }

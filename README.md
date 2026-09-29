@@ -210,6 +210,7 @@ python3 agent/hermes-skill/state2612/scripts/s26.py list-events --kind foundry
 python3 agent/hermes-skill/state2612/scripts/s26.py result-context EVENT_ID SESSION_ID
 python3 agent/hermes-skill/state2612/scripts/s26.py put-result EVENT_ID SESSION_ID result.json
 python3 agent/hermes-skill/state2612/scripts/s26.py reconcile-accounts accounts.json --batch-id STABLE_BATCH_ID
+python3 agent/hermes-skill/state2612/scripts/s26.py put-registrations EVENT_ID registrations.json
 python3 agent/hermes-skill/state2612/scripts/s26.py account-reconciliation PLAYER_ID
 python3 agent/hermes-skill/state2612/scripts/s26.py resolve-account-name CONFIRMED_ALIAS
 ```

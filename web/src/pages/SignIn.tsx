@@ -1,14 +1,15 @@
 import { useState, type FormEvent } from "react";
-import { DEV_PERSONAS } from "../auth";
+import { DEV_PERSONAS, signInReturnPath } from "../auth";
 import { initials } from "../format";
 import { cognitoLoginIdentifier } from "../loginNames";
 import { signIn, signInWithIdentifier } from "../session";
 
 export function SignIn() {
   const [login, setLogin] = useState("");
+  const returnTo = signInReturnPath(window.location.pathname, window.location.search);
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (login.trim()) signInWithIdentifier(cognitoLoginIdentifier(login), "/");
+    if (login.trim()) signInWithIdentifier(cognitoLoginIdentifier(login), returnTo);
   };
   return (
     <main className="signin">
@@ -25,7 +26,7 @@ export function SignIn() {
             <ul>
               {DEV_PERSONAS.map((p) => (
                 <li key={p.clientId}>
-                  <button type="button" className="persona" onClick={() => signIn(p.clientId, "/")}>
+                  <button type="button" className="persona" onClick={() => signIn(p.clientId, returnTo)}>
                     <span className="avatar" aria-hidden="true">
                       {initials(p.name)}
                     </span>

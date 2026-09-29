@@ -13,6 +13,7 @@ export function AgentTokens() {
   const [days, setDays] = useState(30);
   const [write, setWrite] = useState(true);
   const [eventsWrite, setEventsWrite] = useState(true);
+  const [registrationsWrite, setRegistrationsWrite] = useState(false);
   const [historyWrite, setHistoryWrite] = useState(false);
   const [rewardsWrite, setRewardsWrite] = useState(true);
   const [accountsWrite, setAccountsWrite] = useState(false);
@@ -26,7 +27,7 @@ export function AgentTokens() {
     setBusy(true);
     setError(null);
     try {
-      const scopes = requestedAgentScopes({ results: write, events: eventsWrite, history: historyWrite, rewards: rewardsWrite, accounts: accountsWrite });
+      const scopes = requestedAgentScopes({ results: write, events: eventsWrite, registrations: registrationsWrite, history: historyWrite, rewards: rewardsWrite, accounts: accountsWrite });
       const issued = await api.issueAgentToken({ name, scopes, expiresInDays: days });
       const missing = missingIssuedScopes(scopes, issued.scopes);
       if (missing.length > 0) {
@@ -45,7 +46,7 @@ export function AgentTokens() {
   };
 
   const scopeLabel = (scope: AgentScope) =>
-    scope === "results:write" ? "Update results" : scope === "events:write" ? "Manage events" : scope === "history:write" ? "Import history" : scope === "rewards:write" ? "Register rewards" : scope === "accounts:write" ? "Onboard account shells" : "Read data";
+    scope === "results:write" ? "Update results" : scope === "events:write" ? "Manage events" : scope === "registrations:write" ? "Manage registrations" : scope === "history:write" ? "Import history" : scope === "rewards:write" ? "Register rewards" : scope === "accounts:write" ? "Onboard account shells" : "Read data";
 
   return (
     <section className="card bot-token-panel" aria-labelledby="agent-token-title">
@@ -58,6 +59,7 @@ export function AgentTokens() {
         </div>
         <label className="checkbox-row"><input type="checkbox" checked={write} onChange={(e) => setWrite(e.target.checked)} /><span>Allow result updates <span className="muted">(preview remains the default)</span></span></label>
         <label className="checkbox-row"><input type="checkbox" checked={eventsWrite} onChange={(e) => setEventsWrite(e.target.checked)} /><span>Allow event creation and editing <span className="muted">(including historical events; preview remains the default)</span></span></label>
+        <label className="checkbox-row"><input type="checkbox" checked={registrationsWrite} onChange={(e) => setRegistrationsWrite(e.target.checked)} /><span>Allow bot-managed event registrations <span className="muted">(named players only; preview remains the default)</span></span></label>
         <label className="checkbox-row"><input type="checkbox" checked={historyWrite} onChange={(e) => setHistoryWrite(e.target.checked)} /><span>Allow historical data imports <span className="muted">(strength, signups, attendance, lineups and tactics)</span></span></label>
         <label className="checkbox-row"><input type="checkbox" checked={rewardsWrite} onChange={(e) => setRewardsWrite(e.target.checked)} /><span>Allow Fortress reward registration <span className="muted">(R4/R5 only; preview remains the default)</span></span></label>
         <label className="checkbox-row"><input type="checkbox" checked={accountsWrite} onChange={(e) => setAccountsWrite(e.target.checked)} /><span>Allow login-free account onboarding <span className="muted">(exact Player IDs only; preview remains the default)</span></span></label>

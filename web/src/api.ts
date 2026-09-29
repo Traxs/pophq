@@ -197,7 +197,7 @@ export interface RedeemedOnboardingInvitation {
   credentials?: { username: string; password: string };
 }
 
-export type AgentScope = "all:read" | "results:read" | "results:write" | "events:write" | "history:write" | "rewards:write" | "accounts:write";
+export type AgentScope = "all:read" | "results:read" | "results:write" | "events:write" | "registrations:write" | "history:write" | "rewards:write" | "accounts:write";
 export interface AgentTokenInfo {
   tokenId: string;
   name: string;
@@ -392,6 +392,8 @@ export interface SignUpEntry {
   attendanceRate?: number | null;
   position: number;
   likely: "starter" | "sub";
+  /** Explicit officer designation. Absence does not mean starter. */
+  registrationRole?: "substitute";
 }
 
 export type LineupRole = "starter" | "sub";
@@ -497,6 +499,7 @@ export interface EventListItem extends AllianceEvent {
   myAnswer: Answer | null;
   /** Which session they picked, when the event has sessions. */
   mySessionId: string | null;
+  myRegistrationRole?: "substitute" | null;
   /** Lightweight completed-event data for the history cards; absent before the event starts. */
   history?: {
     results: {
@@ -598,6 +601,7 @@ export interface EventMember {
   answer: Answer | null;
   sessionId: string | null;
   answeredAt: string | null;
+  registrationRole?: "substitute" | null;
   /** Officer view only. */
   attended: AttendanceStatus | null;
   /** True when a positive score or an approved officer-bot result row confirms attendance. */

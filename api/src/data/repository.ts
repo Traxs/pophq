@@ -1255,7 +1255,7 @@ export class Repository {
   async setAnswer(
     event: Pick<AllianceEvent, "eventId" | "startsAt" | "deadlineAt">,
     playerId: string,
-    choice: { answer: Answer; sessionId?: string },
+    choice: { answer: Answer; sessionId?: string; registrationRole?: "substitute" },
     source: EventAnswer["source"],
     actor: Actor,
     note?: string,
@@ -1268,6 +1268,7 @@ export class Repository {
       playerId,
       answer: choice.answer,
       ...(choice.sessionId ? { sessionId: choice.sessionId } : {}),
+      ...(choice.registrationRole ? { registrationRole: choice.registrationRole } : {}),
       answeredAt: options.answeredAt ?? now.toISOString(),
       source,
       ...(note ? { note } : {}),
@@ -1324,6 +1325,106 @@ export class Repository {
       }
       if (reasons?.[1] === "ConditionalCheckFailed") {
         throw new NotFoundError(`Game account ${playerId} can't answer (unknown or no longer active).`);
+      }
+      throw err;
+    }
+  }
+
+  /** Atomically writes a reviewed registration batch and its retry receipt. */
+  async putEventRegistrationsIdempotent(
+    event: AllianceEvent,
+    writes: readonly { before?: EventAnswer | undefined; after: EventAnswer }[],
+    unchanged: readonly EventAnswer[],
+    actor: Actor,
+    tokenId: string,
+    key: string,
+    bodyHash: string,
+    response: unknown,
+  ): Promise<void> {
+    const changedAt = this.clock();
+    const meta = newItemMeta(actor, changedAt);
+    const transaction = [
+      {
+        ConditionCheck: {
+          TableName: this.table,
+          Key: eventKey(event.eventId),
+          ConditionExpression: "attribute_exists(PK) AND startsAt = :startsAt AND sessions = :sessions AND startsAt > :now",
+          ExpressionAttributeValues: { ":startsAt": event.startsAt, ":sessions": event.sessions, ":now": changedAt.toISOString() },
+        },
+      },
+      ...writes.flatMap(({ before, after }) => [
+        {
+          ConditionCheck: {
+            TableName: this.table,
+            Key: accountKey(after.playerId),
+            ConditionExpression: "attribute_exists(PK) AND #status IN (:active, :guest, :unknown)",
+            ExpressionAttributeNames: { "#status": "status" },
+            ExpressionAttributeValues: WRITABLE_STATUSES,
+          },
+        },
+        {
+          Put: {
+            TableName: this.table,
+            Item: {
+              ...answerKey(event.eventId, after.playerId),
+              ...answerIndexKey(after.playerId, event.startsAt, event.eventId),
+              type: "event-answer",
+              ...after,
+              ...meta,
+            },
+            ConditionExpression: before
+              ? "attribute_exists(PK) AND answeredAt = :answeredAt AND #answer = :answer" +
+                (before.sessionId ? " AND sessionId = :sessionId" : " AND attribute_not_exists(sessionId)") +
+                (before.registrationRole ? " AND registrationRole = :registrationRole" : " AND attribute_not_exists(registrationRole)")
+              : "attribute_not_exists(PK)",
+            ...(before ? {
+              ExpressionAttributeNames: { "#answer": "answer" },
+              ExpressionAttributeValues: {
+                ":answeredAt": before.answeredAt,
+                ":answer": before.answer,
+                ...(before.sessionId ? { ":sessionId": before.sessionId } : {}),
+                ...(before.registrationRole ? { ":registrationRole": before.registrationRole } : {}),
+              },
+            } : {}),
+          },
+        },
+      ]),
+      ...unchanged.map((answer) => ({
+        ConditionCheck: {
+          TableName: this.table,
+          Key: answerKey(event.eventId, answer.playerId),
+          ConditionExpression: "attribute_exists(PK) AND answeredAt = :answeredAt AND #answer = :answer" +
+            (answer.sessionId ? " AND sessionId = :sessionId" : " AND attribute_not_exists(sessionId)") +
+            (answer.registrationRole ? " AND registrationRole = :registrationRole" : " AND attribute_not_exists(registrationRole)"),
+          ExpressionAttributeNames: { "#answer": "answer" },
+          ExpressionAttributeValues: {
+            ":answeredAt": answer.answeredAt,
+            ":answer": answer.answer,
+            ...(answer.sessionId ? { ":sessionId": answer.sessionId } : {}),
+            ...(answer.registrationRole ? { ":registrationRole": answer.registrationRole } : {}),
+          },
+        },
+      })),
+      {
+        Put: {
+          TableName: this.table,
+          Item: {
+            ...idempotencyKey(tokenId, key),
+            type: "agent-idempotency",
+            bodyHash,
+            response,
+            createdAt: changedAt.toISOString(),
+            expiresAtEpoch: Math.floor(changedAt.getTime() / 1000) + 24 * 60 * 60,
+          },
+          ConditionExpression: "attribute_not_exists(PK)",
+        },
+      },
+    ];
+    try {
+      await this.db.send(new TransactWriteCommand({ TransactItems: transaction }));
+    } catch (err) {
+      if (err instanceof TransactionCanceledException) {
+        throw new ConflictError("The event, a named registration, or this idempotency key changed. Preview again.");
       }
       throw err;
     }
@@ -2761,6 +2862,7 @@ function toAnswer(item: Record<string, unknown>): EventAnswer {
     source: item.source as EventAnswer["source"],
   };
   if (item.sessionId) answer.sessionId = String(item.sessionId);
+  if (item.registrationRole === "substitute") answer.registrationRole = "substitute";
   if (item.note) answer.note = String(item.note);
   return answer;
 }

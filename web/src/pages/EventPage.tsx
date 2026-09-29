@@ -18,8 +18,10 @@ import {
   type StrategyRole,
 } from "../api";
 import { ErrorBanner } from "../components/Chrome";
+import { EventSignupShare } from "../components/EventSignupShare";
 import { LineChart } from "../components/LineChart";
 import { useToast } from "../components/Toast";
+import { registrationRolePresentation } from "../eventRegistrationRole";
 import { MiniChart } from "../components/MiniChart";
 import { compact, dayTime, eventDayTime, eventTime, full, relativeDay, shortDate, untilText } from "../format";
 import { countDraft, draftFor, entriesToPublish, type LineupDraftRow } from "../lineup";
@@ -141,6 +143,7 @@ export function EventPage({ eventId }: { eventId: string }) {
 
       <div className="page-head">
         <h1 className="page-title">{event.title}</h1>
+        {!completed && isOfficer && <EventSignupShare event={event} />}
       </div>
       <p className="muted">
         {eventDayTime(event.startsAt)} ·{" "}
@@ -179,6 +182,7 @@ export function EventPage({ eventId }: { eventId: string }) {
                 canAnswer={!completed && account !== undefined}
                 isOfficer={isOfficer}
                 myPlayerId={account?.playerId}
+                myRegistrationRole={event.mySessionId === session.id ? event.myRegistrationRole : null}
                 strategyTemplate={event.strategyTemplate ?? ""}
                 onJoin={() => void choose("yes", session.id)}
                 {...(isOfficer ? {
@@ -515,6 +519,7 @@ function SessionCard({
   canAnswer,
   isOfficer,
   myPlayerId,
+  myRegistrationRole,
   onJoin,
   onPublish,
   strategyTemplate,
@@ -529,6 +534,7 @@ function SessionCard({
   canAnswer: boolean;
   isOfficer: boolean;
   myPlayerId: string | undefined;
+  myRegistrationRole: "substitute" | null | undefined;
   onJoin: () => void;
   strategyTemplate: string;
   /** Officers only: publish or change the lineup for this part. */
@@ -623,13 +629,15 @@ function SessionCard({
           joined && <p className="pill pill-flat">Not in this lineup — officers published it {relativeDay(session.lineup.publishedAt)}</p>
         )
       ) : (
-        session.yourStanding && (
+        session.yourStanding && (myRegistrationRole === "substitute" ? (
+          <p className="pill pill-warn">Registered as substitute — officer supplied</p>
+        ) : (
           <p className={session.yourStanding.likely === "starter" ? "pill pill-up" : "pill pill-warn"}>
             {session.yourStanding.likely === "starter" ? "Likely starting" : "Likely a substitute"} · {session.yourStanding.position}
             {" of "}
             {session.yourStanding.signedUp} by Foundry strength — estimate, officers pick the lineup
           </p>
-        )
+        ))
       ))}
 
       {completed && session.result && <ResultView result={session.result} hidePlayerPoints={isOfficer} />}
@@ -673,7 +681,7 @@ function SessionCard({
                     Foundry
                   </th>
                   {isOfficer && <th scope="col">Attendance</th>}
-                  <th scope="col">Likely</th>
+                  <th scope="col">Role</th>
                 </tr>
               </thead>
               <tbody>
@@ -690,9 +698,10 @@ function SessionCard({
                       </td>
                     )}
                     <td>
-                      <span className={entry.likely === "starter" ? "pill pill-up" : "pill pill-warn"}>
-                        {entry.likely === "starter" ? "Starter" : "Sub"}
-                      </span>
+                      {(() => {
+                        const role = registrationRolePresentation(entry);
+                        return <span className={`pill pill-${role.tone}`}>{role.label}</span>;
+                      })()}
                     </td>
                   </tr>
                 ))}
@@ -1387,7 +1396,7 @@ function OfficerTable({ event, members }: { event: EventDetail; members: EventMe
   };
   const answerLabel = (m: EventMember) =>
     m.answer === "yes"
-      ? (event.sessions.find((s) => s.id === m.sessionId)?.label ?? "Yes")
+      ? `${event.sessions.find((s) => s.id === m.sessionId)?.label ?? "Yes"}${m.registrationRole === "substitute" ? " · Substitute" : ""}`
         : m.answer === "no"
           ? "Not signed up"
         : m.answer === "maybe"

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clientIdForLogin, parseAuthConfig, tokenAction } from "./auth";
+import { clientIdForLogin, parseAuthConfig, signInReturnPath, tokenAction } from "./auth";
 
 describe("parseAuthConfig", () => {
   it("accepts an https issuer and a client id", () => {
@@ -54,5 +54,17 @@ describe("password login routing", () => {
 
   it("rejects an empty password client id", () => {
     expect(() => parseAuthConfig({ issuer: "https://i", clientId: "c", passwordClientId: "" })).toThrow();
+  });
+});
+
+describe("sign-in return path", () => {
+  it("keeps a protected event deep link through authentication", () => {
+    expect(signInReturnPath("/events/foundry-1", "?from=game")).toBe("/events/foundry-1?from=game");
+  });
+
+  it("rejects external-looking paths and never returns to the callback", () => {
+    expect(signInReturnPath("//example.com/steal")).toBe("/");
+    expect(signInReturnPath("https://example.com/steal")).toBe("/");
+    expect(signInReturnPath("/callback", "?code=secret")).toBe("/");
   });
 });
