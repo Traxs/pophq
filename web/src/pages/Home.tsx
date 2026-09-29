@@ -59,6 +59,7 @@ export function Home() {
         <h2 id="todo-title" className="section-label">
           To do
         </h2>
+        <HomeRegistrationPrompt events={registrationEvents} onOpen={() => navigate("/events")} />
         {loading && !latest ? (
           <div className="card skeleton" style={{ height: 88 }} />
         ) : due ? (
@@ -89,7 +90,6 @@ export function Home() {
             </span>
           </div>
         )}
-        <HomeRegistrationPrompt events={registrationEvents} onOpen={() => navigate("/events")} />
       </section>
 
       <MemberRewards />
