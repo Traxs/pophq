@@ -191,6 +191,61 @@ describe("SvS rounds and preferences", () => {
   });
 });
 
+describe("officer-controlled Ministry availability", () => {
+  let h: Harness;
+  let roundId: string;
+
+  beforeAll(async () => {
+    h = await createHarness();
+    await seedDemo(h.repo, new Date());
+    const created = await h.call("POST", "/svs-rounds", {
+      ...OFFICER,
+      body: { label: "POP Ministry term", weekStart: weekStart() },
+    });
+    roundId = created.body.roundId as string;
+  });
+  afterAll(() => h.cleanup());
+
+  it("lets only an officer hide the term and blocks every signup surface", async () => {
+    expect((await h.call("PUT", `/svs-rounds/${roundId}/booking`, { ...PLAYER, body: { enabled: false } })).status).toBe(403);
+
+    const disabled = await h.call("PUT", `/svs-rounds/${roundId}/booking`, {
+      ...OFFICER,
+      body: { enabled: false },
+    });
+    expect(disabled.status).toBe(200);
+    expect(disabled.body.bookingEnabled).toBe(false);
+
+    const officerList = await h.call("GET", "/svs-rounds", OFFICER);
+    expect(officerList.body.items).toEqual(expect.arrayContaining([expect.objectContaining({ roundId, bookingEnabled: false })]));
+    expect((await h.call("GET", `/svs-rounds/${roundId}`, OFFICER)).status).toBe(200);
+
+    expect((await h.call("GET", "/svs-rounds", PLAYER)).body.items).toEqual([]);
+    expect((await h.call("GET", `/svs-rounds/${roundId}`, PLAYER)).status).toBe(404);
+    expect((await h.call("GET", "/ministry/public/terms")).body.items).toEqual([]);
+    expect((await h.call("GET", `/ministry/public/terms/${roundId}`)).status).toBe(404);
+    expect((await h.call("POST", `/svs-rounds/${roundId}/bookings`, {
+      ...PLAYER,
+      body: { dayId: "construction", slot: 30 },
+    })).status).toBe(409);
+    expect((await h.call("POST", `/ministry/public/terms/${roundId}/book`, {
+      body: { playerId: "987654321", playerName: "State Guest", alliance: "ICE", dayId: "construction", slot: 31 },
+    })).status).toBe(409);
+  });
+
+  it("makes the same term visible and bookable again after an officer enables it", async () => {
+    expect((await h.call("PUT", `/svs-rounds/${roundId}/booking`, { ...OFFICER, body: { enabled: true } })).status).toBe(200);
+    expect((await h.call("GET", "/svs-rounds", PLAYER)).body.items).toEqual(
+      expect.arrayContaining([expect.objectContaining({ roundId, bookingEnabled: true })]),
+    );
+    expect((await h.call("GET", `/ministry/public/terms/${roundId}`)).status).toBe(200);
+    expect((await h.call("POST", `/svs-rounds/${roundId}/bookings`, {
+      ...PLAYER,
+      body: { dayId: "construction", slot: 30 },
+    })).status).toBe(201);
+  });
+});
+
 describe("kudos", () => {
   let h: Harness;
   beforeAll(async () => {

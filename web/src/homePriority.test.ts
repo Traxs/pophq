@@ -16,16 +16,30 @@ describe("Home priority engine", () => {
   });
 
   it("keeps a distant booked Ministry appointment in upcoming instead of attention", () => {
-    const round = { roundId: "term", label: "Ministries", alliance: "POP", preferenceDeadline: "2026-09-30T00:00:00Z", state: "planning", answered: true, days: [], nextBooking: { bookingId: "book", roundId: "term", dayId: "construction", slot: 30, kind: "member", playerId: "1", playerName: "Traxes", alliance: "POP", createdAt: now.toISOString(), startsAt: "2026-10-05T15:00:00Z", buff: "construction" } } satisfies SvsRoundListItem;
+    const round = { roundId: "term", label: "Ministries", alliance: "POP", bookingEnabled: true, preferenceDeadline: "2026-09-30T00:00:00Z", state: "planning", answered: true, days: [], nextBooking: { bookingId: "book", roundId: "term", dayId: "construction", slot: 30, kind: "member", playerId: "1", playerName: "Traxes", alliance: "POP", createdAt: now.toISOString(), startsAt: "2026-10-05T15:00:00Z", buff: "construction" } } satisfies SvsRoundListItem;
     const items = homePriorities({ ...base, round });
     expect(items).toEqual([expect.objectContaining({ kind: "ministry-appointment", section: "upcoming", tier: 5 })]);
   });
 
   it("promotes an imminent Ministry appointment and an overdue power report", () => {
-    const round = { roundId: "term", label: "Ministries", alliance: "POP", preferenceDeadline: "2026-09-30T00:00:00Z", state: "planning", answered: true, days: [], nextBooking: { bookingId: "book", roundId: "term", dayId: "research", slot: 26, kind: "member", playerId: "1", playerName: "Traxes", alliance: "POP", createdAt: now.toISOString(), startsAt: "2026-09-29T13:00:00Z", buff: "research" } } satisfies SvsRoundListItem;
+    const round = { roundId: "term", label: "Ministries", alliance: "POP", bookingEnabled: true, preferenceDeadline: "2026-09-30T00:00:00Z", state: "planning", answered: true, days: [], nextBooking: { bookingId: "book", roundId: "term", dayId: "research", slot: 26, kind: "member", playerId: "1", playerName: "Traxes", alliance: "POP", createdAt: now.toISOString(), startsAt: "2026-09-29T13:00:00Z", buff: "research" } } satisfies SvsRoundListItem;
     const items = homePriorities({ ...base, round, latestPowerAt: "2026-08-20T12:00:00Z" });
     expect(items.map((item) => [item.kind, item.tier])).toEqual([["power", 1], ["ministry-appointment", 2]]);
     expect(items[1]?.section).toBe("attention");
+  });
+
+  it("does not prompt for Ministry while POP does not hold it", () => {
+    const round = {
+      roundId: "term",
+      label: "Ministries",
+      alliance: "POP",
+      bookingEnabled: false,
+      preferenceDeadline: "2026-09-30T00:00:00Z",
+      state: "collecting",
+      answered: false,
+      days: [],
+    } satisfies SvsRoundListItem;
+    expect(homePriorities({ ...base, round })).toEqual([]);
   });
 
   it("does not create completed-action noise when everything is current", () => {

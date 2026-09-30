@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, type Answer, type EventDetail, type EventListItem, type EventKind, type EventMember } from "../api";
 import { ErrorBanner } from "../components/Chrome";
 import { ActiveEventRail } from "../components/ActiveEventRegistration";
+import { EventResponseStatus } from "../components/EventResponseStatus";
 import { EventSignupShare } from "../components/EventSignupShare";
 import { RegistrationRolePicker } from "../components/RegistrationRolePicker";
 import { Sheet } from "../components/Sheet";
@@ -741,17 +742,7 @@ function BreakdownTable({
                 <tr key={m.playerId}>
                   <td>{m.name}</td>
                   <td className="muted">{m.rank ?? "–"}</td>
-                  <td>
-                    <span className={`response-status response-status-${m.answer ?? "pending"}`}>
-                      {m.answer === "yes"
-                        ? (sessions.find((session) => session.id === m.sessionId)?.label ?? "Joined")
-                        : m.answer === "no"
-                          ? "Can't"
-                          : m.answer === "maybe"
-                            ? "Maybe"
-                            : "No answer"}
-                    </span>
-                  </td>
+                  <td><EventResponseStatus member={m} sessions={sessions} /></td>
                   <td className="num">{valueOf(m, metric) === null ? "–" : full(valueOf(m, metric)!)}</td>
                   <td className="num">{attendance === undefined ? "–" : `${Math.round(attendance * 100)}%`}</td>
                   <td className={pending && isReportOverdue(m.lastReportAt) ? "delta-down" : undefined}>

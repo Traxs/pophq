@@ -737,6 +737,8 @@ export interface SvsRoundListItem {
   roundId: string;
   label: string;
   alliance: string;
+  /** Controlled by R4/R5; false while POP does not hold the State Ministry. */
+  bookingEnabled: boolean;
   preferenceDeadline: string;
   publishedAt?: string;
   state: RoundState;
@@ -963,6 +965,8 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
       request<MinistryBooking>("POST", `/svs-rounds/${roundId}/bookings`, { dayId, slot }),
     cancelMinistryBooking: (booking: Pick<MinistryBooking, "roundId" | "dayId" | "slot">) =>
       request<{ cancelled: boolean }>("DELETE", `/svs-rounds/${booking.roundId}/bookings/${encodeURIComponent(booking.dayId)}/${booking.slot}`),
+    setMinistryBookingEnabled: (roundId: string, enabled: boolean) =>
+      request<{ bookingEnabled: boolean }>("PUT", `/svs-rounds/${roundId}/booking`, { enabled }),
     setMinistryProtections: (roundId: string, protections: MinistrySlotProtection[]) =>
       request<{ protections: MinistrySlotProtection[] }>("PUT", `/svs-rounds/${roundId}/protections`, { protections }),
     publishLineup: (

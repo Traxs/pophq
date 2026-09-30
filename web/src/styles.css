@@ -2503,6 +2503,18 @@ th[aria-sort="descending"] .th-btn {
   background: var(--down-soft);
   color: var(--down);
 }
+.response-registration { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 5px; }
+.response-role-sub {
+  display: inline-flex;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 0.72rem;
+  font-weight: 750;
+  line-height: 1;
+  text-transform: uppercase;
+}
 .member-chips {
   display: flex;
   flex-wrap: wrap;
@@ -2759,6 +2771,9 @@ th[aria-sort="descending"] .th-btn {
    choices rather than a state-wide roster. */
 .ministry-title-row { align-items: flex-start; gap: 16px; }
 .ministry-title-row .page-title { margin: 4px 0; }
+.ministry-availability { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 18px 20px; }
+.ministry-availability > span { display: grid; gap: 4px; }
+.ministry-availability-off { border-color: color-mix(in srgb, var(--warn) 38%, var(--line)); background: color-mix(in srgb, var(--warn) 7%, var(--surface)); }
 .ministry-explainer { display: grid; gap: 4px; margin: 16px 0; padding: 18px 20px; }
 .ministry-days { margin: 18px 0; }
 .ministry-day-card { padding: 20px; }
@@ -2825,6 +2840,7 @@ th[aria-sort="descending"] .th-btn {
   .home-priority-copy strong { font-size: 1.08rem; }
   .home-coming-list { grid-template-columns: 1fr; }
   .ministry-title-row { display: grid; }
+  .ministry-availability { align-items: stretch; flex-direction: column; }
   .ministry-day-card { padding: 16px; }
   .ministry-free-slots { grid-template-columns: repeat(3, 1fr); }
   .ministry-confirmed { align-items: flex-start; flex-direction: column; }

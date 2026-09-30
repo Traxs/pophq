@@ -183,6 +183,7 @@ export function SessionProvider({
       saveBuffPreferences: guard(inner.saveBuffPreferences),
       bookMinistrySlot: guard(inner.bookMinistrySlot),
       cancelMinistryBooking: guard(inner.cancelMinistryBooking),
+      setMinistryBookingEnabled: guard(inner.setMinistryBookingEnabled),
       setMinistryProtections: guard(inner.setMinistryProtections),
       publishStrategy: guard(inner.publishStrategy),
       recordResult: guard(inner.recordResult),

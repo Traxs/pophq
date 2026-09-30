@@ -31,6 +31,8 @@ export interface SvsRound {
   roundId: string;
   alliance: string;
   label: string;
+  /** Officers open this only while POP controls the State Ministry. */
+  bookingEnabled: boolean;
   days: BuffDay[];
   /** Preferences are read-only from this moment (FM-09). */
   preferenceDeadline: string;
@@ -241,7 +243,7 @@ export function parseNewRound(input: unknown, ctx: { roundId: string; createdBy:
   const lastEnd = [...days].map((d) => dayEndsAt(d)).toSorted().at(-1)!;
   if (Date.parse(lastEnd) <= ctx.now.getTime()) throw new ValidationError("That round is already over.");
 
-  return { roundId: ctx.roundId, alliance, label, days, preferenceDeadline: deadline, createdBy: ctx.createdBy };
+  return { roundId: ctx.roundId, alliance, label, bookingEnabled: true, days, preferenceDeadline: deadline, createdBy: ctx.createdBy };
 }
 
 const countOf = (days: readonly { buff: Buff }[], buff: Buff) => days.filter((d) => d.buff === buff).length;

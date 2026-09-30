@@ -2070,6 +2070,21 @@ export class Repository {
     return res.Item ? toRound(res.Item) : undefined;
   }
 
+  async setMinistryBookingEnabled(roundId: string, enabled: boolean, actor: Actor): Promise<void> {
+    try {
+      await this.db.send(new UpdateCommand({
+        TableName: this.table,
+        Key: svsRoundKey(roundId),
+        UpdateExpression: "SET bookingEnabled = :enabled, updatedAt = :now, updatedBy = :actor ADD version :one",
+        ConditionExpression: "attribute_exists(PK)",
+        ExpressionAttributeValues: { ":enabled": enabled, ":now": this.clock().toISOString(), ":actor": actor.id, ":one": 1 },
+      }));
+    } catch (error) {
+      if (error instanceof ConditionalCheckFailedException) throw new NotFoundError("Ministry term not found.");
+      throw error;
+    }
+  }
+
   async setMinistryProtections(roundId: string, protections: MinistrySlotProtection[], actor: Actor): Promise<void> {
     try {
       await this.db.send(new UpdateCommand({
@@ -2654,6 +2669,8 @@ function toRound(item: Record<string, unknown>): SvsRound {
     roundId: String(item.roundId),
     alliance: String(item.alliance),
     label: String(item.label),
+    // Existing terms predate explicit officer activation and therefore fail closed.
+    bookingEnabled: item.bookingEnabled === true,
     days: Array.isArray(item.days) ? (item.days as SvsRound["days"]) : [],
     preferenceDeadline: String(item.preferenceDeadline),
     createdBy: String(item.createdBy),

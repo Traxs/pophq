@@ -102,6 +102,14 @@ export function Home() {
 
       {isOfficer && <OfficerJobs jobs={officerJobs ?? []} />}
 
+      {isOfficer && round && !round.bookingEnabled && <section className="card stack">
+        <div>
+          <h2 className="section-label">Ministry signup is off</h2>
+          <p className="muted small">Members and guests cannot see or book this term while POP does not hold the Ministry.</p>
+        </div>
+        <button type="button" className="btn btn-quiet btn-small" onClick={() => navigate(`/svs/${round.roundId}`)}>Review Ministry term</button>
+      </section>}
+
       {!round && isOfficer && <NewRoundCard />}
     </>
   );

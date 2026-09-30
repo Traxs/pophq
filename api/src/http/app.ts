@@ -656,7 +656,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
 
   const publicMinistryRound = async (roundId: string) => {
     const round = await repo.getRound(roundId);
-    if (!round) throw new NotFoundError("Ministry term not found.");
+    if (!round || !round.bookingEnabled) throw new NotFoundError("Ministry booking is not open.");
     const bookings = await repo.listMinistryBookings(round.roundId);
     return {
       roundId: round.roundId,
@@ -677,7 +677,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const from = new Date(now().getTime() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const rounds = await repo.listRounds("POP", from);
     const items = await Promise.all(rounds
-      .filter((round) => ministryTerm(round).endsOn >= now().toISOString().slice(0, 10))
+      .filter((round) => round.bookingEnabled && ministryTerm(round).endsOn >= now().toISOString().slice(0, 10))
       .map((round) => publicMinistryRound(round.roundId)));
     return c.json({ items });
   });
@@ -688,6 +688,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const input = parseGuestBooking(await readJson(c.req.raw));
     const round = await repo.getRound(c.req.param("id"));
     if (!round) throw new NotFoundError("Ministry term not found.");
+    if (!round.bookingEnabled) throw new ConflictError("POP does not currently have the Ministry, so booking is not open.");
     validateClaim(round, input, now());
     if ((round.protections ?? []).some((protection) => protection.dayId === input.dayId && protection.slots.includes(input.slot) && Date.parse(protection.releasesAt) > now().getTime())) {
       throw new ConflictError("That time is reserved for rally leads until its public release time.");
@@ -2422,8 +2423,9 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const from = new Date(at.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const rounds = await repo.listRounds(alliance, from);
     const acting = defaultActing(p);
+    const visibleRounds = isOfficer(p) ? rounds : rounds.filter((round) => round.bookingEnabled);
     const items = await Promise.all(
-      rounds.map(async (round) => {
+      visibleRounds.map(async (round) => {
         const bookings = await repo.listMinistryBookings(round.roundId);
         const mine = acting ? bookings.filter((booking) => booking.playerId === acting) : [];
         const nextBooking = mine
@@ -2454,6 +2456,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const p = c.get("principal");
     const round = await repo.getRound(c.req.param("id"));
     if (!round) throw new NotFoundError("Round not found.");
+    if (!round.bookingEnabled && !isOfficer(p)) throw new NotFoundError("Ministry booking is not open.");
     const at = now();
     const preferences = await repo.listPreferences(round.roundId);
     const bookings = await repo.listMinistryBookings(round.roundId);
@@ -2486,6 +2489,22 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     });
   });
 
+  /** R4/R5 explicitly expose or hide booking according to whether POP holds the Ministry. */
+  app.put("/svs-rounds/:id/booking", async (c) => {
+    const p = c.get("principal");
+    requireOfficer(p);
+    const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+    if (typeof body.enabled !== "boolean") throw new ValidationError("Choose whether Ministry signup is enabled.");
+    const round = await repo.getRound(c.req.param("id"));
+    if (!round) throw new NotFoundError("Ministry term not found.");
+    await repo.setMinistryBookingEnabled(round.roundId, body.enabled, {
+      id: p.sub,
+      via: "web",
+      reason: body.enabled ? "POP Ministry signup enabled" : "POP Ministry signup disabled",
+    });
+    return c.json({ bookingEnabled: body.enabled });
+  });
+
   app.put("/svs-rounds/:id/protections", async (c) => {
     const p = c.get("principal");
     requireOfficer(p);
@@ -2509,6 +2528,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     if (!account || !["active", "guest", "unknown"].includes(account.status)) throw new ForbiddenError("This account cannot book a Ministry slot.");
     const round = await repo.getRound(c.req.param("id"));
     if (!round) throw new NotFoundError("Ministry term not found.");
+    if (!round.bookingEnabled) throw new ConflictError("POP does not currently have the Ministry, so booking is not open.");
     const claim = parseSlotClaim(await readJson(c.req.raw));
     validateClaim(round, claim, now());
     if ((round.protections ?? []).some((protection) => protection.dayId === claim.dayId && protection.slots.includes(claim.slot) && Date.parse(protection.releasesAt) > now().getTime() && !protection.eligiblePlayerIds.includes(playerId))) {
@@ -2552,6 +2572,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     if (!p.linkedAccounts.has(pid)) throw new ForbiddenError("You can only set your own times.");
     const round = await repo.getRound(c.req.param("id"));
     if (!round) throw new NotFoundError("Round not found.");
+    if (!round.bookingEnabled) throw new ConflictError("POP does not currently have the Ministry, so signup is not open.");
     const preferences = parsePreferences(round, await readJson(c.req.raw), { playerId: pid, now: now() });
     const saved = await repo.setPreferences(preferences, { id: p.sub, via: "web" });
     return c.json(saved);

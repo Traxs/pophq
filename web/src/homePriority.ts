@@ -88,7 +88,7 @@ export function homePriorities(input: HomePriorityInput): HomePriorityCandidate[
     }
   }
 
-  if (input.round?.nextBooking) {
+  if (input.round?.bookingEnabled && input.round.nextBooking) {
     const booking = input.round.nextBooking;
     const startsIn = Date.parse(booking.startsAt) - now;
     const active = startsIn <= 0 && startsIn > -30 * 60 * 1000;
@@ -105,7 +105,7 @@ export function homePriorities(input: HomePriorityInput): HomePriorityCandidate[
       at: booking.startsAt,
       ...(active || imminent ? { actionLabel: "Open appointment" } : {}),
     });
-  } else if (input.round && !input.round.answered) {
+  } else if (input.round?.bookingEnabled && !input.round.answered) {
     const endsIn = input.round.term ? Date.parse(`${input.round.term.endsOn}T23:59:59.999Z`) - now : 7 * DAY;
     candidates.push({
       id: `ministry-booking:${input.round.roundId}`,

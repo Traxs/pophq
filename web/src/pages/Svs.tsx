@@ -53,6 +53,21 @@ export function Svs({ roundId }: { roundId: string }) {
     }
   };
 
+  const setBookingEnabled = async (enabled: boolean) => {
+    if (!enabled && !window.confirm("Hide this Ministry signup from POP members and guests? Existing bookings will be preserved.")) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      await api.setMinistryBookingEnabled(roundId, enabled);
+      toast(enabled ? "Ministry signup enabled" : "Ministry signup hidden");
+      dataChanged();
+    } catch (reason) {
+      setError(reason instanceof ApiError ? reason.message : "Couldn't change Ministry signup availability.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return <>
     <button type="button" className="text-btn" onClick={() => navigate("/")}>‹ Home</button>
     <div className="page-head ministry-title-row">
@@ -61,13 +76,22 @@ export function Svs({ roundId }: { roundId: string }) {
         <h1 className="page-title">{round.label}</h1>
         <p className="muted">{dateRange(round.term.startsOn, round.term.endsOn)} · times shown in your local time</p>
       </div>
-      <span className="pill pill-up">Booking open</span>
+      <span className={`pill ${round.bookingEnabled ? "pill-up" : ""}`}>{round.bookingEnabled ? "Booking open" : "Booking off"}</span>
     </div>
     {error && <p className="banner banner-error" role="alert">{error}</p>}
-    {!account && <p className="banner banner-warn">Choose a linked POP account before booking.</p>}
+    {isOfficer && <section className={`card ministry-availability ${round.bookingEnabled ? "" : "ministry-availability-off"}`}>
+      <span>
+        <strong>{round.bookingEnabled ? "POP currently holds the Ministry" : "POP does not currently hold the Ministry"}</strong>
+        <small className="muted">{round.bookingEnabled ? "Members and guests can see and claim free appointments." : "This term is hidden and booking is blocked for members and guests."}</small>
+      </span>
+      <button type="button" className={`btn btn-small ${round.bookingEnabled ? "btn-quiet" : "btn-primary"}`} disabled={busy} onClick={() => void setBookingEnabled(!round.bookingEnabled)}>
+        {round.bookingEnabled ? "Disable signup" : "Enable signup"}
+      </button>
+    </section>}
+    {round.bookingEnabled && !account && <p className="banner banner-warn">Choose a linked POP account before booking.</p>}
     <section className="ministry-explainer card">
-      <strong>Pick a free time and it is yours.</strong>
-      <span className="muted">Occupied appointments are hidden. Each account can hold one appointment per Ministry day.</span>
+      <strong>{round.bookingEnabled ? "Pick a free time and it is yours." : "Signup is currently disabled."}</strong>
+      <span className="muted">{round.bookingEnabled ? "Occupied appointments are hidden. Each account can hold one appointment per Ministry day." : "An R4 or R5 can enable it when POP controls the State Ministry again."}</span>
     </section>
     {isOfficer && <RallyLeadProtection round={round} disabled={busy} onSave={async (protections) => {
       setBusy(true);
@@ -78,13 +102,13 @@ export function Svs({ roundId }: { roundId: string }) {
     <div className="stack ministry-days">
       {round.days.map((day) => {
         const booking = round.yourBookings.find((item) => item.dayId === day.id);
-        return <MinistryDayCard key={day.id} day={day} {...(booking ? { booking } : {})} disabled={busy || !account} onBook={book} onCancel={cancel} />;
+        return <MinistryDayCard key={day.id} day={day} {...(booking ? { booking } : {})} disabled={busy || !account || !round.bookingEnabled} onBook={book} onCancel={cancel} />;
       })}
     </div>
-    <a className="card ministry-guest-share" href={`/ministry/${round.roundId}`}>
+    {round.bookingEnabled && <a className="card ministry-guest-share" href={`/ministry/${round.roundId}`}>
       <span><strong>Booking for another alliance?</strong><span className="muted small">Open the guest form or share this page.</span></span>
       <span className="chevron">›</span>
-    </a>
+    </a>}
   </>;
 }
 
