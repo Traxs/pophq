@@ -3,6 +3,7 @@ import { ApiError, type Answer, type EventDetail, type EventListItem, type Event
 import { ErrorBanner } from "../components/Chrome";
 import { ActiveEventRail } from "../components/ActiveEventRegistration";
 import { EventSignupShare } from "../components/EventSignupShare";
+import { RegistrationRolePicker } from "../components/RegistrationRolePicker";
 import { Sheet } from "../components/Sheet";
 import { useToast } from "../components/Toast";
 import { compact, eventDayTime, eventTime, full, relativeDay, untilText } from "../format";
@@ -250,6 +251,7 @@ function EventCard({
   const toast = useToast();
   const [answer, setAnswer] = useState<Answer | null>(event.myAnswer);
   const [session, setSession] = useState<string | null>(event.mySessionId);
+  const [registrationRole, setRegistrationRole] = useState<"substitute" | null>(event.myRegistrationRole ?? null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [details, setDetails] = useState<EventDetail | null>(null);
@@ -258,7 +260,8 @@ function EventCard({
   useEffect(() => {
     setAnswer(event.myAnswer);
     setSession(event.mySessionId);
-  }, [event.myAnswer, event.mySessionId]);
+    setRegistrationRole(event.myRegistrationRole ?? null);
+  }, [event.myAnswer, event.myRegistrationRole, event.mySessionId]);
 
   useEffect(() => {
     if (!isOfficer || past) return;
@@ -280,24 +283,37 @@ function EventCard({
   }, [api, event.eventId, isOfficer, past]);
 
   /** Picking a legion replaces an earlier pick: nobody is in two legions of one battle. */
-  const choose = async (value: Answer, sessionId?: string) => {
+  const choose = async (
+    value: Answer,
+    sessionId?: string,
+    nextRegistrationRole = value === "yes" ? (registrationRole ?? undefined) : undefined,
+    busyKey?: string,
+  ) => {
     if (!accountId) return;
-    if (value === answer && (sessionId ?? null) === session) return;
-    const key = sessionId ?? value;
+    if (
+      value === answer &&
+      (sessionId ?? null) === session &&
+      (nextRegistrationRole ?? null) === registrationRole
+    ) return;
+    const key = busyKey ?? sessionId ?? value;
     setBusy(key);
     setError(null);
-    const previous = { answer, session };
+    const previous = { answer, session, registrationRole };
     setAnswer(value);
     setSession(sessionId ?? null);
+    setRegistrationRole(nextRegistrationRole ?? null);
     try {
-      const saved = await api.answer(event.eventId, accountId, value, sessionId);
+      const saved = await api.answer(event.eventId, accountId, value, sessionId, nextRegistrationRole);
       setDetails((current) => current ? withEventAnswer(current, accountId, saved) : current);
       const label = sessionId ? event.sessions.find((s) => s.id === sessionId)?.label : undefined;
-      toast(label ? `You're in for ${label}` : value === "yes" ? "You're in" : value === "no" ? "Signup withdrawn" : "Marked as maybe");
+      toast(label
+        ? `You're in for ${label}${saved.registrationRole === "substitute" ? " as a substitute" : ""}`
+        : value === "yes" ? "You're in" : value === "no" ? "Signup withdrawn" : "Marked as maybe");
       onAnswered();
     } catch (e) {
       setAnswer(previous.answer);
       setSession(previous.session);
+      setRegistrationRole(previous.registrationRole);
       setError(e instanceof ApiError ? e.message : "Couldn't save your answer.");
     } finally {
       setBusy(null);
@@ -386,6 +402,14 @@ function EventCard({
               {busy === "no" ? "…" : "Not attending"}
             </button>
           </div>
+          {isLegionEvent(event.kind) && answer === "yes" && session && (
+            <RegistrationRolePicker
+              substitute={registrationRole === "substitute"}
+              disabled={event.closed}
+              busy={busy === "role"}
+              onChange={(substitute) => void choose("yes", session, substitute ? "substitute" : undefined, "role")}
+            />
+          )}
         </div>
       ) : (
         // No parts to choose between: one button to join, and the same button to drop out again.

@@ -3049,6 +3049,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
         closed: isClosed(event, at),
         myAnswer: byEvent.get(event.eventId)?.answer ?? null,
         mySessionId: byEvent.get(event.eventId)?.sessionId ?? null,
+        myRegistrationRole: byEvent.get(event.eventId)?.registrationRole ?? null,
         ...(history ? { history } : {}),
       };
     }));

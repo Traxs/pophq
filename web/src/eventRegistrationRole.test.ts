@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { registrationRolePresentation } from "./eventRegistrationRole";
 
 describe("registration role display", () => {
-  it("labels an officer-supplied substitute explicitly instead of as an estimate", () => {
+  it("labels an explicit substitute choice instead of showing an estimate", () => {
     expect(registrationRolePresentation({ likely: "starter", registrationRole: "substitute" })).toEqual({
-      label: "Substitute · officer",
+      label: "Substitute",
       tone: "warn",
     });
   });

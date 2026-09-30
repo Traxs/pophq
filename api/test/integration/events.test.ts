@@ -310,6 +310,34 @@ describe("Foundry legions", () => {
     expect(afterWithdrawal.body.counts).toMatchObject({ yes: 0, no: 1, bySession: {} });
   });
 
+  it("lets a player explicitly sign up as a substitute and switch back to regular", async () => {
+    const substitute = await h.call("PUT", `/events/${foundryId}/answers/100000001`, {
+      ...PLAYER,
+      body: { answer: "yes", sessionId: "L1", registrationRole: "substitute" },
+    });
+    expect(substitute.status).toBe(200);
+    expect(substitute.body).toMatchObject({ answer: "yes", sessionId: "L1", registrationRole: "substitute", source: "player" });
+
+    const list = await h.call("GET", "/events", PLAYER);
+    const listItem = (list.body.items as { eventId: string; myRegistrationRole: string | null }[])
+      .find((event) => event.eventId === foundryId);
+    expect(listItem?.myRegistrationRole).toBe("substitute");
+
+    const detail = await h.call("GET", `/events/${foundryId}`, PLAYER);
+    expect(detail.body.myRegistrationRole).toBe("substitute");
+    const l1 = (detail.body.sessions as { id: string; signedUpList: { playerId: string; registrationRole?: string }[] }[])
+      .find((session) => session.id === "L1");
+    expect(l1?.signedUpList.find((entry) => entry.playerId === "100000001")?.registrationRole).toBe("substitute");
+
+    const regular = await h.call("PUT", `/events/${foundryId}/answers/100000001`, {
+      ...PLAYER,
+      body: { answer: "yes", sessionId: "L1" },
+    });
+    expect(regular.status).toBe(200);
+    expect(regular.body.registrationRole).toBeUndefined();
+    expect((await h.call("GET", `/events/${foundryId}`, PLAYER)).body.myRegistrationRole).toBeNull();
+  });
+
   it("requires a legion for yes, and refuses one for no", async () => {
     const noLegion = await h.call("PUT", `/events/${foundryId}/answers/100000001`, { ...PLAYER, body: { answer: "yes" } });
     expect(noLegion.status).toBe(400);

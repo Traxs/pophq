@@ -1005,10 +1005,11 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
         expectedVersion: number;
       },
     ) => request<PublishedResult>("POST", `/events/${eventId}/sessions/${sessionId}/result`, input),
-    answer: (eventId: string, playerId: string, answer: Answer, sessionId?: string) =>
-      request<{ answer: Answer; sessionId?: string; answeredAt: string }>("PUT", `/events/${eventId}/answers/${playerId}`, {
+    answer: (eventId: string, playerId: string, answer: Answer, sessionId?: string, registrationRole?: "substitute") =>
+      request<{ answer: Answer; sessionId?: string; registrationRole?: "substitute"; answeredAt: string }>("PUT", `/events/${eventId}/answers/${playerId}`, {
         answer,
         ...(sessionId ? { sessionId } : {}),
+        ...(registrationRole ? { registrationRole } : {}),
       }),
   };
 }

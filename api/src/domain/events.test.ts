@@ -7,6 +7,7 @@ import {
   parseAgentEventChanges,
   parseAgentNewEvent,
   parseAnswer,
+  parseAnswerChoice,
   parseNewEvent,
   rankSignUps,
   standingFor,
@@ -170,6 +171,33 @@ describe("parseAnswer", () => {
   });
   it.each(["", "sure", "y", null, 1])("rejects %j", (input) => {
     expect(() => parseAnswer(input)).toThrow(ValidationError);
+  });
+});
+
+describe("parseAnswerChoice", () => {
+  const sessions = [{ id: "L1", label: "Legion 1", startsAt: inTwoDays }];
+
+  it.each(["foundry", "canyon"] as const)("accepts a member's explicit substitute choice for %s", (kind) => {
+    expect(parseAnswerChoice({ kind, sessions }, { answer: "yes", sessionId: "L1", registrationRole: "substitute" }))
+      .toEqual({ answer: "yes", sessionId: "L1", registrationRole: "substitute" });
+  });
+
+  it("rejects substitute on other event types and without a yes answer", () => {
+    expect(() => parseAnswerChoice(
+      { kind: "koi", sessions },
+      { answer: "yes", sessionId: "L1", registrationRole: "substitute" },
+    )).toThrow(/Foundry and Canyon/);
+    expect(() => parseAnswerChoice(
+      { kind: "foundry", sessions },
+      { answer: "no", registrationRole: "substitute" },
+    )).toThrow(/Only a yes/);
+  });
+
+  it("rejects invented registration roles", () => {
+    expect(() => parseAnswerChoice(
+      { kind: "foundry", sessions },
+      { answer: "yes", sessionId: "L1", registrationRole: "starter" },
+    )).toThrow(/substitute or omitted/);
   });
 });
 

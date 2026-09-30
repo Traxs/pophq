@@ -3,6 +3,7 @@ import type { Answer, EventDetail } from "./api";
 export interface SavedEventAnswer {
   answer: Answer;
   sessionId?: string;
+  registrationRole?: "substitute";
   answeredAt: string;
 }
 
@@ -14,12 +15,18 @@ export function withEventAnswer(detail: EventDetail, playerId: string, saved: Sa
           ...member,
           answer: saved.answer,
           sessionId: saved.answer === "yes" ? (saved.sessionId ?? null) : null,
+          registrationRole: saved.answer === "yes" ? (saved.registrationRole ?? null) : null,
           answeredAt: saved.answeredAt,
         }
       : member,
   );
   if (!members?.some((member) => member.playerId === playerId)) {
-    return { ...detail, myAnswer: saved.answer, mySessionId: saved.sessionId ?? null };
+    return {
+      ...detail,
+      myAnswer: saved.answer,
+      mySessionId: saved.sessionId ?? null,
+      myRegistrationRole: saved.registrationRole ?? null,
+    };
   }
 
   const bySession = Object.fromEntries(
@@ -32,6 +39,7 @@ export function withEventAnswer(detail: EventDetail, playerId: string, saved: Sa
     ...detail,
     myAnswer: saved.answer,
     mySessionId: saved.sessionId ?? null,
+    myRegistrationRole: saved.registrationRole ?? null,
     members,
     counts: {
       yes: members.filter((member) => member.answer === "yes").length,

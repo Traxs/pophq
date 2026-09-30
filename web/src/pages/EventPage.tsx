@@ -19,6 +19,7 @@ import {
 } from "../api";
 import { ErrorBanner } from "../components/Chrome";
 import { EventSignupShare } from "../components/EventSignupShare";
+import { RegistrationRolePicker } from "../components/RegistrationRolePicker";
 import { LineChart } from "../components/LineChart";
 import { useToast } from "../components/Toast";
 import { registrationRolePresentation } from "../eventRegistrationRole";
@@ -31,6 +32,7 @@ import { assignmentsToPublish, StrategyText, strategyDraftFor, type StrategyDraf
 import { completedAttendanceLabel, completedEventRows, type CompletedAttendance } from "../eventReport";
 import { eventTimeline, type EventTimelinePoint } from "../eventTimeline";
 import { visibleEventSessions } from "../eventSessions";
+import { isLegionEvent } from "../eventSetup";
 import { allianceScoreText, playerScoreText, rankedAllianceScores } from "../resultDisplay";
 
 const ALL_EVENT_HISTORY = "1970-01-01T00:00:00.000Z";
@@ -62,14 +64,21 @@ export function EventPage({ eventId }: { eventId: string }) {
       .catch(() => setHistoryError(true));
   }, [api, dataVersion, eventId]);
 
-  const choose = async (answer: Answer, sessionId?: string) => {
+  const choose = async (
+    answer: Answer,
+    sessionId?: string,
+    registrationRole = answer === "yes" ? (event?.myRegistrationRole ?? undefined) : undefined,
+    busyKey?: string,
+  ) => {
     if (!account) return;
-    setBusy(sessionId ?? answer);
+    setBusy(busyKey ?? sessionId ?? answer);
     setError(null);
     try {
-      await api.answer(eventId, account.playerId, answer, sessionId);
+      const saved = await api.answer(eventId, account.playerId, answer, sessionId, registrationRole);
       const label = sessionId ? event?.sessions.find((s) => s.id === sessionId)?.label : undefined;
-      toast(label ? `You're in for ${label}` : "Signup withdrawn");
+      toast(label
+        ? `You're in for ${label}${saved.registrationRole === "substitute" ? " as a substitute" : ""}`
+        : "Signup withdrawn");
       dataChanged();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Couldn't save your answer.");
@@ -197,6 +206,28 @@ export function EventPage({ eventId }: { eventId: string }) {
       ) : !completed ? (
         <p className="muted">This event has no parts to choose between.</p>
       ) : null}
+
+      {!completed && account && isLegionEvent(event.kind) && event.myAnswer === "yes" && event.mySessionId && (
+        <div className="event-signup">
+          <div className="event-signup-intro">
+            <strong>Your signup preference</strong>
+            <span className="muted small">
+              {event.sessions.find((session) => session.id === event.mySessionId)?.label} · choose whether you want a regular or substitute place.
+            </span>
+          </div>
+          <RegistrationRolePicker
+            substitute={event.myRegistrationRole === "substitute"}
+            disabled={event.closed && !isOfficer}
+            busy={busy === "role"}
+            onChange={(substitute) => void choose(
+              "yes",
+              event.mySessionId ?? undefined,
+              substitute ? "substitute" : undefined,
+              "role",
+            )}
+          />
+        </div>
+      )}
 
       {completed && history && <EventProgression current={event} items={history} />}
       {completed && historyError && <p className="banner banner-error">Couldn't load the event comparison.</p>}
@@ -630,7 +661,7 @@ function SessionCard({
         )
       ) : (
         session.yourStanding && (myRegistrationRole === "substitute" ? (
-          <p className="pill pill-warn">Registered as substitute — officer supplied</p>
+          <p className="pill pill-warn">Registered as substitute</p>
         ) : (
           <p className={session.yourStanding.likely === "starter" ? "pill pill-up" : "pill pill-warn"}>
             {session.yourStanding.likely === "starter" ? "Likely starting" : "Likely a substitute"} · {session.yourStanding.position}

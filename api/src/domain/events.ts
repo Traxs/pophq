@@ -269,6 +269,8 @@ export function parseNewEvent(input: unknown, ctx: NewEventContext): AllianceEve
 export interface AnswerChoice {
   answer: Answer;
   sessionId?: string;
+  /** Explicit preference for a substitute place; omission means a regular signup. */
+  registrationRole?: "substitute";
 }
 
 /**
@@ -276,21 +278,31 @@ export interface AnswerChoice {
  * picks exactly one legion), plain yes/no/maybe otherwise. One answer per game account per
  * event, so choosing Legion 2 replaces Legion 1 rather than adding to it.
  */
-export function parseAnswerChoice(event: Pick<AllianceEvent, "sessions">, input: unknown): AnswerChoice {
-  const body = (input ?? {}) as { answer?: unknown; sessionId?: unknown };
+export function parseAnswerChoice(event: Pick<AllianceEvent, "kind" | "sessions">, input: unknown): AnswerChoice {
+  const body = (input ?? {}) as { answer?: unknown; sessionId?: unknown; registrationRole?: unknown };
   const answer = parseAnswer(body.answer);
   const sessionId = typeof body.sessionId === "string" && body.sessionId !== "" ? body.sessionId : undefined;
+  const registrationRole = body.registrationRole === undefined
+    ? undefined
+    : body.registrationRole === "substitute"
+      ? "substitute" as const
+      : (() => { throw new ValidationError("The signup role must be substitute or omitted."); })();
 
   if (event.sessions.length === 0) {
     if (sessionId) throw new ValidationError("This event has no parts to choose from.");
+    if (registrationRole) throw new ValidationError("Only Foundry and Canyon signups can choose substitute.");
     return { answer };
   }
   if (answer === "yes") {
     if (!sessionId) throw new ValidationError(`Pick one: ${event.sessions.map((s) => s.label).join(" or ")}.`);
     if (!event.sessions.some((s) => s.id === sessionId)) throw new ValidationError("That part of the event doesn't exist.");
-    return { answer, sessionId };
+    if (registrationRole && event.kind !== "foundry" && event.kind !== "canyon") {
+      throw new ValidationError("Only Foundry and Canyon signups can choose substitute.");
+    }
+    return { answer, sessionId, ...(registrationRole ? { registrationRole } : {}) };
   }
   if (sessionId) throw new ValidationError("Only a yes can name a part of the event.");
+  if (registrationRole) throw new ValidationError("Only a yes can choose a signup role.");
   return { answer };
 }
 
