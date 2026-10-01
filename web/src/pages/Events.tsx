@@ -693,10 +693,7 @@ function EventBreakdown({ detail }: { detail: EventDetail }) {
 }
 
 
-/**
- * One answer group as a table. Strongest first: when a legion is short, the officer wants to know
- * which of the missing people actually matter, not just how many there are.
- */
+/** One answer group as a table, ordered by alliance rank and then the relevant event strength. */
 function BreakdownTable({
   members,
   pending,
@@ -708,8 +705,8 @@ function BreakdownTable({
   kind: EventKind;
   sessions: EventDetail["sessions"];
 }) {
-  // Foundry strength decides a Foundry; for a bear hunt or an SvS call, city power is the number
-  // an officer actually weighs. The table sorts by whichever it shows.
+  // Foundry uses Foundry strength; Canyon and the other event types use city power. Within each
+  // alliance rank, the table sorts by the same metric it shows.
   const foundry = kind === "foundry";
   const metric = foundry ? "foundry" : "power";
   const rows = sortForBreakdown(members, metric);

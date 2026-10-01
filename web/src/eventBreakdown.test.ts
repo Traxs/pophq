@@ -36,24 +36,26 @@ describe("latestKnown", () => {
 });
 
 describe("sortForBreakdown", () => {
-  it("puts the strongest first, so a short legion shows who matters", () => {
+  it("puts R5 through R1 first, then sorts by Foundry strength within each rank", () => {
     const rows = sortForBreakdown(
       [
-        member({ name: "Small", foundryStrength: 10 }),
-        member({ name: "Big", foundryStrength: 90 }),
-        member({ name: "Middle", foundryStrength: 50 }),
+        member({ name: "Strong R3", rank: "R3", foundryStrength: 900 }),
+        member({ name: "Small R4", rank: "R4", foundryStrength: 10 }),
+        member({ name: "Big R4", rank: "R4", foundryStrength: 90 }),
+        member({ name: "R5", rank: "R5", foundryStrength: 1 }),
+        member({ name: "R2", rank: "R2", foundryStrength: 999 }),
       ],
       "foundry",
     );
-    expect(rows.map((m) => m.name)).toEqual(["Big", "Middle", "Small"]);
+    expect(rows.map((m) => m.name)).toEqual(["R5", "Big R4", "Small R4", "Strong R3", "R2"]);
   });
 
-  it("sorts by power for an event that is not a Foundry, which is the column it shows", () => {
+  it("sorts Canyon-style groups by city power within each rank", () => {
     const rows = sortForBreakdown(
       [
         // Strong in the Foundry but small overall: the order has to follow the metric on screen.
-        member({ name: "Specialist", foundryStrength: 900, power: 10 }),
-        member({ name: "Whale", foundryStrength: 1, power: 900 }),
+        member({ name: "Specialist", rank: "R3", foundryStrength: 900, power: 10 }),
+        member({ name: "Whale", rank: "R3", foundryStrength: 1, power: 900 }),
       ],
       "power",
     );
@@ -61,20 +63,34 @@ describe("sortForBreakdown", () => {
   });
 
   it("puts people without a reading last rather than treating them as zero", () => {
-    const rows = sortForBreakdown([member({ name: "Unknown" }), member({ name: "Weak", foundryStrength: 1 })], "foundry");
+    const rows = sortForBreakdown(
+      [member({ name: "Unknown", rank: "R3" }), member({ name: "Weak", rank: "R3", foundryStrength: 1 })],
+      "foundry",
+    );
     expect(rows.map((m) => m.name)).toEqual(["Weak", "Unknown"]);
+  });
+
+  it("puts members without an alliance rank after ranked members", () => {
+    const rows = sortForBreakdown(
+      [
+        member({ name: "Unranked whale", foundryStrength: 999 }),
+        member({ name: "Ranked", rank: "R1", foundryStrength: 1 }),
+      ],
+      "foundry",
+    );
+    expect(rows.map((m) => m.name)).toEqual(["Ranked", "Unranked whale"]);
   });
 
   it("breaks ties by name, so the order does not wobble", () => {
     const rows = sortForBreakdown(
-      [member({ name: "Zeta", foundryStrength: 50 }), member({ name: "Alpha", foundryStrength: 50 })],
+      [member({ name: "Zeta", rank: "R3", foundryStrength: 50 }), member({ name: "Alpha", rank: "R3", foundryStrength: 50 })],
       "foundry",
     );
     expect(rows.map((m) => m.name)).toEqual(["Alpha", "Zeta"]);
   });
 
   it("does not disturb the array it was given", () => {
-    const input = [member({ name: "A", foundryStrength: 1 }), member({ name: "B", foundryStrength: 9 })];
+    const input = [member({ name: "A", rank: "R2", foundryStrength: 1 }), member({ name: "B", rank: "R3", foundryStrength: 9 })];
     sortForBreakdown(input, "foundry");
     expect(input.map((m) => m.name)).toEqual(["A", "B"]);
   });

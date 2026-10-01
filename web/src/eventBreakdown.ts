@@ -20,14 +20,22 @@ export type BreakdownMetric = "foundry" | "power";
 export const valueOf = (member: EventMember, metric: BreakdownMetric): number | null =>
   metric === "foundry" ? member.foundryStrength : member.power;
 
+const rankWeight = (rank: EventMember["rank"]): number => {
+  const match = /^R([1-5])$/.exec(rank ?? "");
+  return match ? Number(match[1]) : 0;
+};
+
 /**
- * Strongest first, because that is who an officer chases when a legion is short. People with no
- * reading come last rather than counting as zero, and ties fall back to the name so the order
- * never wobbles between renders.
+ * Alliance rank first (R5 through R1), then strongest within that rank. People without a rank or
+ * reading come last in their respective group, and ties fall back to the name so the order never
+ * wobbles between renders.
  */
 export function sortForBreakdown(members: readonly EventMember[], metric: BreakdownMetric): EventMember[] {
   return [...members].toSorted(
-    (a, b) => (valueOf(b, metric) ?? -1) - (valueOf(a, metric) ?? -1) || a.name.localeCompare(b.name),
+    (a, b) =>
+      rankWeight(b.rank) - rankWeight(a.rank) ||
+      (valueOf(b, metric) ?? -1) - (valueOf(a, metric) ?? -1) ||
+      a.name.localeCompare(b.name),
   );
 }
 
