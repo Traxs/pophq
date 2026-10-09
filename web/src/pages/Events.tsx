@@ -159,6 +159,7 @@ export function Events() {
                   <EventCard
                     event={event}
                     onAnswered={dataChanged}
+                    refreshVersion={dataVersion}
                     accountId={account?.playerId}
                     isOfficer={isOfficer}
                     onEdit={setEditing}
@@ -185,6 +186,7 @@ export function Events() {
                 <EventCard
                   event={event}
                   onAnswered={dataChanged}
+                  refreshVersion={dataVersion}
                   accountId={account?.playerId}
                   isOfficer={isOfficer}
                   onConfigure={setConfiguring}
@@ -248,6 +250,7 @@ function EventCard({
   accountId,
   isOfficer,
   onAnswered,
+  refreshVersion,
   onEdit,
   onConfigure,
   past = false,
@@ -256,6 +259,8 @@ function EventCard({
   accountId: string | undefined;
   isOfficer: boolean;
   onAnswered: () => void;
+  /** Changes after any saved write, so the independently loaded officer breakdown cannot stay stale. */
+  refreshVersion: number;
   onEdit?: (event: EventListItem) => void;
   onConfigure?: (event: EventListItem) => void;
   past?: boolean;
@@ -293,7 +298,7 @@ function EventCard({
     return () => {
       current = false;
     };
-  }, [api, event.eventId, isOfficer, past]);
+  }, [api, event.eventId, isOfficer, past, refreshVersion]);
 
   /** Picking a legion replaces an earlier pick: nobody is in two legions of one battle. */
   const choose = async (
