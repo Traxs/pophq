@@ -12,6 +12,8 @@ export interface EventTimelinePoint {
   ourScore: number | null;
   opponentScore: number | null;
   performance: number | null;
+  alliancePlace: number | null;
+  allianceCount: number | null;
   participants: number | null;
   preparation: number | null;
   battle: number | null;
@@ -28,9 +30,27 @@ export function eventTimeline(items: EventListItem[], kind: EventKind, currentEv
     .map((item): EventTimelinePoint => {
       const results = item.history?.results ?? [];
       const phases = item.history?.phases ?? [];
-      const ourScore = results.length > 0 ? results.reduce((sum, result) => sum + result.ourScore, 0) : null;
-      const opponentScore = results.length > 0 ? results.reduce((sum, result) => sum + result.opponentScore, 0) : null;
-      const totalScore = (ourScore ?? 0) + (opponentScore ?? 0);
+      const allianceTotals = new Map<string, { score: number; ours: boolean }>();
+      for (const result of results) {
+        if (result.allianceScores && result.allianceScores.length > 0) {
+          for (const alliance of result.allianceScores) {
+            const key = alliance.isOurAlliance ? "__ours__" : `${alliance.allianceTag}:${alliance.allianceName}`.toLowerCase();
+            const current = allianceTotals.get(key);
+            allianceTotals.set(key, { score: (current?.score ?? 0) + alliance.score, ours: alliance.isOurAlliance });
+          }
+        } else {
+          const ours = allianceTotals.get("__ours__");
+          const opponent = allianceTotals.get("__legacy_opponent__");
+          allianceTotals.set("__ours__", { score: (ours?.score ?? 0) + result.ourScore, ours: true });
+          allianceTotals.set("__legacy_opponent__", { score: (opponent?.score ?? 0) + result.opponentScore, ours: false });
+        }
+      }
+      const rankedAlliances = [...allianceTotals.values()].toSorted((a, b) => b.score - a.score);
+      const ours = rankedAlliances.find((alliance) => alliance.ours);
+      const ourScore = ours?.score ?? (results.length > 0 ? 0 : null);
+      const opponentScore = rankedAlliances.find((alliance) => !alliance.ours)?.score ?? (results.length > 0 ? 0 : null);
+      const totalScore = rankedAlliances.reduce((sum, alliance) => sum + alliance.score, 0);
+      const alliancePlace = ours ? rankedAlliances.findIndex((alliance) => alliance === ours) + 1 : null;
       const preparation = phases.find((phase) => phase.phaseKey === "preparation");
       const battle = phases.find((phase) => phase.phaseKey === "castle_battle");
       const outcomes = results.map((result) => result.outcome);
@@ -49,6 +69,8 @@ export function eventTimeline(items: EventListItem[], kind: EventKind, currentEv
         ourScore,
         opponentScore,
         performance: results.length > 0 && totalScore > 0 ? (ourScore! / totalScore) * 100 : null,
+        alliancePlace,
+        allianceCount: results.length > 0 ? rankedAlliances.length : null,
         participants: results.some((result) => result.participants !== undefined)
           ? results.reduce((sum, result) => sum + (result.participants ?? 0), 0)
           : null,

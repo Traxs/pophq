@@ -141,11 +141,11 @@ describe("attendance evidence", () => {
       recordedBy: "fixture",
     }, actor);
 
-    // A partial scoreboard by itself is useful evidence for the named player, but it does not
-    // make every unlisted roster member absent or add an incomplete event to alliance metrics.
+    // Foundry and Canyon officer results are complete attendance sources: the officer can see
+    // the full alliance battle roster, so an unlisted eligible member is a confirmed miss.
     const partialAt = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
     const partial = parseNewEvent(
-      { kind: "foundry", title: "Partial result", startsAt: partialAt, sessions: [{ id: "L1", label: "Legion 1", startsAt: partialAt }] },
+      { kind: "foundry", title: "Complete officer result", startsAt: partialAt, sessions: [{ id: "L1", label: "Legion 1", startsAt: partialAt }] },
       { eventId: "EVIDENCE-PARTIAL", createdBy: "fixture", now: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000) },
     );
     await h.repo.createEvent(partial, actor);
@@ -160,18 +160,84 @@ describe("attendance evidence", () => {
       recordedAt: partialAt,
       recordedBy: "fixture",
     }, actor);
+
+    // A statewide partial leaderboard proves only its named rows; it must not create silent
+    // absences for the rest of the alliance.
+    const koiAt = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    await h.repo.createEvent(parseNewEvent(
+      { kind: "koi", title: "Partial statewide result", startsAt: koiAt, sessions: [] },
+      { eventId: "EVIDENCE-KOI-PARTIAL", createdBy: "fixture", now: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) },
+    ), actor);
+    await h.repo.putEventPhaseScores({
+      eventId: "EVIDENCE-KOI-PARTIAL",
+      phaseKey: "castle_battle",
+      phaseLabel: "Castle battle phase",
+      version: 1,
+      coverage: "partial",
+      playerPoints: [{ playerId: "710000001", points: 125 }],
+      source: { type: "fixture" },
+      recordedAt: koiAt,
+      recordedBy: "fixture",
+    }, actor);
+
+    // This reviewed event is outside the requested 12-week range and must not affect either
+    // the chart or the per-member denominator.
+    const oldAt = new Date(Date.now() - 20 * 7 * 24 * 60 * 60 * 1000).toISOString();
+    await h.repo.createEvent(parseNewEvent(
+      { kind: "foundry", title: "Old reviewed result", startsAt: oldAt, sessions: [{ id: "L1", label: "Legion 1", startsAt: oldAt }] },
+      { eventId: "EVIDENCE-OLD", createdBy: "fixture", now: new Date(Date.parse(oldAt) - 24 * 60 * 60 * 1000) },
+    ), actor);
+    await h.repo.setAttendance({ eventId: "EVIDENCE-OLD", playerId: "710000001", status: "absent", source: "officer" }, actor);
+    await h.repo.setAttendance({ eventId: "EVIDENCE-OLD", playerId: "710000002", status: "present", source: "officer" }, actor);
+
+    const canyonAt = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+    await h.repo.createEvent(parseNewEvent(
+      { kind: "canyon", title: "Alliance totals only", startsAt: canyonAt, sessions: [{ id: "L1", label: "Legion 1", startsAt: canyonAt }] },
+      { eventId: "EVIDENCE-CANYON-TOTALS", createdBy: "fixture", now: new Date(Date.parse(canyonAt) - 24 * 60 * 60 * 1000) },
+    ), actor);
+    await h.repo.putResult({
+      eventId: "EVIDENCE-CANYON-TOTALS",
+      sessionId: "L1",
+      version: 1,
+      outcome: "win",
+      ourScore: 3,
+      opponentScore: 2,
+      playerPoints: [],
+      recordedAt: canyonAt,
+      recordedBy: "fixture",
+    }, actor);
   });
   afterAll(() => h.cleanup());
 
-  it("groups legacy legions, credits positive scores and ignores incomplete denominators", async () => {
+  it("groups legacy legions and counts complete Foundry officer results", async () => {
     const res = await h.call("GET", "/metrics/event-participation?kind=foundry&weeks=12", OFFICER);
     expect(res.status).toBe(200);
     const body = res.body as {
       eventCount: number;
       members: { playerId: string; rate?: number; attended: number; events: number }[];
     };
+    expect(body.eventCount).toBe(2);
+    expect(body.members.find((member) => member.playerId === "710000001")).toMatchObject({ rate: 1, attended: 2, events: 2 });
+    expect(body.members.find((member) => member.playerId === "710000002")).toMatchObject({ rate: 0, attended: 0, events: 2 });
+  });
+
+  it("uses partial statewide scores without penalizing unlisted members", async () => {
+    const res = await h.call("GET", "/metrics/event-participation?kind=koi&weeks=12", OFFICER);
+    expect(res.status).toBe(200);
+    const body = res.body as {
+      eventCount: number;
+      coverage: { complete: number; partial: number };
+      members: { playerId: string; category: string; rate?: number; attended: number; events: number }[];
+    };
     expect(body.eventCount).toBe(1);
+    expect(body.coverage).toEqual({ complete: 0, partial: 1 });
     expect(body.members.find((member) => member.playerId === "710000001")).toMatchObject({ rate: 1, attended: 1, events: 1 });
-    expect(body.members.find((member) => member.playerId === "710000002")).toMatchObject({ rate: 0, attended: 0, events: 1 });
+    expect(body.members.find((member) => member.playerId === "710000002")).toMatchObject({ category: "no_history", attended: 0, events: 0 });
+  });
+
+  it("does not turn alliance-only Canyon totals into attendance evidence", async () => {
+    const res = await h.call("GET", "/metrics/event-participation?kind=canyon&weeks=12", OFFICER);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ eventCount: 0, coverage: { complete: 0, partial: 0 } });
   });
 });

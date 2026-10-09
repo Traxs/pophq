@@ -19,6 +19,7 @@ import {
 } from "../api";
 import { ErrorBanner } from "../components/Chrome";
 import { EventSignupShare } from "../components/EventSignupShare";
+import { EventPersonalPerformance } from "../components/EventPersonalPerformance";
 import { RegistrationRolePicker } from "../components/RegistrationRolePicker";
 import { LineChart } from "../components/LineChart";
 import { useToast } from "../components/Toast";
@@ -27,6 +28,7 @@ import { MiniChart } from "../components/MiniChart";
 import { compact, dayTime, eventDayTime, eventTime, full, relativeDay, shortDate, untilText } from "../format";
 import { countDraft, draftFor, entriesToPublish, type LineupDraftRow } from "../lineup";
 import { navigate } from "../router";
+import { levelRank } from "../rules";
 import { useSession } from "../session";
 import { assignmentsToPublish, StrategyText, strategyDraftFor, type StrategyDraftAssignment } from "../strategy";
 import { completedAttendanceLabel, completedEventRows, type CompletedAttendance } from "../eventReport";
@@ -34,6 +36,8 @@ import { eventTimeline, type EventTimelinePoint } from "../eventTimeline";
 import { visibleEventSessions } from "../eventSessions";
 import { isLegionEvent } from "../eventSetup";
 import { allianceScoreText, playerScoreText, rankedAllianceScores } from "../resultDisplay";
+import { TROOP_LABELS, TROOP_TYPES, type TroopType } from "../troops";
+import { missingMemberTroopDetails, svsTroopRequestMessage } from "../svsTroops";
 
 const ALL_EVENT_HISTORY = "1970-01-01T00:00:00.000Z";
 
@@ -143,6 +147,7 @@ export function EventPage({ eventId }: { eventId: string }) {
   const completed = Date.parse(event.startsAt) <= Date.now();
   const visibleSessions = visibleEventSessions(event, completed);
   const sessionsHaveResults = !event.scoreboards;
+  const currentHistory = history?.find((item) => item.eventId === event.eventId);
 
   return (
     <>
@@ -166,6 +171,10 @@ export function EventPage({ eventId }: { eventId: string }) {
       {event.notes && <p className="event-notes">{event.notes}</p>}
 
       {error && <p className="banner banner-error" role="alert">{error}</p>}
+
+      {completed && currentHistory?.history?.mine && (
+        <EventPersonalPerformance performance={currentHistory.history.mine} event={currentHistory} history={history ?? []} />
+      )}
 
       {!completed && event.scoreboards && (
         <EventScoreboards
@@ -320,9 +329,13 @@ function EventProgression({ current, items }: { current: EventDetail; items: Eve
               {point.results > 0 && (
                 <>
                   <span className="event-timeline-outcome">{outcomeSummary(point)}</span>
-                  <strong>{full(point.ourScore ?? 0)} – {full(point.opponentScore ?? 0)}</strong>
+                  {point.allianceCount !== null && point.allianceCount > 2 ? (
+                    <strong>#{point.alliancePlace} of {point.allianceCount} · {full(point.ourScore ?? 0)}</strong>
+                  ) : (
+                    <strong>{full(point.ourScore ?? 0)} – {full(point.opponentScore ?? 0)}</strong>
+                  )}
                   <small>
-                    {point.performance?.toFixed(1)}% score share
+                    {point.performance?.toFixed(1)}% of all alliance points
                     {performanceChange !== null && ` · ${performanceChange >= 0 ? "+" : ""}${performanceChange.toFixed(1)} pts`}
                   </small>
                 </>
@@ -350,9 +363,9 @@ function EventProgression({ current, items }: { current: EventDetail; items: Eve
               <LineChart
                 points={resultPoints.map((point) => ({ at: point.startsAt, value: point.performance }))}
                 height={145}
-                label={`${current.title} score share over time`}
+                label={`${current.title} share of all alliance points over time`}
                 format={(value) => `${value.toFixed(0)}%`}
-                detailFormat={(value) => `${value.toFixed(1)}% score share`}
+                detailFormat={(value) => `${value.toFixed(1)}% of all alliance points`}
               />
             </div>
           )}
@@ -1242,6 +1255,10 @@ function CompletedEventReport({ event, members }: { event: EventDetail; members:
     return result;
   }, { present: 0, absent: 0, excused: 0, unrecorded: 0 });
   const recordCount = rows.filter((row) => row.hasEventRecord).length;
+  const signedUp = rows.filter((row) => row.member.answer === "yes");
+  const signedUpAttended = signedUp.filter((row) => row.attendance === "present").length;
+  const noShows = signedUp.filter((row) => row.attendance === "absent").length;
+  const walkIns = rows.filter((row) => row.member.answer !== "yes" && row.attendance === "present").length;
   const hasPhaseScores = Boolean(event.scoreboards);
   const phaseSummaries = event.scoreboards
     ? (["preparation", "castle_battle"] as const).map((phase) => event.scoreboards![phase])
@@ -1303,6 +1320,21 @@ function CompletedEventReport({ event, members }: { event: EventDetail; members:
           ))}
         </div>
       )}
+
+      <section className="completed-event-health" aria-labelledby="completed-event-health-title">
+        <div>
+          <span className="section-label">Event health</span>
+          <strong id="completed-event-health-title">Signup compared with evidence</strong>
+        </div>
+        <div className="completed-event-health-grid">
+          <span><strong>{counts.present}</strong><small>Confirmed attended</small></span>
+          <span><strong>{signedUpAttended} / {signedUp.length}</strong><small>Signups confirmed</small></span>
+          <span><strong>{noShows}</strong><small>Signed up, did not attend</small></span>
+          <span><strong>{walkIns}</strong><small>Attended without signup</small></span>
+          <span><strong>{counts.unrecorded}</strong><small>Still not reviewed</small></span>
+        </div>
+        <small>Only explicit attendance or score evidence is used. Unknown records are not treated as absences.</small>
+      </section>
 
       <div className="completed-report-filters" role="group" aria-label="Filter completed event report">
         <button type="button" className={filter === "records" ? "active" : ""} onClick={() => setFilter("records")}><strong>{recordCount}</strong><span>Event records</span></button>
@@ -1412,6 +1444,7 @@ function OfficerTable({ event, members }: { event: EventDetail; members: EventMe
   const toast = useToast();
   const started = Date.parse(event.startsAt) <= Date.now();
   const [saving, setSaving] = useState<string | null>(null);
+  const [view, setView] = useState<"planning" | "troops">("planning");
 
   const mark = async (member: EventMember, status: AttendanceStatus) => {
     setSaving(member.playerId);
@@ -1450,11 +1483,16 @@ function OfficerTable({ event, members }: { event: EventDetail; members: EventMe
 
   return (
     <section className="card stack" aria-labelledby="who-title">
-      <h2 id="who-title" className="section-label">
-        Who's coming
-      </h2>
+      <div className="officer-event-view-head">
+        <h2 id="who-title" className="section-label">Who's coming</h2>
+        {event.kind === "svs" && <div className="segmented officer-event-tabs" role="radiogroup" aria-label="Officer SvS view">
+          <button type="button" role="radio" aria-checked={view === "planning"} onClick={() => setView("planning")}>Signup overview</button>
+          <button type="button" role="radio" aria-checked={view === "troops"} onClick={() => setView("troops")}>Troop strength</button>
+        </div>}
+      </div>
 
-      <ul className="movers">
+      {view === "troops" && event.kind === "svs" ? <SvsTroopIntel event={event} members={members} /> : <>
+        <ul className="movers">
         {totals.map((t) => (
           <li key={t.label} className="mover">
             <span>
@@ -1465,9 +1503,9 @@ function OfficerTable({ event, members }: { event: EventDetail; members: EventMe
             </span>
           </li>
         ))}
-      </ul>
+        </ul>
 
-      <div className="table-wrap">
+        <div className="table-wrap">
         <table className="table">
           <thead>
             <tr>
@@ -1546,7 +1584,95 @@ function OfficerTable({ event, members }: { event: EventDetail; members: EventMe
             ))}
           </tbody>
         </table>
-      </div>
+        </div>
+      </>}
     </section>
   );
+}
+
+function SvsTroopIntel({ event, members }: { event: EventDetail; members: EventMember[] }) {
+  const toast = useToast();
+  const [signedUpOnly, setSignedUpOnly] = useState(true);
+  const signedUp = members.filter((member) => member.answer === "yes");
+  const complete = signedUp.filter((member) => missingMemberTroopDetails(member).length === 0);
+  const heliosCounts = Object.fromEntries(TROOP_TYPES.map((type) => [
+    type,
+    signedUp.filter((member) => member.troops?.[type]?.helios === true).length,
+  ])) as Record<TroopType, number>;
+  const visible = (signedUpOnly ? signedUp : members).toSorted((a, b) =>
+    Number(b.answer === "yes") - Number(a.answer === "yes")
+    || TROOP_TYPES.filter((type) => b.troops?.[type]?.helios === true).length - TROOP_TYPES.filter((type) => a.troops?.[type]?.helios === true).length
+    || (levelRank(String(b.furnace ?? "")) ?? -1) - (levelRank(String(a.furnace ?? "")) ?? -1)
+    || a.name.localeCompare(b.name));
+  const answerLabel = (member: EventMember) => member.answer === "yes"
+    ? event.sessions.find((session) => session.id === member.sessionId)?.label ?? "Joining"
+    : member.answer === "no" ? "Not attending" : member.answer === "maybe" ? "Maybe" : "No answer";
+
+  const copyRequest = async () => {
+    const message = svsTroopRequestMessage(`${window.location.origin}/power?update=1`);
+    try {
+      await navigator.clipboard.writeText(message);
+      toast("Troop update request copied");
+    } catch {
+      toast("Couldn't copy the request");
+    }
+  };
+
+  const troopCell = (member: EventMember, type: TroopType) => {
+    const troop = member.troops?.[type];
+    return <span className="svs-troop-cell">
+      <strong>{troop?.level ?? "–"}</strong>
+      {troop?.helios === true
+        ? <span className="pill pill-up">Helios</span>
+        : troop?.helios === false
+          ? <small>No Helios</small>
+          : <small className="delta-down">Helios unknown</small>}
+    </span>;
+  };
+
+  return <div className="svs-troop-intel">
+    <div className="svs-troop-intro">
+      <div>
+        <strong>SvS troop readiness</strong>
+        <span className="muted small">Reported furnace, troop FC levels and Helios status for planning rallies and reinforcements.</span>
+      </div>
+      <button type="button" className="btn btn-quiet btn-small" onClick={() => void copyRequest()}>Copy update request</button>
+    </div>
+
+    <div className="svs-troop-summary" aria-label="SvS troop data summary">
+      <span><strong>{complete.length} / {signedUp.length}</strong><small>Signups complete</small></span>
+      {TROOP_TYPES.map((type) => <span key={type}><strong>{heliosCounts[type]}</strong><small>{TROOP_LABELS[type]} Helios</small></span>)}
+      <span><strong>{signedUp.length - complete.length}</strong><small>Need an update</small></span>
+    </div>
+
+    <div className="segmented svs-troop-filter" role="radiogroup" aria-label="SvS troop roster filter">
+      <button type="button" role="radio" aria-checked={signedUpOnly} onClick={() => setSignedUpOnly(true)}>Signed up ({signedUp.length})</button>
+      <button type="button" role="radio" aria-checked={!signedUpOnly} onClick={() => setSignedUpOnly(false)}>All members ({members.length})</button>
+    </div>
+
+    <div className="table-wrap">
+      <table className="table svs-troop-table">
+        <thead><tr>
+          <th scope="col">Member</th>
+          <th scope="col">Signup</th>
+          <th scope="col">Furnace</th>
+          {TROOP_TYPES.map((type) => <th key={type} scope="col">{TROOP_LABELS[type]}</th>)}
+          <th scope="col">Data</th>
+        </tr></thead>
+        <tbody>{visible.map((member) => {
+          const missing = missingMemberTroopDetails(member);
+          return <tr key={member.playerId}>
+            <td data-label="Member"><strong>{member.name}</strong>{member.rank && <small>{member.rank}</small>}</td>
+            <td data-label="Signup">{answerLabel(member)}</td>
+            <td data-label="Furnace"><strong>{member.furnace ?? "–"}</strong></td>
+            {TROOP_TYPES.map((type) => <td key={type} data-label={TROOP_LABELS[type]}>{troopCell(member, type)}</td>)}
+            <td data-label="Data status">{missing.length === 0
+              ? <><span className="pill pill-up">Complete</span>{member.troopReportAt && <small>{relativeDay(member.troopReportAt)}</small>}</>
+              : <><span className="pill pill-warn">Missing {missing.length}</span><small>{missing.join(", ")}</small></>}</td>
+          </tr>;
+        })}</tbody>
+      </table>
+      {visible.length === 0 && <p className="muted center table-empty">Nobody is signed up yet.</p>}
+    </div>
+  </div>;
 }

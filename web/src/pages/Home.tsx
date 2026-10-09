@@ -11,8 +11,10 @@ import { navigate } from "../router";
 import { REPORT_DUE_DAYS } from "../rules";
 import { useSession } from "../session";
 import { usePower } from "../usePower";
+import { missingSvsTroopDetails } from "../svsTroops";
 import { ChangePill } from "./Power";
 
+const ALL_EVENT_HISTORY = "1970-01-01T00:00:00.000Z";
 
 export function Home() {
   const { me, account, api, isOfficer, dataVersion } = useSession();
@@ -24,12 +26,11 @@ export function Home() {
   const [clock, setClock] = useState(() => new Date());
 
   useEffect(() => {
-    api
-      .events()
-      .then((r) => {
+    Promise.all([api.events(), api.events(ALL_EVENT_HISTORY)])
+      .then(([current, history]) => {
         const now = Date.now();
-        setRegistrationEvents(r.items);
-        setRecentEvents(r.items.filter((event) => Date.parse(event.startsAt) < now));
+        setRegistrationEvents(current.items);
+        setRecentEvents(history.items.filter((event) => Date.parse(event.startsAt) < now));
       })
       .catch(() => {
         setRegistrationEvents(null);
@@ -74,6 +75,7 @@ export function Home() {
     round: round ?? null,
     ...(latest ? { latestPowerAt: latest.effectiveAt } : {}),
     powerLoaded,
+    ...(reports ? { missingTroopDetails: missingSvsTroopDetails(reports.current) } : {}),
     officerJobs: officerJobs ?? [],
     now: clock,
   });

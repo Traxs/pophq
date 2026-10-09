@@ -8,6 +8,7 @@ import { useSession } from "../session";
 
 const TYPES: { kind: EventKind; label: string }[] = [
   { kind: "foundry", label: "Foundry" },
+  { kind: "canyon", label: "Canyon" },
   { kind: "svs", label: "SvS" },
   { kind: "koi", label: "KOI" },
   { kind: "fdt", label: "FDT" },
@@ -113,7 +114,7 @@ export function AttendanceAnalytics() {
                   <span className="section-label">Alliance attendance</span>
                   <strong className="metric-total">{last ? percent(last.value) : "–"}</strong>
                 </div>
-                <span className="muted small">{data.eventCount} tracked events</span>
+                <span className="muted small">{data.eventCount} tracked events in {data.weeks} weeks</span>
               </div>
               <LineChart
                 points={data.points}
@@ -134,11 +135,16 @@ export function AttendanceAnalytics() {
             </div>
           </div>
 
+          <p className="analytics-coverage-note">
+            <strong>{data.coverage.complete} complete</strong> event{data.coverage.complete === 1 ? "" : "s"} count every eligible member.
+            {data.coverage.partial > 0 && <> <strong>{data.coverage.partial} partial</strong> event{data.coverage.partial === 1 ? "" : "s"} count only named evidence; unlisted members remain unknown.</>}
+          </p>
+
           <section className="attendance-members" aria-labelledby="attendance-members-title">
             <div className="roster-head">
               <div>
                 <h2 id="attendance-members-title">Members</h2>
-                <p className="muted small">No attendance record means the person did not participate. Linked secondary accounts count with their main account.</p>
+                <p className="muted small">Missing evidence counts as a miss only for complete Foundry or Canyon reviews. Partial statewide rankings leave unlisted players unknown. Linked accounts count as one person.</p>
               </div>
             </div>
             <div className="roster-toolbar">

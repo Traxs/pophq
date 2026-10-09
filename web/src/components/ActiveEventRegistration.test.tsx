@@ -38,8 +38,8 @@ describe("active event registration summaries", () => {
 
   it("makes the Home action and Events rail explicit", () => {
     const items = [event(), event({ eventId: "canyon", kind: "canyon", title: "Canyon" })];
-    const home = renderToStaticMarkup(<HomeRegistrationPrompt events={items} onOpen={() => undefined} />);
-    const rail = renderToStaticMarkup(<ActiveEventRail events={items} onOpen={() => undefined} />);
+    const home = renderToStaticMarkup(<HomeRegistrationPrompt events={items} now={now} onOpen={() => undefined} />);
+    const rail = renderToStaticMarkup(<ActiveEventRail events={items} now={now} onOpen={() => undefined} />);
     expect(home).toContain("Register for 2 active events");
     expect(home).toContain("Foundry and Canyon need your response");
     expect(rail).toContain("2 events need your response");
@@ -47,7 +47,7 @@ describe("active event registration summaries", () => {
   });
 
   it("hides the Home prompt once everything is answered", () => {
-    const html = renderToStaticMarkup(<HomeRegistrationPrompt events={[event({ myAnswer: "no" })]} onOpen={() => undefined} />);
+    const html = renderToStaticMarkup(<HomeRegistrationPrompt events={[event({ myAnswer: "no" })]} now={now} onOpen={() => undefined} />);
     expect(html).toBe("");
   });
 });

@@ -613,6 +613,8 @@ export interface EventMember {
   power: number | null;
   foundryStrength: number | null;
   furnace: string | number | null;
+  troops: Record<"infantry" | "lancer" | "marksman", { level: string | null; helios: boolean | null }>;
+  troopReportAt: string | null;
   lastReportAt: string | null;
 }
 
@@ -815,6 +817,7 @@ export interface AllianceGrowth {
 export interface AllianceAttendanceGrowth {
   alliance: string;
   weeks: number;
+  coverage: { complete: number; partial: number };
   points: { at: string; value: number; events: number; records: number }[];
 }
 

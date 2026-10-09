@@ -3,7 +3,7 @@ import { eventDayTime } from "./format";
 import { REPORT_DUE_DAYS } from "./rules";
 
 export type HomePriorityTier = 0 | 1 | 2 | 3 | 4 | 5;
-export type HomePriorityKind = "event-response" | "upcoming-event" | "ministry-booking" | "ministry-appointment" | "power" | "officer";
+export type HomePriorityKind = "event-response" | "upcoming-event" | "ministry-booking" | "ministry-appointment" | "power" | "troops" | "officer";
 
 export interface HomePriorityCandidate {
   id: string;
@@ -23,6 +23,7 @@ export interface HomePriorityInput {
   round: SvsRoundListItem | null;
   latestPowerAt?: string;
   powerLoaded: boolean;
+  missingTroopDetails?: readonly string[];
   officerJobs: readonly OfficerJob[];
   now: Date;
 }
@@ -139,6 +140,27 @@ export function homePriorities(input: HomePriorityInput): HomePriorityCandidate[
         actionLabel: "Update power",
       });
     }
+  }
+
+  const upcomingSvs = input.events
+    .filter((event) => event.kind === "svs" && event.myAnswer !== "no" && Date.parse(event.startsAt) >= now)
+    .toSorted((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt))[0];
+  if (upcomingSvs && input.missingTroopDetails && input.missingTroopDetails.length > 0) {
+    const startsIn = Date.parse(upcomingSvs.startsAt) - now;
+    const shown = input.missingTroopDetails.slice(0, 3);
+    const remainder = input.missingTroopDetails.length - shown.length;
+    candidates.push({
+      id: `troops:${upcomingSvs.eventId}`,
+      kind: "troops",
+      tier: startsIn <= 3 * DAY ? 2 : 3,
+      section: "attention",
+      title: "Update your SvS troop details",
+      detail: `Missing ${shown.join(", ")}${remainder > 0 ? ` +${remainder} more` : ""}`,
+      href: "/power?update=1",
+      icon: "⚔",
+      at: upcomingSvs.startsAt,
+      actionLabel: "Update troops",
+    });
   }
 
   for (const job of input.officerJobs) {

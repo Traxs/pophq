@@ -513,8 +513,16 @@ describe("legion capacity and standing", () => {
     expect(JSON.stringify(asOfficerSessions.body.sessions)).toContain("attendanceRate");
 
     const asOfficer = await h.call("GET", `/events/${eventId}`, OFFICER);
-    const members = asOfficer.body.members as { name: string; power: number | null; foundryStrength: number | null }[];
+    const members = asOfficer.body.members as {
+      name: string;
+      power: number | null;
+      foundryStrength: number | null;
+      troops: Record<"infantry" | "lancer" | "marksman", { level: string | null; helios: boolean | null }>;
+      troopReportAt: string | null;
+    }[];
     expect(members.length).toBeGreaterThan(30);
     expect(members.some((m) => m.power !== null)).toBe(true);
+    expect(members.some((m) => m.troops.infantry.level !== null)).toBe(true);
+    expect(members.some((m) => m.troopReportAt !== null)).toBe(true);
   });
 });

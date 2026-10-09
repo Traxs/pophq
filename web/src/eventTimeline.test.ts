@@ -45,4 +45,29 @@ describe("event timeline", () => {
 
     expect(points[0]).toMatchObject({ preparation: 800, battle: 600, phaseCoverage: "partial", current: true });
   });
+
+  it("uses every alliance score for a three-alliance Canyon share and placement", () => {
+    const points = eventTimeline([item({
+      eventId: "canyon",
+      kind: "canyon",
+      history: {
+        phases: [],
+        results: [{
+          sessionId: "L2",
+          sessionLabel: "Legion 2",
+          outcome: "win",
+          ourScore: 550_591,
+          opponentScore: 487_805,
+          allianceScores: [
+            { allianceTag: "POP", allianceName: "POP", isOurAlliance: true, score: 550_591, precision: { kind: "exact" } },
+            { allianceTag: "BOS", allianceName: "S", isOurAlliance: false, score: 487_805, precision: { kind: "exact" } },
+            { allianceTag: "SOA", allianceName: "SonsOfAnarchy", isOurAlliance: false, score: 486_816, precision: { kind: "exact" } },
+          ],
+        }],
+      },
+    })], "canyon", "canyon");
+
+    expect(points[0]).toMatchObject({ alliancePlace: 1, allianceCount: 3, ourScore: 550_591, opponentScore: 487_805 });
+    expect(points[0]!.performance).toBeCloseTo(550_591 / (550_591 + 487_805 + 486_816) * 100);
+  });
 });

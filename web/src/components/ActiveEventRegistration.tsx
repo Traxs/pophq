@@ -23,11 +23,11 @@ export function unansweredRegistrationEvents(items: readonly EventListItem[], no
   return activeRegistrationEvents(items, now).filter((event) => event.myAnswer === null);
 }
 
-export function HomeRegistrationPrompt({ events, onOpen }: { events: EventListItem[] | null | undefined; onOpen: () => void }) {
+export function HomeRegistrationPrompt({ events, onOpen, now = new Date() }: { events: EventListItem[] | null | undefined; onOpen: () => void; now?: Date }) {
   if (events === null) return null;
   if (events === undefined) return <div className="card skeleton active-events-home-loading" aria-label="Loading active event registrations" aria-busy="true" />;
 
-  const unanswered = unansweredRegistrationEvents(events);
+  const unanswered = unansweredRegistrationEvents(events, now);
   if (unanswered.length === 0) return null;
   const names = unanswered.map((event) => KIND_LABELS[event.kind]).join(" and ");
 
@@ -43,8 +43,8 @@ export function HomeRegistrationPrompt({ events, onOpen }: { events: EventListIt
   );
 }
 
-export function ActiveEventRail({ events, onOpen }: { events: readonly EventListItem[]; onOpen: (eventId: string) => void }) {
-  const active = activeRegistrationEvents(events);
+export function ActiveEventRail({ events, onOpen, now = new Date() }: { events: readonly EventListItem[]; onOpen: (eventId: string) => void; now?: Date }) {
+  const active = activeRegistrationEvents(events, now);
   if (active.length === 0) return null;
   const unanswered = active.filter((event) => event.myAnswer === null);
 

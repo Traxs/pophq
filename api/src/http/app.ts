@@ -206,9 +206,11 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     attendance: Awaited<ReturnType<Repository["listAttendance"]>>,
     ids: ReadonlySet<string>,
     scored = new Set<string>(),
+    noShows = new Set<string>(),
   ) => {
     const records = attendance.filter((record) => ids.has(record.playerId));
     if ([...ids].some((id) => scored.has(id)) || records.some((record) => record.status === "present")) return "present" as const;
+    if ([...ids].some((id) => noShows.has(id))) return "absent" as const;
     if (records.some((record) => record.status === "absent")) return "absent" as const;
     if (records.some((record) => record.status === "excused")) return "excused" as const;
     return undefined;
@@ -258,10 +260,13 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           .filter((row) => row.points === 0)
           .map((row) => row.playerId)),
       ]);
-      // Foundry results are complete attendance sources. Canyon stores only explicit POP rows,
-      // so missing players remain unknown. State-wide SVS/KOI leaderboards are complete only
+      // Foundry and Canyon results come from complete alliance battle rosters. State-wide
+      // SVS/KOI/FDT leaderboards may stop at the global top 100, so they are complete only
       // when every configured phase was explicitly imported with complete coverage.
-      if (event.kind === "foundry" && sessionResults.length > 0) {
+      if (
+        (event.kind === "foundry" || event.kind === "canyon")
+        && sessionResults.some((result) => result.playerPoints.length > 0)
+      ) {
         completeEvents.add(event.eventId);
       } else if (
         phaseResults.length > 0
@@ -383,6 +388,34 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     }
     return [...grouped.values()];
   };
+
+  type AttendanceEvidenceItem = {
+    event: AllianceEvent;
+    attendance: Awaited<ReturnType<Repository["listAttendance"]>>;
+    scored: Set<string>;
+    noShows: Set<string>;
+  };
+
+  const attendanceOccurrenceCoverage = (
+    occurrence: readonly AttendanceEvidenceItem[],
+    completeEvents: ReadonlySet<string>,
+  ): "complete" | "partial" => occurrence.some(({ event }) => completeEvents.has(event.eventId)) ? "complete" : "partial";
+
+  const attendanceOccurrenceHasEvidence = (occurrence: readonly AttendanceEvidenceItem[]) => occurrence.some(
+    ({ attendance, scored, noShows }) => scored.size > 0
+      || noShows.size > 0
+      || attendance.some((record) => record.status === "present" || record.status === "absent" || record.status === "excused"),
+  );
+
+  const attendanceStatusForOccurrence = (
+    occurrence: readonly AttendanceEvidenceItem[],
+    ids: ReadonlySet<string>,
+  ) => attendanceForPerson(
+    occurrence.flatMap((item) => item.attendance),
+    ids,
+    new Set(occurrence.flatMap((item) => [...item.scored])),
+    new Set(occurrence.flatMap((item) => [...item.noShows])),
+  );
 
   const fortressRewardRanking = async (alliance: string) => {
     const at = now();
@@ -2120,7 +2153,8 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     requireOfficer(c.get("principal"));
     const alliance = (c.req.query("alliance") ?? "POP").toUpperCase();
     const weeks = Math.min(Math.max(Number(c.req.query("weeks") ?? 12) || 12, 2), 52);
-    const events = (await repo.listEvents(alliance, "1970-01-01T00:00:00.000Z", 500)).filter(
+    const windowStart = new Date(now().getTime() - weeks * 7 * 24 * 60 * 60 * 1000).toISOString();
+    const events = (await repo.listEvents(alliance, windowStart, 500)).filter(
       (event) => Date.parse(event.startsAt) <= now().getTime(),
     );
     const accounts = (await repo.listAccounts(alliance)).filter(
@@ -2133,28 +2167,31 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       event,
       attendance: await repo.listAttendance(event.eventId),
       scored: scores.byEvent.get(event.eventId) ?? new Set<string>(),
+      noShows: scores.noShowByEvent.get(event.eventId) ?? new Set<string>(),
     })));
-    const reviewed = groupAttendanceOccurrences(eventData).filter((occurrence) =>
-      occurrence.some(({ attendance }) => attendance.some((record) => record.status === "present" || record.status === "absent")),
-    );
+    const reviewed = groupAttendanceOccurrences(eventData).filter(attendanceOccurrenceHasEvidence);
     const samples = reviewed.map((occurrence) => {
-      const attendance = occurrence.flatMap((item) => item.attendance);
-      const scored = new Set(occurrence.flatMap((item) => [...item.scored]));
       const latest = occurrence.map((item) => item.event).toSorted((a, b) => b.startsAt.localeCompare(a.startsAt))[0]!;
-      const statuses = people.flatMap((group, index) =>
-        wasMemberAt(periods[index] ?? [], latest.startsAt)
-          ? [attendanceForPerson(attendance, new Set(group.map((account) => account.playerId)), scored)]
-          : []);
+      const coverage = attendanceOccurrenceCoverage(occurrence, scores.completeEvents);
+      const statuses = people.flatMap((group, index) => {
+        if (!wasMemberAt(periods[index] ?? [], latest.startsAt)) return [];
+        const status = attendanceStatusForOccurrence(occurrence, new Set(group.map((account) => account.playerId)));
+        // Partial global leaderboards can prove a named score or no-show, but cannot prove that
+        // an unlisted alliance member was absent.
+        return status === undefined && coverage === "partial" ? [] : [status];
+      });
       return {
         eventId: latest.eventId,
         at: latest.startsAt,
         present: statuses.filter((status) => status === "present").length,
-        // A reviewed occurrence with no record for this person means they did not participate.
-        // Explicitly excused people remain outside the denominator.
-        absent: statuses.filter((status) => status !== "present" && status !== "excused").length,
+        absent: statuses.filter((status) => status === "absent" || status === undefined).length,
       };
     });
-    return c.json({ alliance, weeks, points: allianceAttendance(samples, buckets(now(), weeks)) });
+    const coverage = {
+      complete: reviewed.filter((occurrence) => attendanceOccurrenceCoverage(occurrence, scores.completeEvents) === "complete").length,
+      partial: reviewed.filter((occurrence) => attendanceOccurrenceCoverage(occurrence, scores.completeEvents) === "partial").length,
+    };
+    return c.json({ alliance, weeks, coverage, points: allianceAttendance(samples, buckets(now(), weeks)) });
   });
 
   /** Per-event-type participation: who turns up consistently, sometimes, or never. */
@@ -2164,7 +2201,8 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const requestedKind = c.req.query("kind") ?? "foundry";
     const kind = EVENT_KINDS.includes(requestedKind as EventKind) ? (requestedKind as EventKind) : "foundry";
     const weeks = Math.min(Math.max(Number(c.req.query("weeks") ?? 12) || 12, 2), 52);
-    const events = (await repo.listEvents(alliance, "1970-01-01T00:00:00.000Z", 500))
+    const windowStart = new Date(now().getTime() - weeks * 7 * 24 * 60 * 60 * 1000).toISOString();
+    const events = (await repo.listEvents(alliance, windowStart, 500))
       .filter((event) => event.kind === kind && Date.parse(event.startsAt) <= now().getTime())
       .toSorted((a, b) => a.startsAt.localeCompare(b.startsAt));
     const scores = await resultEvidence(events);
@@ -2172,11 +2210,10 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       event,
       attendance: await repo.listAttendance(event.eventId),
       scored: scores.byEvent.get(event.eventId) ?? new Set<string>(),
+      noShows: scores.noShowByEvent.get(event.eventId) ?? new Set<string>(),
     })));
-    // A partially or wholly unreviewed event cannot say anything about somebody's habits.
-    const tracked = groupAttendanceOccurrences(eventData).filter((occurrence) =>
-      occurrence.some(({ attendance }) => attendance.some((record) => record.status === "present" || record.status === "absent")),
-    );
+    // A partially reviewed event can count explicit evidence, but never silent absences.
+    const tracked = groupAttendanceOccurrences(eventData).filter(attendanceOccurrenceHasEvidence);
     const accounts = (await repo.listAccounts(alliance)).filter(
       (account) => account.status === "active" || account.status === "unknown",
     );
@@ -2189,12 +2226,12 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       let considered = 0;
       let lastAttendedAt: string | undefined;
       for (const occurrence of tracked) {
-        const attendance = occurrence.flatMap((item) => item.attendance);
-        const scored = new Set(occurrence.flatMap((item) => [...item.scored]));
         const event = occurrence.map((item) => item.event).toSorted((a, b) => b.startsAt.localeCompare(a.startsAt))[0]!;
         if (!wasMemberAt(periods[personIndex] ?? [], event.startsAt)) continue;
-        const status = attendanceForPerson(attendance, ids, scored);
+        const coverage = attendanceOccurrenceCoverage(occurrence, scores.completeEvents);
+        const status = attendanceStatusForOccurrence(occurrence, ids);
         if (status === "excused") continue;
+        if (status === undefined && coverage === "partial") continue;
         considered += 1;
         if (status === "present") {
           attended += 1;
@@ -2216,25 +2253,30 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       };
     });
     const samples = tracked.map((occurrence) => {
-      const attendance = occurrence.flatMap((item) => item.attendance);
-      const scored = new Set(occurrence.flatMap((item) => [...item.scored]));
       const event = occurrence.map((item) => item.event).toSorted((a, b) => b.startsAt.localeCompare(a.startsAt))[0]!;
-      const statuses = people.flatMap((group, index) =>
-        wasMemberAt(periods[index] ?? [], event.startsAt)
-          ? [attendanceForPerson(attendance, new Set(group.map((account) => account.playerId)), scored)]
-          : []);
+      const coverage = attendanceOccurrenceCoverage(occurrence, scores.completeEvents);
+      const statuses = people.flatMap((group, index) => {
+        if (!wasMemberAt(periods[index] ?? [], event.startsAt)) return [];
+        const status = attendanceStatusForOccurrence(occurrence, new Set(group.map((account) => account.playerId)));
+        return status === undefined && coverage === "partial" ? [] : [status];
+      });
       return {
         eventId: event.eventId,
         at: event.startsAt,
         present: statuses.filter((status) => status === "present").length,
-        absent: statuses.filter((status) => status !== "present" && status !== "excused").length,
+        absent: statuses.filter((status) => status === "absent" || status === undefined).length,
       };
     });
+    const coverage = {
+      complete: tracked.filter((occurrence) => attendanceOccurrenceCoverage(occurrence, scores.completeEvents) === "complete").length,
+      partial: tracked.filter((occurrence) => attendanceOccurrenceCoverage(occurrence, scores.completeEvents) === "partial").length,
+    };
     return c.json({
       alliance,
       kind,
       weeks,
       eventCount: tracked.length,
+      coverage,
       points: allianceAttendance(samples, buckets(now(), weeks)),
       members,
     });
@@ -3319,6 +3361,23 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       body.members = expected.map((account) => {
         const own = reports.get(account.playerId) ?? [];
         const current = currentValues(own);
+        const troopValue = (type: "infantry" | "lancer" | "marksman") => {
+          const level = current[`troop_level_${type}`]?.value;
+          const helios = current[`helios_${type}`]?.value;
+          return {
+            level: typeof level === "string" ? level : null,
+            helios: helios === "yes" ? true : helios === "no" ? false : null,
+          };
+        };
+        const troopReportAt = [
+          "furnace_level",
+          "troop_level_infantry", "helios_infantry",
+          "troop_level_lancer", "helios_lancer",
+          "troop_level_marksman", "helios_marksman",
+        ].flatMap((metric) => {
+          const effectiveAt = current[metric as keyof typeof current]?.effectiveAt;
+          return effectiveAt ? [effectiveAt] : [];
+        }).toSorted().at(-1) ?? null;
         return {
           playerId: account.playerId,
           name: account.name,
@@ -3339,6 +3398,12 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           power: currentOf(own, "city_power") ?? null,
           foundryStrength: currentOf(own, "foundry_strength") ?? null,
           furnace: current.furnace_level?.value ?? null,
+          troops: {
+            infantry: troopValue("infantry"),
+            lancer: troopValue("lancer"),
+            marksman: troopValue("marksman"),
+          },
+          troopReportAt,
           lastReportAt: own.length > 0 ? (current.city_power?.effectiveAt ?? null) : null,
         };
       });

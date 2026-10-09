@@ -46,7 +46,9 @@ describe("recent home performance", () => {
     ]} onOpen={() => undefined} onAllHistory={() => undefined} />);
     expect(html).toContain("Your recent performance");
     expect(html).toContain("Placement trend");
-    expect(html).toContain("Last 2 recorded results");
+    expect(html).toContain("Performance series");
+    expect(html).toContain("King of Icefield · Castle battle");
+    expect(html).toContain("Two recorded placements are needed");
     expect(html).toContain("Attended");
     expect(html).toContain("≈ 515.0K pts");
     expect(html).toContain("#2 of 31");
@@ -60,6 +62,16 @@ describe("recent home performance", () => {
     ]);
     expect(points.map((point) => point.place)).toEqual([5, 5]);
     expect(points[1]!.performance).toBeGreaterThan(points[0]!.performance);
+  });
+
+  it("compares only the selected event and phase series", () => {
+    const points = placementTrend([
+      event({ eventId: "foundry-l1", history: { results: [], phases: [], mine: { attendance: "attended", attendanceEvidence: "score", scores: [{ key: "session:L1", label: "Legion 1", points: 1, place: 5, scoredPlayers: 20 }] } } }),
+      event({ eventId: "foundry-l2", startsAt: "2026-09-27T00:00:00Z", history: { results: [], phases: [], mine: { attendance: "attended", attendanceEvidence: "score", scores: [{ key: "session:L2", label: "Legion 2", points: 2, place: 3, scoredPlayers: 20 }] } } }),
+      event({ eventId: "koi", kind: "koi", startsAt: "2026-09-28T00:00:00Z", history: { results: [], phases: [], mine: { attendance: "attended", attendanceEvidence: "score", scores: [{ key: "phase:castle_battle", label: "Castle battle", points: 3, place: 1, scoredPlayers: 20 }] } } }),
+    ], 8, "foundry:session");
+    expect(points.map((point) => point.eventId)).toEqual(["foundry-l1", "foundry-l2"]);
+    expect(new Set(points.map((point) => point.seriesKey))).toEqual(new Set(["foundry:session"]));
   });
 
   it("visually marks confirmed misses without treating unknown evidence as absence", () => {

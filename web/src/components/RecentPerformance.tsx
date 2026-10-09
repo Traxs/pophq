@@ -23,6 +23,8 @@ export function latestCompletedEvents(items: readonly EventListItem[], now = new
 
 export interface PlacementPoint {
   key: string;
+  seriesKey: string;
+  seriesLabel: string;
   at: string;
   eventId: string;
   eventTitle: string;
@@ -33,18 +35,25 @@ export interface PlacementPoint {
   performance: number;
 }
 
-export function placementTrend(items: readonly EventListItem[], limit = 8): PlacementPoint[] {
+export function placementTrend(items: readonly EventListItem[], limit = 8, seriesKey?: string): PlacementPoint[] {
   return items
-    .flatMap((event) => (event.history?.mine?.scores ?? []).map((score) => ({
-      key: `${event.eventId}:${score.key}`,
-      at: event.startsAt,
-      eventId: event.eventId,
-      eventTitle: event.title,
-      scoreLabel: score.label,
-      place: score.place,
-      scoredPlayers: score.scoredPlayers,
-      performance: score.scoredPlayers <= 1 ? 1 : 1 - ((score.place - 1) / (score.scoredPlayers - 1)),
-    })))
+    .flatMap((event) => (event.history?.mine?.scores ?? []).map((score) => {
+      const metricKey = score.key.startsWith("session:") ? "session" : score.key;
+      const pointSeriesKey = `${event.kind}:${metricKey}`;
+      return {
+        key: `${event.eventId}:${score.key}`,
+        seriesKey: pointSeriesKey,
+        seriesLabel: metricKey === "session" ? KIND_LABELS[event.kind] : `${KIND_LABELS[event.kind]} · ${score.label}`,
+        at: event.startsAt,
+        eventId: event.eventId,
+        eventTitle: event.title,
+        scoreLabel: score.label,
+        place: score.place,
+        scoredPlayers: score.scoredPlayers,
+        performance: score.scoredPlayers <= 1 ? 1 : 1 - ((score.place - 1) / (score.scoredPlayers - 1)),
+      };
+    }))
+    .filter((point) => seriesKey === undefined || point.seriesKey === seriesKey)
     .toSorted((a, b) => Date.parse(a.at) - Date.parse(b.at) || a.key.localeCompare(b.key))
     .slice(-limit);
 }
@@ -58,15 +67,26 @@ export function RecentPerformance({
   onOpen: (eventId: string) => void;
   onAllHistory: () => void;
 }) {
+  const [requestedSeries, setRequestedSeries] = useState<string | null>(null);
   if (events === null) return null;
   const recent = events === undefined ? undefined : latestCompletedEvents(events);
-  const placements = events === undefined ? [] : placementTrend(events);
+  const allPlacements = events === undefined ? [] : placementTrend(events, Number.MAX_SAFE_INTEGER);
+  const placementSeries = [...new Map(allPlacements.map((point) => [point.seriesKey, {
+    key: point.seriesKey,
+    label: point.seriesLabel,
+    latestAt: point.at,
+  }])).values()].toSorted((a, b) => Date.parse(b.latestAt) - Date.parse(a.latestAt));
+  const seriesWithTrend = placementSeries.find((series) => allPlacements.filter((point) => point.seriesKey === series.key).length >= 2);
+  const selectedSeries = placementSeries.some((series) => series.key === requestedSeries)
+    ? requestedSeries!
+    : (seriesWithTrend ?? placementSeries[0])?.key;
+  const placements = selectedSeries ? placementTrend(events ?? [], 8, selectedSeries) : [];
 
   return <section className="stack recent-performance" aria-labelledby="recent-performance-title">
     <div className="recent-performance-head">
       <div>
         <h2 id="recent-performance-title" className="section-label">Your recent performance</h2>
-        <p className="muted small">Attendance, scores and alliance place from your latest events.</p>
+        <p className="muted small">Attendance, scores and your place among recorded POP players.</p>
       </div>
       <button type="button" className="text-btn" onClick={onAllHistory}>All event history</button>
     </div>
@@ -82,6 +102,15 @@ export function RecentPerformance({
       </div>
     ) : (
       <>
+        {placementSeries.length > 1 && <div className="placement-series-tabs" role="radiogroup" aria-label="Performance series">
+          {placementSeries.map((series) => <button
+            key={series.key}
+            type="button"
+            role="radio"
+            aria-checked={series.key === selectedSeries}
+            onClick={() => setRequestedSeries(series.key)}
+          >{series.label}</button>)}
+        </div>}
         <PlacementTrend points={placements} onOpen={onOpen} />
         <div className="recent-performance-grid">
           {recent!.map((event) => <RecentEvent key={event.eventId} event={event} onOpen={onOpen} />)}

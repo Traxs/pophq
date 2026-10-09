@@ -18,6 +18,12 @@ const member = (registrationRole?: "substitute"): EventMember => ({
   power: null,
   foundryStrength: 4652,
   furnace: null,
+  troops: {
+    infantry: { level: null, helios: null },
+    lancer: { level: null, helios: null },
+    marksman: { level: null, helios: null },
+  },
+  troopReportAt: null,
   lastReportAt: null,
 });
 

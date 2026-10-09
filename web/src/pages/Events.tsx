@@ -4,6 +4,7 @@ import { ErrorBanner } from "../components/Chrome";
 import { ActiveEventRail } from "../components/ActiveEventRegistration";
 import { EventResponseStatus } from "../components/EventResponseStatus";
 import { EventSignupShare } from "../components/EventSignupShare";
+import { EventPersonalPerformance } from "../components/EventPersonalPerformance";
 import { RegistrationRolePicker } from "../components/RegistrationRolePicker";
 import { Sheet } from "../components/Sheet";
 import { useToast } from "../components/Toast";
@@ -26,7 +27,7 @@ import {
 import { navigate } from "../router";
 import { useSession } from "../session";
 import { NoAccount } from "./Home";
-import { allianceScoreText, playerScoreText, rankedAllianceScores } from "../resultDisplay";
+import { allianceScoreText, rankedAllianceScores } from "../resultDisplay";
 
 /** What officers can schedule. The Bear hunt runs every other day and needs no sign-up. */
 const KINDS: { value: EventKind; label: string }[] = [
@@ -117,9 +118,14 @@ export function Events() {
       <div className="page-head">
         <h1 className="page-title">Events</h1>
         {isOfficer && (
-          <button type="button" className="btn btn-primary btn-small" onClick={() => setCreating(true)}>
-            New event
-          </button>
+          <div className="row-actions">
+            <button type="button" className="btn btn-quiet btn-small" onClick={() => navigate("/members/attendance")}>
+              Attendance insights
+            </button>
+            <button type="button" className="btn btn-primary btn-small" onClick={() => setCreating(true)}>
+              New event
+            </button>
+          </div>
         )}
       </div>
 
@@ -471,7 +477,7 @@ function PastEventSummary({ event }: { event: EventListItem }) {
   const mine = event.history?.mine;
   return (
     <>
-      <PersonalEventPerformance performance={mine} />
+      <EventPersonalPerformance performance={mine} />
       {results.length === 0 && phases.length === 0 ? (
       <div className="event-result-empty">
         <strong>Result not recorded yet</strong>
@@ -520,51 +526,6 @@ function PastEventSummary({ event }: { event: EventListItem }) {
         </div>
       )}
     </>
-  );
-}
-
-function PersonalEventPerformance({
-  performance,
-}: {
-  performance: NonNullable<NonNullable<EventListItem["history"]>["mine"]> | undefined;
-}) {
-  const attendance = performance?.attendance ?? "not_reviewed";
-  const attendanceLabel = attendance === "attended"
-    ? "Attended"
-    : attendance === "did_not_attend"
-      ? "Did not attend"
-      : attendance === "excused"
-        ? "Excused"
-        : "Not recorded";
-  const attendanceClass = attendance === "attended"
-    ? "pill-up"
-    : attendance === "did_not_attend"
-      ? "pill-down"
-      : attendance === "excused"
-        ? "pill-warn"
-        : "pill-flat";
-
-  return (
-    <section className="event-my-performance" aria-label="Your performance">
-      <div className="event-my-performance-head">
-        <strong>Your performance</strong>
-        <span className={`pill ${attendanceClass}`}>{attendanceLabel}</span>
-      </div>
-      {performance && performance.scores.length > 0 ? (
-        <div className="event-my-score-list">
-          {performance.scores.map((score) => (
-            <span key={score.key}>
-              <small>{score.label}</small>
-              <strong>{playerScoreText(score)} pts</strong>
-              <b>#{score.place} of {score.scoredPlayers}</b>
-            </span>
-          ))}
-        </div>
-      ) : (
-        <small>No individual score is recorded for you.</small>
-      )}
-      {performance?.attendanceEvidence === "score" && <small>Your recorded result confirms your attendance.</small>}
-    </section>
   );
 }
 

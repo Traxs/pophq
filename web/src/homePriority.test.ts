@@ -42,6 +42,18 @@ describe("Home priority engine", () => {
     expect(homePriorities({ ...base, round })).toEqual([]);
   });
 
+  it("asks for missing troop intelligence only when an SvS event is upcoming", () => {
+    const svs = event({ eventId: "svs", kind: "svs", title: "SvS", myAnswer: "yes" });
+    const items = homePriorities({ ...base, events: [svs], missingTroopDetails: ["Lancer FC", "Marksman Helios"] });
+    expect(items).toContainEqual(expect.objectContaining({
+      kind: "troops",
+      title: "Update your SvS troop details",
+      detail: "Missing Lancer FC, Marksman Helios",
+      href: "/power?update=1",
+    }));
+    expect(homePriorities({ ...base, missingTroopDetails: ["Lancer FC"] })).toEqual([]);
+  });
+
   it("does not create completed-action noise when everything is current", () => {
     expect(homePriorities(base)).toEqual([]);
   });
