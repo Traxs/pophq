@@ -417,13 +417,15 @@ export interface PublishedLineup {
   entries: LineupEntryView[];
 }
 
-export const STRATEGY_ROLES = ["Holder", "Looter", "Substitute Looter", "Farmer"] as const;
+export const STRATEGY_ROLES = ["Holder", "Looter", "Substitute Looter", "Farmer", "Rally Lead", "Rally Member", "Reserve"] as const;
 export type StrategyRole = (typeof STRATEGY_ROLES)[number];
 
 export interface StrategyAssignmentView {
   playerId: string;
   name: string;
   role: StrategyRole;
+  rallyLeadPlayerId?: string;
+  rallyLeadName?: string;
   duty?: string;
   note?: string;
 }
@@ -475,7 +477,13 @@ export interface SessionView extends EventSession {
   result?: PublishedResult | null;
   /** Your place in the published lineup, if you are in it. */
   yourPlace?: { role: LineupRole; position: number };
-  yourAssignment?: { role: StrategyRole; duty?: string; note?: string };
+  yourAssignment?: {
+    role: StrategyRole;
+    rallyLeadPlayerId?: string;
+    rallyLeadName?: string;
+    duty?: string;
+    note?: string;
+  };
   yourStanding?: SessionStanding;
 }
 
@@ -484,7 +492,10 @@ export interface AllianceEvent {
   alliance: string;
   kind: EventKind;
   title: string;
+  /** Battle phase start; preparationStartsAt carries the beginning of an SvS week. */
   startsAt: string;
+  preparationStartsAt?: string;
+  endsAt?: string;
   deadlineAt: string;
   notes?: string;
   /** Parts people choose between, e.g. the two Foundry legions. Empty for a plain event. */
@@ -573,6 +584,8 @@ export interface ParticipationEvent {
   eventId: string;
   title: string;
   startsAt: string;
+  preparationStartsAt?: string;
+  endsAt?: string;
   outcome: Outcome;
   evidencePlayerId?: string;
   evidenceAccountName?: string;
@@ -764,6 +777,8 @@ export interface NewEvent {
   kind: EventKind;
   title: string;
   startsAt: string;
+  preparationStartsAt?: string;
+  endsAt?: string;
   /** Parts people choose between; a player picks at most one. */
   sessions?: { id?: string; label: string; startsAt: string }[];
   /** Whole days before the start; the deadline is the end of that day in the officer's time zone. */
@@ -988,7 +1003,7 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
       eventId: string,
       sessionId: string,
       body: string,
-      assignments: { playerId: string; role: StrategyRole; duty?: string; note?: string }[],
+      assignments: { playerId: string; role: StrategyRole; rallyLeadPlayerId?: string; duty?: string; note?: string }[],
       expectedVersion: number,
     ) =>
       request<PublishedStrategy>("POST", `/events/${eventId}/sessions/${sessionId}/strategy`, {

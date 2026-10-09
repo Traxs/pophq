@@ -3,6 +3,7 @@ import { ValidationError } from "./errors.js";
 import {
   countAnswers,
   deadlineFor,
+  isEventComplete,
   isClosed,
   parseAgentEventChanges,
   parseAgentNewEvent,
@@ -34,6 +35,45 @@ describe("parseNewEvent", () => {
     expect(event.deadlineAt).toBe("2026-09-27T09:00:00.000Z");
     expect(parseNewEvent({ kind: "svs", title: "State versus state", startsAt: "2026-09-27T12:00:00Z" }, ctx).deadlineAt)
       .toBe("2026-09-27T09:00:00.000Z");
+  });
+
+  it("stores an SvS preparation phase before its battle window and permits late setup", () => {
+    const event = parseNewEvent({
+      kind: "svs",
+      title: "SvS September 14–19",
+      preparationStartsAt: "2026-09-14T00:00:00Z",
+      startsAt: "2026-09-19T14:00:00Z",
+      endsAt: "2026-09-19T20:00:00Z",
+      sessions: [
+        { id: "full", label: "Full time", startsAt: "2026-09-19T14:00:00Z" },
+        { id: "first", label: "First half", startsAt: "2026-09-19T14:00:00Z" },
+        { id: "last", label: "Last half", startsAt: "2026-09-19T17:00:00Z" },
+      ],
+    }, ctx);
+    expect(event).toMatchObject({
+      preparationStartsAt: "2026-09-14T00:00:00.000Z",
+      startsAt: "2026-09-19T14:00:00.000Z",
+      endsAt: "2026-09-19T20:00:00.000Z",
+      deadlineAt: "2026-09-19T11:00:00.000Z",
+    });
+    expect(isEventComplete(event, new Date("2026-09-19T19:59:59Z"))).toBe(false);
+    expect(isEventComplete(event, new Date("2026-09-19T20:00:00Z"))).toBe(true);
+  });
+
+  it("rejects incomplete or inverted SvS phase schedules", () => {
+    expect(() => parseNewEvent({
+      kind: "svs",
+      title: "Missing battle end",
+      preparationStartsAt: "2026-09-14T00:00:00Z",
+      startsAt: "2026-09-19T14:00:00Z",
+    }, ctx)).toThrow("both preparation start and battle end");
+    expect(() => parseNewEvent({
+      kind: "svs",
+      title: "Backwards phases",
+      preparationStartsAt: "2026-09-19T15:00:00Z",
+      startsAt: "2026-09-19T14:00:00Z",
+      endsAt: "2026-09-19T20:00:00Z",
+    }, ctx)).toThrow("Preparation must start before");
   });
 
   it("accepts an explicit hourly cutoff and refuses two cutoff units", () => {

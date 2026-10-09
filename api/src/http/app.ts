@@ -9,7 +9,9 @@ import {
   EVENT_KINDS,
   configureLegacySession,
   countAnswers,
+  eventEndsAt,
   isClosed,
+  isEventComplete,
   parseAgentEventChanges,
   parseAgentEventRegistrations,
   parseAgentNewEvent,
@@ -1122,7 +1124,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     return c.json({ dryRun: false, replayed: false, lineup }, 201);
   });
 
-  /** Imports one reviewed tactical plan; assignments must still belong to the published lineup. */
+  /** Imports one reviewed tactical plan; SvS rally teams may use registered players before a lineup is published. */
   app.put("/agent/history/events/:id/sessions/:sid/strategy", async (c) => {
     const { token } = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "history:write", now(), botIssuerGroups);
     const body = (await readJson(c.req.raw)) as Record<string, unknown>;
@@ -1141,10 +1143,18 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const strategy = parseStrategy(body, session, { eventId: event.eventId, sessionId: session.id, publishedBy: `agent:${token.tokenId}`, now: new Date(publishedAt), currentVersion: Number(body.expectedVersion) });
     if (strategy.assignments.length > 0) {
       const lineup = await repo.getLineup(event.eventId, session.id);
-      if (!lineup) throw new ValidationError("Import the lineup before tactical assignments.");
-      const selected = new Set(lineup.entries.map((entry) => entry.playerId));
+      const selected = lineup
+        ? new Set(lineup.entries.map((entry) => entry.playerId))
+        : event.kind === "svs"
+          ? new Set((await repo.listAnswers(event.eventId))
+              .filter((answer) => answer.answer === "yes" && answer.sessionId === session.id)
+              .map((answer) => answer.playerId))
+          : undefined;
+      if (!selected) throw new ValidationError("Import the lineup before tactical assignments.");
       const outside = strategy.assignments.filter((assignment) => !selected.has(assignment.playerId)).map((assignment) => assignment.playerId);
-      if (outside.length > 0) throw new ValidationError(`Not in the published ${session.label} lineup: ${outside.join(", ")}.`);
+      if (outside.length > 0) throw new ValidationError(lineup
+        ? `Not in the published ${session.label} lineup: ${outside.join(", ")}.`
+        : `Not registered for ${session.label}: ${outside.join(", ")}.`);
     }
     const currentHash = stateHash(current);
     assertPreviewState(write, currentHash, current, strategy);
@@ -2154,9 +2164,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const alliance = (c.req.query("alliance") ?? "POP").toUpperCase();
     const weeks = Math.min(Math.max(Number(c.req.query("weeks") ?? 12) || 12, 2), 52);
     const windowStart = new Date(now().getTime() - weeks * 7 * 24 * 60 * 60 * 1000).toISOString();
-    const events = (await repo.listEvents(alliance, windowStart, 500)).filter(
-      (event) => Date.parse(event.startsAt) <= now().getTime(),
-    );
+    const events = (await repo.listEvents(alliance, windowStart, 500)).filter((event) => isEventComplete(event, now()));
     const accounts = (await repo.listAccounts(alliance)).filter(
       (account) => account.status === "active" || account.status === "unknown",
     );
@@ -2203,7 +2211,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const weeks = Math.min(Math.max(Number(c.req.query("weeks") ?? 12) || 12, 2), 52);
     const windowStart = new Date(now().getTime() - weeks * 7 * 24 * 60 * 60 * 1000).toISOString();
     const events = (await repo.listEvents(alliance, windowStart, 500))
-      .filter((event) => event.kind === kind && Date.parse(event.startsAt) <= now().getTime())
+      .filter((event) => event.kind === kind && isEventComplete(event, now()))
       .toSorted((a, b) => a.startsAt.localeCompare(b.startsAt));
     const scores = await resultEvidence(events);
     const eventData = await Promise.all(events.map(async (event) => ({
@@ -3029,7 +3037,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const officer = isOfficer(p);
     const orderedEvents = events.toSorted((a, b) => Date.parse(b.startsAt) - Date.parse(a.startsAt));
     const items = await Promise.all(orderedEvents.map(async (event) => {
-      const history = Date.parse(event.startsAt) < at.getTime()
+      const history = Date.parse(eventEndsAt(event)) < at.getTime()
         ? await (async () => {
             const results = await repo.listResults(event.eventId);
             const phaseRecords = await Promise.all(phasesForEvent(event.kind).map(async (phase) => ({
@@ -3249,6 +3257,9 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
             assignments: publishedStrategy.assignments.map((assignment) => ({
               ...assignment,
               name: byName.get(assignment.playerId) ?? assignment.playerId,
+              ...(assignment.rallyLeadPlayerId
+                ? { rallyLeadName: byName.get(assignment.rallyLeadPlayerId) ?? assignment.rallyLeadPlayerId }
+                : {}),
             })),
           }
         : null;
@@ -3289,6 +3300,12 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           ? {
               yourAssignment: {
                 role: yourAssignment.role,
+                ...(yourAssignment.rallyLeadPlayerId
+                  ? {
+                      rallyLeadPlayerId: yourAssignment.rallyLeadPlayerId,
+                      rallyLeadName: yourAssignment.rallyLeadName,
+                    }
+                  : {}),
                 ...(yourAssignment.duty ? { duty: yourAssignment.duty } : {}),
                 ...(yourAssignment.note ? { note: yourAssignment.note } : {}),
               },
@@ -3505,14 +3522,22 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
       currentVersion: current?.version ?? 0,
     });
 
-    // Assignments describe the published lineup; a strategy may still contain body-only guidance
-    // before a lineup exists, but it cannot quietly assign someone who was not selected.
+    // Most assignments describe the published lineup. SvS rally planning is useful earlier, so
+    // registered players may be grouped before the final lineup is published.
     if (strategy.assignments.length > 0) {
       const lineup = await repo.getLineup(event.eventId, session.id);
-      if (!lineup) throw new ValidationError("Publish the lineup before assigning strategy roles.");
-      const selected = new Set(lineup.entries.map((entry) => entry.playerId));
+      const selected = lineup
+        ? new Set(lineup.entries.map((entry) => entry.playerId))
+        : event.kind === "svs"
+          ? new Set((await repo.listAnswers(event.eventId))
+              .filter((answer) => answer.answer === "yes" && answer.sessionId === session.id)
+              .map((answer) => answer.playerId))
+          : undefined;
+      if (!selected) throw new ValidationError("Publish the lineup before assigning strategy roles.");
       const outside = strategy.assignments.filter((assignment) => !selected.has(assignment.playerId)).map((assignment) => assignment.playerId);
-      if (outside.length > 0) throw new ValidationError(`Not in the published ${session.label} lineup: ${outside.join(", ")}.`);
+      if (outside.length > 0) throw new ValidationError(lineup
+        ? `Not in the published ${session.label} lineup: ${outside.join(", ")}.`
+        : `Not registered for ${session.label}: ${outside.join(", ")}.`);
     }
 
     await repo.putStrategy(strategy, { id: p.sub, via: "web", reason: "strategy published" });

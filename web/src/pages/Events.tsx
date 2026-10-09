@@ -15,12 +15,18 @@ import { defaultEventSessions, isLegionEvent } from "../eventSetup";
 import { isReportOverdue } from "../rules";
 import {
   DEFAULT_EVENT_HOURS,
+  eventEndsAt,
+  eventIsComplete,
   halfSpan,
   halvesFor,
   leadDaysOf,
+  nextSvsBattleStart,
   nextUtcNoon,
   previewDeadline,
   previewDeadlineHours,
+  SVS_BATTLE_HOURS,
+  svsPhaseSchedule,
+  svsPreparationStart,
   toUtcInput,
   utcInputDate,
 } from "../eventTiming";
@@ -105,8 +111,8 @@ export function Events() {
 
   const now = new Date();
   const newestFirst = (items ?? []).toSorted((a, b) => Date.parse(b.startsAt) - Date.parse(a.startsAt));
-  const upcoming = newestFirst.filter((e) => Date.parse(e.startsAt) >= now.getTime());
-  const past = newestFirst.filter((e) => Date.parse(e.startsAt) < now.getTime());
+  const upcoming = newestFirst.filter((event) => !eventIsComplete(event, now));
+  const past = newestFirst.filter((event) => eventIsComplete(event, now));
   const focusEvent = (eventId: string) => {
     const target = document.getElementById(`event-${eventId}`);
     target?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -356,6 +362,10 @@ function EventCard({
       </h3>
       <p className="muted">
         {(() => {
+          const phases = svsPhaseSchedule(event);
+          if (phases) {
+            return `Preparation ${eventDayTime(phases.preparationStartsAt)} → Battle ${eventDayTime(phases.battleStartsAt)} – ${eventTime(phases.battleEndsAt)}`;
+          }
           // Halves are one sitting with a midpoint, so they read as a span; legions are separate
           // times and read as "and".
           const span = halfSpan(event.sessions);
@@ -363,7 +373,7 @@ function EventCard({
           if (event.sessions.length === 0) return eventDayTime(event.startsAt);
           return event.sessions.map((session) => eventDayTime(session.startsAt)).join(" and ");
         })()}
-        {!past && ` · ${untilText(event.startsAt)}`}
+        {!past && (Date.parse(event.startsAt) > Date.now() ? ` · battle ${untilText(event.startsAt)}` : ` · ends ${untilText(eventEndsAt(event))}`)}
       </p>
       {event.notes && <p className="event-notes">{event.notes}</p>}
 
@@ -735,6 +745,7 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
   const [kind, setKind] = useState<EventKind>(event?.kind ?? "foundry");
   const [title, setTitle] = useState(event?.title ?? "");
   const [startsAt, setStartsAt] = useState(event ? toUtcInput(event.startsAt) : "");
+  const [preparationStartsAt, setPreparationStartsAt] = useState(event?.preparationStartsAt ? toUtcInput(event.preparationStartsAt) : "");
   // Foundry runs two legions in one event; everyone picks one.
   const [sessions, setSessions] = useState<{ id?: string; label: string; startsAt: string }[]>(
     event
@@ -759,7 +770,9 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
     event ? (isAvailability(event.sessions) ? "availability" : event.sessions.length > 0 ? "parts" : "rsvp") : "parts",
   );
   // SvS, KOI and FDT run about six hours; the halves follow from that rather than being typed out.
-  const [hours, setHours] = useState<number>(DEFAULT_EVENT_HOURS);
+  const [hours, setHours] = useState<number>(() => event?.endsAt
+    ? Math.max(1, (Date.parse(event.endsAt) - Date.parse(event.startsAt)) / 3_600_000)
+    : DEFAULT_EVENT_HOURS);
   const [notes, setNotes] = useState(event?.notes ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -779,7 +792,19 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
       ? utcInputDate(startsAt)
       : null;
   const startValid = start !== null && !Number.isNaN(start.getTime());
-  const ready = title.trim().length >= 3 && startValid && (editing || start.getTime() > Date.now());
+  const preparationStart = preparationStartsAt ? utcInputDate(preparationStartsAt) : null;
+  const battleEnd = startValid ? new Date(start.getTime() + hours * 3_600_000) : null;
+  const legacySvsSchedule = editing && kind === "svs" && !event?.preparationStartsAt && !preparationStartsAt;
+  const svsScheduleValid = kind !== "svs" || legacySvsSchedule || (
+    preparationStart !== null
+    && !Number.isNaN(preparationStart.getTime())
+    && preparationStart.getTime() < start!.getTime()
+    && battleEnd!.getTime() > start!.getTime()
+  );
+  const ready = title.trim().length >= 3
+    && startValid
+    && svsScheduleValid
+    && (editing || (kind === "svs" ? battleEnd!.getTime() > Date.now() : start.getTime() > Date.now()));
   const closeValue = Number.parseInt(closeTiming, 10);
   const closesInHours = closeTiming.endsWith("h");
   const deadline = startValid
@@ -794,8 +819,16 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
     setCloseTiming(DEFAULT_LEAD[value]); // a new event follows its type
     setSessions(defaultEventSessions(value));
     setSignupMode(isLegionEvent(value) ? "parts" : value === "svs" || value === "koi" || value === "fdt" ? "availability" : "rsvp");
-    // SvS, KOI and FDT normally start at 12:00 UTC, so the officer only has to pick the day.
-    if ((value === "svs" || value === "koi" || value === "fdt") && !startsAt) setStartsAt(nextUtcNoon());
+    if (value === "svs") {
+      const battle = nextSvsBattleStart();
+      setHours(SVS_BATTLE_HOURS);
+      setStartsAt(battle);
+      setPreparationStartsAt(svsPreparationStart(battle));
+    } else {
+      setPreparationStartsAt("");
+      // KOI and FDT normally start at 12:00 UTC, so the officer only has to pick the day.
+      if ((value === "koi" || value === "fdt") && !startsAt) setStartsAt(nextUtcNoon());
+    }
   };
 
   const setSession = (index: number, patch: Partial<{ label: string; startsAt: string }>) =>
@@ -810,6 +843,9 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
       kind,
       title: title.trim(),
       startsAt: start.toISOString(),
+      ...(kind === "svs" && preparationStart && battleEnd
+        ? { preparationStartsAt: preparationStart.toISOString(), endsAt: battleEnd.toISOString() }
+        : {}),
       ...(usesSessions
         ? {
             sessions: effectiveSessions.map((s) => ({
@@ -891,6 +927,14 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
         </fieldset>
       )}
 
+      {kind === "svs" && (
+        <div className="field">
+          <label htmlFor="e-preparation-start">Preparation phase starts</label>
+          <input id="e-preparation-start" type="datetime-local" value={preparationStartsAt} onChange={(e) => setPreparationStartsAt(e.target.value)} />
+          <span className="hint">Usually Monday at 00:00 UTC. A late setup may use a date that already passed.</span>
+        </div>
+      )}
+
       {usesSessions && !usesHalves ? (
         <fieldset className="field">
           <legend>Legions</legend>
@@ -914,15 +958,18 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
         </fieldset>
       ) : (
         <div className="field">
-          <label htmlFor="e-start">Starts</label>
-          <input id="e-start" type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
+          <label htmlFor="e-start">{kind === "svs" ? "Battle phase starts" : "Starts"}</label>
+          <input id="e-start" type="datetime-local" value={startsAt} onChange={(e) => {
+            setStartsAt(e.target.value);
+            if (kind === "svs") setPreparationStartsAt(svsPreparationStart(e.target.value));
+          }} />
           <span className="hint">UTC. Every player sees this same time.</span>
         </div>
       )}
 
       {usesHalves && (
         <div className="field">
-          <label htmlFor="e-hours">Runs for</label>
+          <label htmlFor="e-hours">{kind === "svs" ? "Battle phase runs for" : "Runs for"}</label>
           <select id="e-hours" value={hours} onChange={(e) => setHours(Number(e.target.value))}>
             {[2, 3, 4, 6, 8, 12].map((h) => (
               <option key={h} value={h}>
@@ -932,7 +979,7 @@ function EventForm({ event, onDone }: { event?: EventListItem; onDone: () => voi
           </select>
           <span className="hint">
             {startValid
-              ? `Full time and first half from ${eventTime(utcInputDate(effectiveSessions[0]!.startsAt).toISOString())}, last half from ${eventTime(utcInputDate(effectiveSessions[2]!.startsAt).toISOString())}.`
+              ? `${kind === "svs" ? `Preparation ends when battle starts. Battle: ` : "Full time and first half from "}${eventTime(utcInputDate(effectiveSessions[0]!.startsAt).toISOString())} – ${eventTime(battleEnd!.toISOString())}; last half from ${eventTime(utcInputDate(effectiveSessions[2]!.startsAt).toISOString())}.`
               : "Full time and first half start with the event; the last half starts halfway through."}
           </span>
         </div>

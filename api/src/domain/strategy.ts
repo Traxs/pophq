@@ -9,12 +9,22 @@ import type { EventSession } from "./events.js";
 import { ValidationError } from "./errors.js";
 import { parsePlayerId } from "./identity.js";
 
-export const STRATEGY_ROLES = ["Holder", "Looter", "Substitute Looter", "Farmer"] as const;
+export const STRATEGY_ROLES = [
+  "Holder",
+  "Looter",
+  "Substitute Looter",
+  "Farmer",
+  "Rally Lead",
+  "Rally Member",
+  "Reserve",
+] as const;
 export type StrategyRole = (typeof STRATEGY_ROLES)[number];
 
 export interface StrategyAssignment {
   playerId: string;
   role: StrategyRole;
+  /** SvS rally members point to the exact player leading their rally. */
+  rallyLeadPlayerId?: string;
   duty?: string;
   note?: string;
 }
@@ -34,6 +44,7 @@ export interface Strategy {
 const AssignmentSchema = z.object({
   playerId: z.union([z.string(), z.number()]).transform((value) => parsePlayerId(value)),
   role: z.enum(STRATEGY_ROLES),
+  rallyLeadPlayerId: z.union([z.string(), z.number()]).transform((value) => parsePlayerId(value)).optional(),
   duty: z.string().trim().max(200).optional(),
   note: z.string().trim().max(500).optional(),
 });
@@ -71,14 +82,25 @@ export function parseStrategy(input: unknown, session: EventSession, ctx: Publis
     if (seen.has(assignment.playerId)) throw new ValidationError("Someone has two strategy assignments.");
     seen.add(assignment.playerId);
   }
+  const rallyLeads = new Set(assignments.filter((assignment) => assignment.role === "Rally Lead").map((assignment) => assignment.playerId));
+  for (const assignment of assignments) {
+    if (assignment.role === "Rally Member") {
+      if (!assignment.rallyLeadPlayerId) throw new ValidationError("Every rally member needs a rally lead.");
+      if (!rallyLeads.has(assignment.rallyLeadPlayerId)) throw new ValidationError("A rally member must join a selected rally lead.");
+      if (assignment.rallyLeadPlayerId === assignment.playerId) throw new ValidationError("A player cannot join their own rally as a member.");
+    } else if (assignment.rallyLeadPlayerId) {
+      throw new ValidationError("Only rally members can be attached to a rally lead.");
+    }
+  }
 
   return {
     eventId: ctx.eventId,
     sessionId: session.id,
     version: ctx.currentVersion + 1,
     body,
-    assignments: assignments.map(({ duty, note, ...assignment }) => ({
+    assignments: assignments.map(({ duty, note, rallyLeadPlayerId, ...assignment }) => ({
       ...assignment,
+      ...(rallyLeadPlayerId ? { rallyLeadPlayerId } : {}),
       ...(duty ? { duty } : {}),
       ...(note ? { note } : {}),
     })),

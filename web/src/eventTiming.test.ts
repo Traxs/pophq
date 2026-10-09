@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { halfSpan, halvesFor, leadDaysOf, nextUtcNoon, previewDeadlineHours, toUtcInput, utcInputDate } from "./eventTiming";
+import {
+  eventIsComplete,
+  halfSpan,
+  halvesFor,
+  leadDaysOf,
+  nextSvsBattleStart,
+  nextUtcNoon,
+  previewDeadlineHours,
+  SVS_BATTLE_HOURS,
+  svsPhaseSchedule,
+  svsPreparationStart,
+  toUtcInput,
+  utcInputDate,
+} from "./eventTiming";
 
 describe("leadDaysOf", () => {
   it("recognises a Foundry closing three days before", () => {
@@ -54,6 +67,38 @@ describe("nextUtcNoon", () => {
   it("rolls to tomorrow once today's has passed", () => {
     expect(nextUtcNoon(new Date("2026-10-05T12:00:00Z"))).toBe(toUtcInput("2026-10-06T12:00:00Z"));
     expect(nextUtcNoon(new Date("2026-10-05T23:30:00Z"))).toBe(toUtcInput("2026-10-06T12:00:00Z"));
+  });
+});
+
+describe("SvS phase timing", () => {
+  it("offers the next Saturday at 10:00 UTC as the battle start", () => {
+    expect(SVS_BATTLE_HOURS).toBe(12);
+    expect(nextSvsBattleStart(new Date("2026-10-09T18:00:00Z"))).toBe("2026-10-10T10:00");
+    expect(nextSvsBattleStart(new Date("2026-10-10T10:00:00Z"))).toBe("2026-10-17T10:00");
+  });
+
+  it("derives Monday 00:00 UTC as the preparation start", () => {
+    expect(svsPreparationStart("2026-10-10T10:00")).toBe("2026-10-05T00:00");
+  });
+
+  it("keeps SvS active through the battle end rather than completing at battle start", () => {
+    const event = {
+      kind: "svs" as const,
+      preparationStartsAt: "2026-10-05T00:00:00.000Z",
+      startsAt: "2026-10-10T10:00:00.000Z",
+      endsAt: "2026-10-10T16:00:00.000Z",
+    };
+    expect(eventIsComplete(event, new Date("2026-10-10T12:00:00.000Z"))).toBe(false);
+    expect(eventIsComplete(event, new Date("2026-10-10T16:00:00.000Z"))).toBe(true);
+    expect(svsPhaseSchedule(event)).toEqual({
+      preparationStartsAt: event.preparationStartsAt,
+      battleStartsAt: event.startsAt,
+      battleEndsAt: event.endsAt,
+    });
+  });
+
+  it("preserves legacy completion behavior for records without an end", () => {
+    expect(eventIsComplete({ startsAt: "2026-10-10T10:00:00.000Z" }, new Date("2026-10-10T10:00:00.000Z"))).toBe(true);
   });
 });
 

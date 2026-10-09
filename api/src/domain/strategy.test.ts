@@ -70,4 +70,31 @@ describe("parseStrategy", () => {
       ValidationError,
     );
   });
+
+  it("stores an explicit rally lead relationship", () => {
+    expect(parseStrategy({
+      body: "Rally plan",
+      assignments: [
+        { playerId: "700000001", role: "Rally Lead" },
+        { playerId: "700000002", role: "Rally Member", rallyLeadPlayerId: "700000001" },
+      ],
+    }, session, ctx).assignments).toEqual([
+      { playerId: "700000001", role: "Rally Lead" },
+      { playerId: "700000002", role: "Rally Member", rallyLeadPlayerId: "700000001" },
+    ]);
+  });
+
+  it("requires every rally member to point to a selected lead", () => {
+    expect(() => parseStrategy({
+      body: "Rally plan",
+      assignments: [{ playerId: "700000002", role: "Rally Member" }],
+    }, session, ctx)).toThrow(/needs a rally lead/i);
+    expect(() => parseStrategy({
+      body: "Rally plan",
+      assignments: [
+        { playerId: "700000001", role: "Reserve" },
+        { playerId: "700000002", role: "Rally Member", rallyLeadPlayerId: "700000001" },
+      ],
+    }, session, ctx)).toThrow(/selected rally lead/i);
+  });
 });

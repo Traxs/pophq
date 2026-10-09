@@ -66,26 +66,30 @@ export interface StrategyDraftAssignment {
   playerId: string;
   name: string;
   role: StrategyRole | "";
+  rallyLeadPlayerId: string;
   duty: string;
   note: string;
 }
 
 /** Starts from the published assignments, then includes every selected player not yet assigned. */
-export function strategyDraftFor(session: SessionView): StrategyDraftAssignment[] {
-  const published = session.strategy?.assignments.map((assignment) => ({
+export function strategyDraftFor(session: SessionView, rallyMode = false): StrategyDraftAssignment[] {
+  const published: StrategyDraftAssignment[] = session.strategy?.assignments.map((assignment) => ({
     playerId: assignment.playerId,
     name: assignment.name,
     role: assignment.role,
+    rallyLeadPlayerId: assignment.rallyLeadPlayerId ?? "",
     duty: assignment.duty ?? "",
     note: assignment.note ?? "",
   })) ?? [];
   const seen = new Set(published.map((assignment) => assignment.playerId));
-  for (const entry of session.lineup?.entries ?? []) {
+  const candidates = session.lineup?.entries ?? (rallyMode ? session.signedUpList : []);
+  for (const entry of candidates) {
     if (seen.has(entry.playerId)) continue;
     published.push({
       playerId: entry.playerId,
       name: entry.name,
-      role: entry.role === "sub" ? "Substitute Looter" : "Holder",
+      role: rallyMode ? "" : "role" in entry && entry.role === "sub" ? "Substitute Looter" : "Holder",
+      rallyLeadPlayerId: "",
       duty: "",
       note: "",
     });
@@ -96,9 +100,10 @@ export function strategyDraftFor(session: SessionView): StrategyDraftAssignment[
 export function assignmentsToPublish(rows: readonly StrategyDraftAssignment[]) {
   return rows
     .filter((row): row is StrategyDraftAssignment & { role: StrategyRole } => row.role !== "")
-    .map(({ playerId, role, duty, note }) => ({
+    .map(({ playerId, role, rallyLeadPlayerId, duty, note }) => ({
       playerId,
       role,
+      ...(role === "Rally Member" && rallyLeadPlayerId ? { rallyLeadPlayerId } : {}),
       ...(duty.trim() ? { duty: duty.trim() } : {}),
       ...(note.trim() ? { note: note.trim() } : {}),
     }));

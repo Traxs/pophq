@@ -45,6 +45,30 @@ describe("events", () => {
     }
   });
 
+  it("accepts an SvS whose preparation already started and keeps both phase boundaries", async () => {
+    const preparationStartsAt = inDays(-4, 0);
+    const startsAt = inDays(1, 10);
+    const endsAt = new Date(Date.parse(startsAt) + 6 * 3_600_000).toISOString();
+    const result = await h.call("POST", "/events", {
+      ...OFFICER,
+      body: {
+        kind: "svs",
+        title: "SvS in progress",
+        preparationStartsAt,
+        startsAt,
+        endsAt,
+        sessions: [
+          { id: "full", label: "Full time", startsAt },
+          { id: "first", label: "First half", startsAt },
+          { id: "last", label: "Last half", startsAt: new Date(Date.parse(startsAt) + 3 * 3_600_000).toISOString() },
+        ],
+      },
+    });
+
+    expect(result.status).toBe(201);
+    expect(result.body).toMatchObject({ kind: "svs", preparationStartsAt, startsAt, endsAt });
+  });
+
   it("shows upcoming events to everyone with their own answer", async () => {
     const list = await h.call("GET", "/events", PLAYER);
     expect(list.status).toBe(200);

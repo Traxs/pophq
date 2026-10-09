@@ -12,6 +12,7 @@ import { REPORT_DUE_DAYS } from "../rules";
 import { useSession } from "../session";
 import { usePower } from "../usePower";
 import { missingSvsTroopDetails } from "../svsTroops";
+import { eventIsComplete } from "../eventTiming";
 import { ChangePill } from "./Power";
 
 const ALL_EVENT_HISTORY = "1970-01-01T00:00:00.000Z";
@@ -30,7 +31,7 @@ export function Home() {
       .then(([current, history]) => {
         const now = Date.now();
         setRegistrationEvents(current.items);
-        setRecentEvents(history.items.filter((event) => Date.parse(event.startsAt) < now));
+        setRecentEvents(history.items.filter((event) => eventIsComplete(event, new Date(now))));
       })
       .catch(() => {
         setRegistrationEvents(null);

@@ -15,7 +15,7 @@
  *   - excused, unchecked, or an honest "can't make it" — not counted at all
  */
 import type { AttendanceRecord } from "./attendance.js";
-import type { AllianceEvent, EventAnswer } from "./events.js";
+import { isEventComplete, type AllianceEvent, type EventAnswer } from "./events.js";
 import type { MembershipPeriod } from "./identity.js";
 import { wasMemberAt } from "./identity.js";
 
@@ -203,7 +203,7 @@ export function participationOf({
   const completeAt = completeEvidence === undefined ? undefined : new Set(completeEvidence);
 
   const considered = occurrences(events.filter((event) =>
-    Date.parse(event.startsAt) <= now.getTime()
+    isEventComplete(event, now)
     && (!membershipPeriods || wasMemberAt(membershipPeriods, event.startsAt))))
     .filter(
       (occurrence) =>

@@ -33,6 +33,7 @@ import { useSession } from "../session";
 import { assignmentsToPublish, StrategyText, strategyDraftFor, type StrategyDraftAssignment } from "../strategy";
 import { completedAttendanceLabel, completedEventRows, type CompletedAttendance } from "../eventReport";
 import { eventTimeline, type EventTimelinePoint } from "../eventTimeline";
+import { eventIsComplete, svsPhaseSchedule } from "../eventTiming";
 import { visibleEventSessions } from "../eventSessions";
 import { isLegionEvent } from "../eventSetup";
 import { allianceScoreText, playerScoreText, rankedAllianceScores } from "../resultDisplay";
@@ -144,7 +145,7 @@ export function EventPage({ eventId }: { eventId: string }) {
 
   if (error && !event) return <ErrorBanner message={error} onRetry={() => navigate("/events")} />;
   if (!event) return <div className="card skeleton" style={{ height: 200 }} />;
-  const completed = Date.parse(event.startsAt) <= Date.now();
+  const completed = eventIsComplete(event);
   const visibleSessions = visibleEventSessions(event, completed);
   const sessionsHaveResults = !event.scoreboards;
   const currentHistory = history?.find((item) => item.eventId === event.eventId);
@@ -159,13 +160,24 @@ export function EventPage({ eventId }: { eventId: string }) {
         <h1 className="page-title">{event.title}</h1>
         {!completed && isOfficer && <EventSignupShare event={event} />}
       </div>
-      <p className="muted">
-        {eventDayTime(event.startsAt)} ·{" "}
-        {completed ? "event completed" : event.closed ? "answers closed" : `answers close ${untilText(event.deadlineAt)} (${eventDayTime(event.deadlineAt)})`}
-      </p>
+      {(() => {
+        const phases = svsPhaseSchedule(event);
+        return phases ? <div className="event-phase-schedule" aria-label="SvS phase schedule">
+          <span><strong>Preparation</strong><small>{eventDayTime(phases.preparationStartsAt)} → {eventDayTime(phases.battleStartsAt)}</small></span>
+          <span><strong>Battle</strong><small>{eventDayTime(phases.battleStartsAt)} → {eventDayTime(phases.battleEndsAt)}</small></span>
+          <span className={`pill ${completed ? "pill-flat" : Date.parse(event.startsAt) <= Date.now() ? "pill-warn" : "pill-up"}`}>
+            {completed ? "Event completed" : Date.parse(event.startsAt) <= Date.now() ? "Battle underway" : "Preparation phase"}
+          </span>
+        </div> : <p className="muted">
+          {eventDayTime(event.startsAt)} · {completed ? "event completed" : event.closed ? "answers closed" : `answers close ${untilText(event.deadlineAt)} (${eventDayTime(event.deadlineAt)})`}
+        </p>;
+      })()}
+      {!completed && event.closed && <p className="muted small">Answers closed {eventDayTime(event.deadlineAt)}.</p>}
       {event.closed && !completed && isOfficer && (
         <p className="banner banner-warn">
-          Answers are closed for members. You can still change who is coming until the event starts.
+          {Date.parse(event.startsAt) > Date.now()
+            ? "Answers are closed for members. You can still change who is coming until the battle starts."
+            : "The battle is underway and registrations are locked. Attendance and results can now be recorded."}
         </p>
       )}
       {event.notes && <p className="event-notes">{event.notes}</p>}
@@ -202,6 +214,8 @@ export function EventPage({ eventId }: { eventId: string }) {
                 myPlayerId={account?.playerId}
                 myRegistrationRole={event.mySessionId === session.id ? event.myRegistrationRole : null}
                 strategyTemplate={event.strategyTemplate ?? ""}
+                rallyMode={event.kind === "svs"}
+                planningMembers={event.members ?? []}
                 onJoin={() => void choose("yes", session.id)}
                 {...(isOfficer ? {
                   onPublish: publish,
@@ -567,6 +581,8 @@ function SessionCard({
   onJoin,
   onPublish,
   strategyTemplate,
+  rallyMode,
+  planningMembers,
   onPublishStrategy,
   onRecordResult,
 }: {
@@ -581,6 +597,8 @@ function SessionCard({
   myRegistrationRole: "substitute" | null | undefined;
   onJoin: () => void;
   strategyTemplate: string;
+  rallyMode: boolean;
+  planningMembers: EventMember[];
   /** Officers only: publish or change the lineup for this part. */
   onPublish?: (sessionId: string, rows: LineupDraftRow[], version: number) => Promise<void>;
   /** Officers only: publish or change the plan and assignments for this part. */
@@ -693,7 +711,7 @@ function SessionCard({
             <summary>Lineup &amp; strategy record</summary>
             {session.lineup && <LineupList lineup={session.lineup} myPlayerId={myPlayerId} />}
             {session.strategy && <StrategyView strategy={session.strategy} myPlayerId={myPlayerId} />}
-            {session.yourAssignment && <p className="pill pill-flat">Your assignment: {session.yourAssignment.role}{session.yourAssignment.duty ? ` · ${session.yourAssignment.duty}` : ""}</p>}
+            {session.yourAssignment && <p className="pill pill-flat">Your assignment: {session.yourAssignment.role}{session.yourAssignment.rallyLeadName ? ` · join ${session.yourAssignment.rallyLeadName}'s rally` : session.yourAssignment.duty ? ` · ${session.yourAssignment.duty}` : ""}</p>}
           </details>
         )
       ) : (
@@ -708,7 +726,7 @@ function SessionCard({
       {!completed && session.yourAssignment && (
         <p className="pill pill-flat">
           Your assignment: {session.yourAssignment.role}
-          {session.yourAssignment.duty ? ` · ${session.yourAssignment.duty}` : ""}
+          {session.yourAssignment.rallyLeadName ? ` · join ${session.yourAssignment.rallyLeadName}'s rally` : session.yourAssignment.duty ? ` · ${session.yourAssignment.duty}` : ""}
         </p>
       )}
 
@@ -767,13 +785,13 @@ function SessionCard({
           <summary>Officer corrections</summary>
           <p className="muted small">Historical signup, lineup, strategy and result corrections.</p>
           {onPublish && <LineupEditor session={session} onPublish={onPublish} />}
-          {onPublishStrategy && <StrategyEditor session={session} template={strategyTemplate} onPublish={onPublishStrategy} />}
+          {onPublishStrategy && <StrategyEditor session={session} template={strategyTemplate} rallyMode={rallyMode} members={planningMembers} onPublish={onPublishStrategy} />}
           {onRecordResult && <ResultEditor session={session} onSave={onRecordResult} />}
         </details>
       ) : (
         <>
           {isOfficer && onPublish && <LineupEditor session={session} onPublish={onPublish} />}
-          {isOfficer && onPublishStrategy && <StrategyEditor session={session} template={strategyTemplate} onPublish={onPublishStrategy} />}
+          {isOfficer && onPublishStrategy && <StrategyEditor session={session} template={strategyTemplate} rallyMode={rallyMode} members={planningMembers} onPublish={onPublishStrategy} />}
           {isOfficer && onRecordResult && Date.parse(session.startsAt) <= Date.now() && <ResultEditor session={session} onSave={onRecordResult} />}
         </>
       )}
@@ -900,6 +918,7 @@ function ResultEditor({
 
 /** The published plan and roles as every member sees them. */
 function StrategyView({ strategy, myPlayerId }: { strategy: PublishedStrategy; myPlayerId: string | undefined }) {
+  const hasRallies = strategy.assignments.some((assignment) => assignment.role === "Rally Lead" || assignment.role === "Rally Member");
   return (
     <section className="strategy" aria-label="Published strategy">
       <h3 className="section-label">
@@ -917,6 +936,7 @@ function StrategyView({ strategy, myPlayerId }: { strategy: PublishedStrategy; m
               <tr>
                 <th scope="col">Member</th>
                 <th scope="col">Role</th>
+                {hasRallies && <th scope="col">Rally</th>}
                 <th scope="col">Duty</th>
                 <th scope="col">Note</th>
               </tr>
@@ -926,6 +946,7 @@ function StrategyView({ strategy, myPlayerId }: { strategy: PublishedStrategy; m
                 <tr key={assignment.playerId} className={assignment.playerId === myPlayerId ? "row-me" : undefined}>
                   <th scope="row">{assignment.name}</th>
                   <td>{assignment.role}</td>
+                  {hasRallies && <td>{assignment.role === "Rally Lead" ? `${assignment.name}'s rally` : assignment.rallyLeadName ?? "–"}</td>}
                   <td>{assignment.duty ?? "–"}</td>
                   <td>{assignment.note ?? "–"}</td>
                 </tr>
@@ -941,10 +962,14 @@ function StrategyView({ strategy, myPlayerId }: { strategy: PublishedStrategy; m
 function StrategyEditor({
   session,
   template,
+  rallyMode,
+  members,
   onPublish,
 }: {
   session: SessionView;
   template: string;
+  rallyMode: boolean;
+  members: EventMember[];
   onPublish: (sessionId: string, body: string, assignments: StrategyDraftAssignment[], version: number) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -954,16 +979,26 @@ function StrategyEditor({
 
   const start = () => {
     setBody(session.strategy?.body ?? template);
-    setRows(strategyDraftFor(session));
+    setRows(strategyDraftFor(session, rallyMode));
     setOpen(true);
   };
-  const change = (playerId: string, patch: Partial<Pick<StrategyDraftAssignment, "role" | "duty" | "note">>) =>
+  const change = (playerId: string, patch: Partial<Pick<StrategyDraftAssignment, "role" | "rallyLeadPlayerId" | "duty" | "note">>) =>
     setRows((current) => current.map((row) => (row.playerId === playerId ? { ...row, ...patch } : row)));
+  const rallyLeads = rows.filter((row) => row.role === "Rally Lead");
+  const invalidRallyMembers = rows.filter(
+    (row) => row.role === "Rally Member" && !rallyLeads.some((lead) => lead.playerId === row.rallyLeadPlayerId),
+  );
+  const memberById = new Map(members.map((member) => [member.playerId, member]));
+  const roles: readonly StrategyRole[] = rallyMode
+    ? ["Rally Lead", "Rally Member", "Reserve"]
+    : STRATEGY_ROLES.filter((role) => !role.startsWith("Rally") && role !== "Reserve");
 
   if (!open) {
     return (
       <button type="button" className="btn btn-quiet btn-small" onClick={start}>
-        {session.strategy ? `Edit strategy (v${session.strategy.version})` : "Publish strategy"}
+        {rallyMode
+          ? session.strategy ? `Edit rally teams (v${session.strategy.version})` : "Build rally teams"
+          : session.strategy ? `Edit strategy (v${session.strategy.version})` : "Publish strategy"}
       </button>
     );
   }
@@ -971,7 +1006,7 @@ function StrategyEditor({
   return (
     <div className="strategy-editor stack">
       <label className="field">
-        <span>Plan</span>
+        <span>{rallyMode ? "Rally instructions" : "Plan"}</span>
         <textarea
           rows={10}
           maxLength={20_000}
@@ -981,42 +1016,59 @@ function StrategyEditor({
         />
       </label>
       {rows.length === 0 ? (
-        <p className="muted small">Publish a lineup first to add member assignments. You can still publish the plan.</p>
+        <p className="muted small">{rallyMode ? "Nobody is signed up for this part yet." : "Publish a lineup first to add member assignments. You can still publish the plan."}</p>
       ) : (
         <div className="strategy-assignment-editor">
-          {rows.map((row) => (
-            <fieldset key={row.playerId} className="strategy-assignment">
+          {rows.map((row) => {
+            const member = memberById.get(row.playerId);
+            return <fieldset key={row.playerId} className="strategy-assignment">
               <legend>{row.name}</legend>
+              {rallyMode && <p className="strategy-rally-intel muted small">
+                {member?.power === null || member?.power === undefined ? "Power unknown" : `${compact(member.power)} power`}
+                {" · "}<strong>{heliosCoverage(member)}/3 Helios</strong>
+              </p>}
               <label>
                 <span>Role</span>
                 <select
                   aria-label={`${row.name}'s strategy role in ${session.label}`}
                   value={row.role}
-                  onChange={(event) => change(row.playerId, { role: event.target.value as StrategyRole | "" })}
+                  onChange={(event) => {
+                    const role = event.target.value as StrategyRole | "";
+                    change(row.playerId, { role, ...(role === "Rally Member" ? {} : { rallyLeadPlayerId: "" }) });
+                  }}
                 >
                   <option value="">Unassigned</option>
-                  {STRATEGY_ROLES.map((role) => (
+                  {roles.map((role) => (
                     <option key={role} value={role}>{role}</option>
                   ))}
                 </select>
               </label>
-              <label>
+              {rallyMode && row.role === "Rally Member" ? <label>
+                <span>Joins rally led by</span>
+                <select value={row.rallyLeadPlayerId} onChange={(event) => change(row.playerId, { rallyLeadPlayerId: event.target.value })}>
+                  <option value="">Choose a rally lead</option>
+                  {rallyLeads.filter((lead) => lead.playerId !== row.playerId).map((lead) => (
+                    <option key={lead.playerId} value={lead.playerId}>{lead.name}</option>
+                  ))}
+                </select>
+              </label> : !rallyMode && <label>
                 <span>Duty</span>
                 <input value={row.duty} maxLength={200} onChange={(event) => change(row.playerId, { duty: event.target.value })} />
-              </label>
+              </label>}
               <label>
                 <span>Note</span>
                 <input value={row.note} maxLength={500} onChange={(event) => change(row.playerId, { note: event.target.value })} />
               </label>
-            </fieldset>
-          ))}
+            </fieldset>;
+          })}
         </div>
       )}
+      {invalidRallyMembers.length > 0 && <p className="banner banner-warn">Choose a rally lead for every rally member.</p>}
       <div className="row-actions">
         <button
           type="button"
           className="btn btn-primary btn-small"
-          disabled={saving}
+          disabled={saving || invalidRallyMembers.length > 0}
           onClick={() => {
             setSaving(true);
             void onPublish(session.id, body, rows, session.strategy?.version ?? 0)
@@ -1024,7 +1076,7 @@ function StrategyEditor({
               .finally(() => setSaving(false));
           }}
         >
-          {saving ? "Publishing…" : session.strategy ? "Publish changes" : "Publish strategy"}
+          {saving ? "Publishing…" : session.strategy ? "Publish changes" : rallyMode ? "Publish rally teams" : "Publish strategy"}
         </button>
         <button type="button" className="btn btn-quiet btn-small" disabled={saving} onClick={() => setOpen(false)}>
           Cancel
@@ -1487,7 +1539,7 @@ function OfficerTable({ event, members }: { event: EventDetail; members: EventMe
         <h2 id="who-title" className="section-label">Who's coming</h2>
         {event.kind === "svs" && <div className="segmented officer-event-tabs" role="radiogroup" aria-label="Officer SvS view">
           <button type="button" role="radio" aria-checked={view === "planning"} onClick={() => setView("planning")}>Signup overview</button>
-          <button type="button" role="radio" aria-checked={view === "troops"} onClick={() => setView("troops")}>Troop strength</button>
+          <button type="button" role="radio" aria-checked={view === "troops"} onClick={() => setView("troops")}>Troops &amp; Helios</button>
         </div>}
       </div>
 
@@ -1590,18 +1642,22 @@ function OfficerTable({ event, members }: { event: EventDetail; members: EventMe
   );
 }
 
+function heliosCoverage(member: EventMember | undefined): number {
+  return TROOP_TYPES.filter((type) => member?.troops?.[type]?.helios === true).length;
+}
+
 function SvsTroopIntel({ event, members }: { event: EventDetail; members: EventMember[] }) {
   const toast = useToast();
   const [signedUpOnly, setSignedUpOnly] = useState(true);
   const signedUp = members.filter((member) => member.answer === "yes");
   const complete = signedUp.filter((member) => missingMemberTroopDetails(member).length === 0);
-  const heliosCounts = Object.fromEntries(TROOP_TYPES.map((type) => [
-    type,
-    signedUp.filter((member) => member.troops?.[type]?.helios === true).length,
-  ])) as Record<TroopType, number>;
+  const coverageCounts = [0, 1, 2, 3].map((coverage) => signedUp.filter((member) =>
+    heliosCoverage(member) === coverage && (coverage > 0 || missingMemberTroopDetails(member).length === 0)).length);
   const visible = (signedUpOnly ? signedUp : members).toSorted((a, b) =>
     Number(b.answer === "yes") - Number(a.answer === "yes")
-    || TROOP_TYPES.filter((type) => b.troops?.[type]?.helios === true).length - TROOP_TYPES.filter((type) => a.troops?.[type]?.helios === true).length
+    || heliosCoverage(b) - heliosCoverage(a)
+    || missingMemberTroopDetails(a).length - missingMemberTroopDetails(b).length
+    || (b.power ?? -1) - (a.power ?? -1)
     || (levelRank(String(b.furnace ?? "")) ?? -1) - (levelRank(String(a.furnace ?? "")) ?? -1)
     || a.name.localeCompare(b.name));
   const answerLabel = (member: EventMember) => member.answer === "yes"
@@ -1641,7 +1697,9 @@ function SvsTroopIntel({ event, members }: { event: EventDetail; members: EventM
 
     <div className="svs-troop-summary" aria-label="SvS troop data summary">
       <span><strong>{complete.length} / {signedUp.length}</strong><small>Signups complete</small></span>
-      {TROOP_TYPES.map((type) => <span key={type}><strong>{heliosCounts[type]}</strong><small>{TROOP_LABELS[type]} Helios</small></span>)}
+      <span><strong>{coverageCounts[3]}</strong><small>Full Helios · 3/3</small></span>
+      <span><strong>{coverageCounts[2]}</strong><small>Two Helios · 2/3</small></span>
+      <span><strong>{coverageCounts[1]}</strong><small>One Helios · 1/3</small></span>
       <span><strong>{signedUp.length - complete.length}</strong><small>Need an update</small></span>
     </div>
 
@@ -1656,7 +1714,9 @@ function SvsTroopIntel({ event, members }: { event: EventDetail; members: EventM
           <th scope="col">Member</th>
           <th scope="col">Signup</th>
           <th scope="col">Furnace</th>
-          {TROOP_TYPES.map((type) => <th key={type} scope="col">{TROOP_LABELS[type]}</th>)}
+          <th scope="col" className="num">City power</th>
+          <th scope="col">Helios coverage</th>
+          {TROOP_TYPES.map((type) => <th key={type} scope="col">{TROOP_LABELS[type]} level &amp; Helios</th>)}
           <th scope="col">Data</th>
         </tr></thead>
         <tbody>{visible.map((member) => {
@@ -1665,7 +1725,11 @@ function SvsTroopIntel({ event, members }: { event: EventDetail; members: EventM
             <td data-label="Member"><strong>{member.name}</strong>{member.rank && <small>{member.rank}</small>}</td>
             <td data-label="Signup">{answerLabel(member)}</td>
             <td data-label="Furnace"><strong>{member.furnace ?? "–"}</strong></td>
-            {TROOP_TYPES.map((type) => <td key={type} data-label={TROOP_LABELS[type]}>{troopCell(member, type)}</td>)}
+            <td data-label="City power" className="num"><strong>{member.power === null ? "–" : compact(member.power)}</strong></td>
+            <td data-label="Helios coverage"><span className={`pill ${heliosCoverage(member) === 3 ? "pill-up" : heliosCoverage(member) > 0 ? "pill-warn" : "pill-flat"}`}>
+              {heliosCoverage(member)}/3{heliosCoverage(member) === 3 ? " · Full" : ""}
+            </span></td>
+            {TROOP_TYPES.map((type) => <td key={type} data-label={`${TROOP_LABELS[type]} level & Helios`}>{troopCell(member, type)}</td>)}
             <td data-label="Data status">{missing.length === 0
               ? <><span className="pill pill-up">Complete</span>{member.troopReportAt && <small>{relativeDay(member.troopReportAt)}</small>}</>
               : <><span className="pill pill-warn">Missing {missing.length}</span><small>{missing.join(", ")}</small></>}</td>

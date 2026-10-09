@@ -65,9 +65,31 @@ describe("strategy drafts", () => {
   it("trims optional fields before publishing", () => {
     expect(
       assignmentsToPublish([
-        { playerId: "700000001", name: "Northstar", role: "Holder", duty: " Gate ", note: " Lead " },
-        { playerId: "700000002", name: "Snowguard", role: "", duty: "", note: "" },
+        { playerId: "700000001", name: "Northstar", role: "Holder", rallyLeadPlayerId: "", duty: " Gate ", note: " Lead " },
+        { playerId: "700000002", name: "Snowguard", role: "", rallyLeadPlayerId: "", duty: "", note: "" },
       ]),
     ).toEqual([{ playerId: "700000001", role: "Holder", duty: "Gate", note: "Lead" }]);
+  });
+
+  it("builds an SvS rally draft from signups before a lineup exists", () => {
+    const noLineup = session({
+      lineup: null,
+      signedUp: 2,
+      signedUpList: [
+        { playerId: "700000001", name: "Northstar", foundryStrength: 90, position: 1, likely: "starter" },
+        { playerId: "700000002", name: "Snowguard", foundryStrength: 80, position: 2, likely: "sub" },
+      ],
+    });
+    expect(strategyDraftFor(noLineup, true).map((row) => ({ name: row.name, role: row.role }))).toEqual([
+      { name: "Northstar", role: "" },
+      { name: "Snowguard", role: "" },
+    ]);
+    expect(assignmentsToPublish([
+      { playerId: "700000001", name: "Northstar", role: "Rally Lead", rallyLeadPlayerId: "", duty: "", note: "" },
+      { playerId: "700000002", name: "Snowguard", role: "Rally Member", rallyLeadPlayerId: "700000001", duty: "", note: "" },
+    ])).toEqual([
+      { playerId: "700000001", role: "Rally Lead" },
+      { playerId: "700000002", role: "Rally Member", rallyLeadPlayerId: "700000001" },
+    ]);
   });
 });

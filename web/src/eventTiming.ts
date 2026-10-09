@@ -29,11 +29,12 @@ export function leadDaysOf(event: Pick<AllianceEvent, "startsAt" | "deadlineAt">
 }
 
 /**
- * SvS, KOI and FDT run about six hours from 12:00 UTC, and members answer with how much of that they
- * can give. The three parts are derived from one start and a length rather than typed three
- * times: "Full time" and "First half" begin with the event, "Last half" at the midpoint.
+ * KOI and FDT commonly use a six-hour window. SvS uses its own 12-hour battle default below.
+ * The three signup parts are derived from one start and a length rather than typed three times:
+ * "Full time" and "First half" begin with the event, "Last half" at the midpoint.
  */
 export const DEFAULT_EVENT_HOURS = 6;
+export const SVS_BATTLE_HOURS = 12;
 export const HALF_IDS = ["full", "first", "last"] as const;
 
 export function halvesFor(startUtcInput: string, hours: number): { id: string; label: string; startsAt: string }[] {
@@ -59,6 +60,36 @@ export function nextUtcNoon(now: Date = new Date()): string {
   const noon = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12, 0, 0, 0));
   if (noon.getTime() <= now.getTime()) noon.setUTCDate(noon.getUTCDate() + 1);
   return toUtcInput(noon.toISOString());
+}
+
+/** The next Saturday 10:00 UTC battle boundary used by SvS. */
+export function nextSvsBattleStart(now: Date = new Date()): string {
+  const daysUntilSaturday = (6 - now.getUTCDay() + 7) % 7;
+  const battle = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + daysUntilSaturday, 10));
+  if (battle.getTime() <= now.getTime()) battle.setUTCDate(battle.getUTCDate() + 7);
+  return toUtcInput(battle.toISOString());
+}
+
+/** Monday 00:00 UTC belonging to an SvS Saturday battle. */
+export function svsPreparationStart(battleUtcInput: string): string {
+  const battle = utcInputDate(battleUtcInput);
+  if (!battleUtcInput || Number.isNaN(battle.getTime())) return "";
+  const monday = new Date(Date.UTC(battle.getUTCFullYear(), battle.getUTCMonth(), battle.getUTCDate() - 5));
+  return toUtcInput(monday.toISOString());
+}
+
+export const eventEndsAt = (event: Pick<AllianceEvent, "startsAt" | "endsAt">): string => event.endsAt ?? event.startsAt;
+
+export const eventIsComplete = (event: Pick<AllianceEvent, "startsAt" | "endsAt">, now = new Date()): boolean =>
+  Date.parse(eventEndsAt(event)) <= now.getTime();
+
+export function svsPhaseSchedule(event: Pick<AllianceEvent, "kind" | "startsAt" | "preparationStartsAt" | "endsAt">) {
+  if (event.kind !== "svs" || !event.preparationStartsAt || !event.endsAt) return undefined;
+  return {
+    preparationStartsAt: event.preparationStartsAt,
+    battleStartsAt: event.startsAt,
+    battleEndsAt: event.endsAt,
+  };
 }
 
 /**

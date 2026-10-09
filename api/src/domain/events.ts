@@ -32,8 +32,12 @@ export interface AllianceEvent {
   alliance: string;
   kind: EventKind;
   title: string;
-  /** When the event starts, ISO 8601 in UTC. */
+  /** When the battle phase starts, ISO 8601 in UTC. */
   startsAt: string;
+  /** SvS only: when the preparation phase starts. Older records may not have it. */
+  preparationStartsAt?: string;
+  /** When the battle phase ends. Older and single-moment events may not have it. */
+  endsAt?: string;
   /** Answers are locked from this moment (FM-09). */
   deadlineAt: string;
   notes?: string;
@@ -127,6 +131,8 @@ const NewEventSchema = z.object({
   kind: z.enum(EVENT_KINDS).default("other"),
   title: z.string().trim().min(3, "Title must be 3–60 characters.").max(60, "Title must be 3–60 characters."),
   startsAt: ISO,
+  preparationStartsAt: ISO.optional(),
+  endsAt: ISO.optional(),
   deadlineAt: ISO.optional(),
   notes: z.string().trim().max(2000).optional(),
   ownerPlayerId: z.string().trim().regex(/^[1-9][0-9]{4,14}$/, "That is not a Player ID.").optional(),
@@ -216,6 +222,8 @@ export function parseNewEvent(input: unknown, ctx: NewEventContext): AllianceEve
   const {
     startsAt,
     deadlineAt,
+    preparationStartsAt,
+    endsAt,
     notes,
     ownerPlayerId,
     answersCloseDaysBefore,
@@ -237,8 +245,19 @@ export function parseNewEvent(input: unknown, ctx: NewEventContext): AllianceEve
   // The event starts when its first session does, so reminders and lists use one moment.
   const startsAtEffective = sessions.length > 0 ? sessions.map((s) => s.startsAt).toSorted()[0]! : startsAt;
   const start = Date.parse(startsAtEffective);
-  if (!ctx.allowPast && start <= ctx.now.getTime()) throw new ValidationError("The event must start in the future.");
+  const end = endsAt ? Date.parse(endsAt) : start;
+  if (!ctx.allowPast && end <= ctx.now.getTime()) throw new ValidationError("The event must end in the future.");
   if (start > ctx.now.getTime() + MAX_AHEAD_MS) throw new ValidationError("The event is more than a year away.");
+  if ((preparationStartsAt || endsAt) && rest.kind !== "svs") {
+    throw new ValidationError("Only SvS uses preparation and battle phase dates.");
+  }
+  if ((preparationStartsAt && !endsAt) || (!preparationStartsAt && endsAt)) {
+    throw new ValidationError("SvS needs both preparation start and battle end.");
+  }
+  if (preparationStartsAt && Date.parse(preparationStartsAt) >= start) {
+    throw new ValidationError("Preparation must start before the battle phase.");
+  }
+  if (endsAt && end <= start) throw new ValidationError("The battle must end after it starts.");
 
   if (answersCloseDaysBefore !== undefined && answersCloseHoursBefore !== undefined) {
     throw new ValidationError("Choose either days or hours before the event, not both.");
@@ -258,6 +277,8 @@ export function parseNewEvent(input: unknown, ctx: NewEventContext): AllianceEve
     eventId: ctx.eventId,
     ...rest,
     startsAt: startsAtEffective,
+    ...(preparationStartsAt ? { preparationStartsAt } : {}),
+    ...(endsAt ? { endsAt } : {}),
     deadlineAt: deadline,
     ...(notes ? { notes } : {}),
     ...(ownerPlayerId ? { ownerPlayerId } : {}),
@@ -315,6 +336,8 @@ const EventChangesSchema = z.object({
   kind: z.enum(EVENT_KINDS).optional(),
   title: z.string().trim().min(3, "Title must be 3–60 characters.").max(60, "Title must be 3–60 characters.").optional(),
   startsAt: ISO.optional(),
+  preparationStartsAt: ISO.optional(),
+  endsAt: ISO.optional(),
   deadlineAt: ISO.optional(),
   notes: z.string().trim().max(2000).optional(),
   /** Empty string hands the event back to nobody. */
@@ -386,6 +409,8 @@ export function parseAgentEventChanges(event: AllianceEvent, input: unknown, now
     ? sessions.map((session) => session.startsAt).toSorted()[0]!
     : (changes.startsAt ?? event.startsAt);
   const kind = changes.kind ?? event.kind;
+  const preparationStartsAt = changes.preparationStartsAt ?? event.preparationStartsAt;
+  const endsAt = changes.endsAt ?? event.endsAt;
   const deadlineAt =
     changes.deadlineAt ??
     (startsAt !== event.startsAt || changes.answersCloseDaysBefore !== undefined || changes.answersCloseHoursBefore !== undefined || changes.kind
@@ -393,6 +418,14 @@ export function parseAgentEventChanges(event: AllianceEvent, input: unknown, now
       : event.deadlineAt);
   if (Date.parse(deadlineAt) > Date.parse(startsAt)) throw new ValidationError("Answers must close before the event starts.");
   if (Date.parse(startsAt) > now.getTime() + MAX_AHEAD_MS) throw new ValidationError("The event is more than a year away.");
+  if ((preparationStartsAt || endsAt) && kind !== "svs") throw new ValidationError("Only SvS uses preparation and battle phase dates.");
+  if ((preparationStartsAt && !endsAt) || (!preparationStartsAt && endsAt)) {
+    throw new ValidationError("SvS needs both preparation start and battle end.");
+  }
+  if (preparationStartsAt && Date.parse(preparationStartsAt) >= Date.parse(startsAt)) {
+    throw new ValidationError("Preparation must start before the battle phase.");
+  }
+  if (endsAt && Date.parse(endsAt) <= Date.parse(startsAt)) throw new ValidationError("The battle must end after it starts.");
 
   const owner = changes.ownerPlayerId === undefined ? event.ownerPlayerId : changes.ownerPlayerId || undefined;
   // The event without its owner: handing one back to nobody has to remove the field, and a plain
@@ -405,6 +438,8 @@ export function parseAgentEventChanges(event: AllianceEvent, input: unknown, now
     kind,
     title: changes.title ?? event.title,
     startsAt,
+    ...(preparationStartsAt ? { preparationStartsAt } : {}),
+    ...(endsAt ? { endsAt } : {}),
     deadlineAt,
     sessions,
   };
@@ -430,6 +465,8 @@ export function parseEventChanges(event: AllianceEvent, input: unknown, now: Dat
 
   const startsAt = changes.startsAt ?? event.startsAt;
   const kind = changes.kind ?? event.kind;
+  const preparationStartsAt = changes.preparationStartsAt ?? event.preparationStartsAt;
+  const endsAt = changes.endsAt ?? event.endsAt;
   // A new start without a new deadline moves the deadline with it, keeping the same lead time.
   const deadlineAt =
     changes.deadlineAt ??
@@ -448,6 +485,8 @@ export function parseEventChanges(event: AllianceEvent, input: unknown, now: Dat
     kind,
     title: changes.title ?? event.title,
     startsAt,
+    ...(preparationStartsAt ? { preparationStartsAt } : {}),
+    ...(endsAt ? { endsAt } : {}),
     deadlineAt,
     ...(changes.notes !== undefined ? { notes: changes.notes } : event.notes ? { notes: event.notes } : {}),
   };
@@ -457,8 +496,26 @@ export function parseEventChanges(event: AllianceEvent, input: unknown, now: Dat
   if (Date.parse(updated.startsAt) > now.getTime() + MAX_AHEAD_MS) {
     throw new ValidationError("The event is more than a year away.");
   }
+  if ((updated.preparationStartsAt || updated.endsAt) && updated.kind !== "svs") {
+    throw new ValidationError("Only SvS uses preparation and battle phase dates.");
+  }
+  if ((updated.preparationStartsAt && !updated.endsAt) || (!updated.preparationStartsAt && updated.endsAt)) {
+    throw new ValidationError("SvS needs both preparation start and battle end.");
+  }
+  if (updated.preparationStartsAt && Date.parse(updated.preparationStartsAt) >= Date.parse(updated.startsAt)) {
+    throw new ValidationError("Preparation must start before the battle phase.");
+  }
+  if (updated.endsAt && Date.parse(updated.endsAt) <= Date.parse(updated.startsAt)) {
+    throw new ValidationError("The battle must end after it starts.");
+  }
   return updated;
 }
+
+/** The complete event ends after its battle window; legacy events ended when their battle began. */
+export const eventEndsAt = (event: Pick<AllianceEvent, "startsAt" | "endsAt">): string => event.endsAt ?? event.startsAt;
+
+export const isEventComplete = (event: Pick<AllianceEvent, "startsAt" | "endsAt">, at: Date): boolean =>
+  Date.parse(eventEndsAt(event)) <= at.getTime();
 
 /**
  * Adds the one missing part to a legacy event. This is deliberately narrower than general event

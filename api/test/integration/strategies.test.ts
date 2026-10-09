@@ -16,7 +16,7 @@ interface SessionBody {
   strategy: {
     version: number;
     body: string;
-    assignments: { playerId: string; name: string; role: string; duty?: string; note?: string }[];
+    assignments: { playerId: string; name: string; role: string; rallyLeadPlayerId?: string; rallyLeadName?: string; duty?: string; note?: string }[];
   } | null;
   yourAssignment?: { role: string; duty?: string; note?: string };
 }
@@ -146,5 +146,61 @@ describe("published strategies", () => {
     expect(stale.status).toBe(400);
     expect(String(stale.body.title)).toMatch(/someone published version 2 while you were editing/i);
     expect((await sessionOf()).strategy).toMatchObject({ version: 2, body: "Version two" });
+  });
+
+  it("builds SvS rally teams from registered players before a lineup is published", async () => {
+    const startsAt = inDays(12, 10);
+    const created = await h.call("POST", "/events", {
+      ...OFFICER,
+      body: {
+        kind: "svs",
+        title: "SvS rally planning",
+        startsAt,
+        sessions: [{ id: "full", label: "Full time", startsAt }],
+      },
+    });
+    const svsId = created.body.eventId as string;
+    for (const playerId of ["700000001", "700000002"]) {
+      expect((await h.call("PUT", `/events/${svsId}/answers/${playerId}`, {
+        ...OFFICER,
+        body: { answer: "yes", sessionId: "full" },
+      })).status).toBe(200);
+    }
+
+    const published = await h.call("POST", `/events/${svsId}/sessions/full/strategy`, {
+      ...OFFICER,
+      body: {
+        body: "Open rallies together",
+        assignments: [
+          { playerId: "700000001", role: "Rally Lead" },
+          { playerId: "700000002", role: "Rally Member", rallyLeadPlayerId: "700000001" },
+        ],
+      },
+    });
+    expect(published.status).toBe(201);
+
+    const detail = await h.call("GET", `/events/${svsId}`, PLAYER);
+    const svsSession = (detail.body.sessions as SessionBody[]).find((item) => item.id === "full")!;
+    expect(svsSession.strategy?.assignments).toEqual([
+      expect.objectContaining({ playerId: "700000001", name: "Northstar", role: "Rally Lead" }),
+      expect.objectContaining({
+        playerId: "700000002",
+        name: "Snowguard",
+        role: "Rally Member",
+        rallyLeadPlayerId: "700000001",
+        rallyLeadName: "Northstar",
+      }),
+    ]);
+
+    const outsider = await h.call("POST", `/events/${svsId}/sessions/full/strategy`, {
+      ...OFFICER,
+      body: {
+        body: "Wrong",
+        expectedVersion: 1,
+        assignments: [{ playerId: "700000003", role: "Rally Lead" }],
+      },
+    });
+    expect(outsider.status).toBe(400);
+    expect(String(outsider.body.title)).toMatch(/Not registered for Full time/);
   });
 });

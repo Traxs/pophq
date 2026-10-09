@@ -2849,6 +2849,8 @@ function toEvent(item: Record<string, unknown>): AllianceEvent {
     sessions: Array.isArray(item.sessions) ? (item.sessions as AllianceEvent["sessions"]) : [],
     createdBy: String(item.createdBy),
   };
+  if (item.preparationStartsAt) event.preparationStartsAt = String(item.preparationStartsAt);
+  if (item.endsAt) event.endsAt = String(item.endsAt);
   if (item.notes) event.notes = String(item.notes);
   if (item.ownerPlayerId) event.ownerPlayerId = String(item.ownerPlayerId);
   // The item's own audit stamp doubles as "when members could first answer".

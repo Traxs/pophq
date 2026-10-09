@@ -1,6 +1,7 @@
 import { useId, useState } from "react";
 import type { EventKind, EventListItem } from "../api";
 import { shortDate } from "../format";
+import { eventIsComplete } from "../eventTiming";
 import { playerScoreText } from "../resultDisplay";
 
 const KIND_LABELS: Record<EventKind, string> = {
@@ -16,7 +17,7 @@ const KIND_LABELS: Record<EventKind, string> = {
 
 export function latestCompletedEvents(items: readonly EventListItem[], now = new Date()): EventListItem[] {
   return items
-    .filter((event) => Date.parse(event.startsAt) < now.getTime())
+    .filter((event) => eventIsComplete(event, now))
     .toSorted((a, b) => Date.parse(b.startsAt) - Date.parse(a.startsAt))
     .slice(0, 3);
 }
