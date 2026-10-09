@@ -64,7 +64,8 @@ describe("importing a bundle", () => {
 
   it("feeds the charts: an imported account has a strength series", async () => {
     // Imported accounts have unknown membership, so they appear with cohort=all.
-    const res = await h.call("GET", "/metrics/alliance?metric=foundry_strength&weeks=4&cohort=all", {
+    // Keep the fixed historical fixture inside the reporting window as real time advances.
+    const res = await h.call("GET", "/metrics/alliance?metric=foundry_strength&weeks=12&cohort=all", {
       as: "officer",
       groups: ["officer"],
     });
