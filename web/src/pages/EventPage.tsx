@@ -1301,6 +1301,7 @@ function CompletedEventReport({ event, members }: { event: EventDetail; members:
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState<string | null>(null);
   const [correcting, setCorrecting] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const rows = useMemo(() => completedEventRows({ ...event, members }), [event, members]);
   const counts = rows.reduce<Record<CompletedAttendance, number>>((result, row) => {
     result[row.attendance] += 1;
@@ -1324,13 +1325,23 @@ function CompletedEventReport({ event, members }: { event: EventDetail; members:
 
   const mark = async (member: EventMember, status: AttendanceStatus) => {
     setSaving(member.playerId);
+    setSaveError(null);
     try {
       await api.attendance(event.eventId, member.playerId, status, member.sessionId ?? undefined);
-      toast(`${member.name}: ${status === "present" ? "attended" : status === "absent" ? "did not attend" : status}`);
+      const label = status === "present"
+        ? "Attended"
+        : status === "absent"
+          ? "Did not attend"
+          : status === "excused"
+            ? "Excused"
+            : "Not reviewed";
+      toast(`${member.name}: ${label}`);
       setCorrecting(null);
       dataChanged();
     } catch (error) {
-      toast(error instanceof ApiError ? error.message : "Couldn't save attendance");
+      const message = error instanceof ApiError ? error.message : "Couldn't save attendance";
+      setSaveError(`${member.name}: ${message}`);
+      toast(message);
     } finally {
       setSaving(null);
     }
@@ -1358,7 +1369,13 @@ function CompletedEventReport({ event, members }: { event: EventDetail; members:
                 : "Missing evidence stays “Not reviewed”—it is never silently changed to absent."}
           </p>
         </div>
-        <span className="pill pill-flat">{recordCount} event records</span>
+        <div className="completed-report-head-actions">
+          <span className="pill pill-flat">{recordCount} event records</span>
+          {counts.unrecorded > 0 && <button type="button" className="btn btn-quiet btn-small" onClick={() => {
+            setQuery("");
+            setFilter("unrecorded");
+          }}>Review {counts.unrecorded} missing</button>}
+        </div>
       </div>
 
       {phaseSummaries.length > 0 && (
@@ -1397,7 +1414,16 @@ function CompletedEventReport({ event, members }: { event: EventDetail; members:
         <button type="button" className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}><strong>{rows.length}</strong><span>All members</span></button>
       </div>
 
-      <input className="search" type="search" placeholder="Search member or Player ID" aria-label="Search completed event report" value={query} onChange={(change) => setQuery(change.target.value)} />
+      {saveError && <p className="banner banner-error completed-attendance-error" role="alert">{saveError}</p>}
+
+      <label className="completed-report-search">
+        <span className="muted small">Find any alliance member</span>
+        <input className="search" type="search" placeholder="Search name or Player ID" aria-label="Search all members in completed event report" value={query} onChange={(change) => {
+          const value = change.target.value;
+          setQuery(value);
+          if (value.trim()) setFilter("all");
+        }} />
+      </label>
 
       <div className="table-wrap completed-report-table-wrap">
         <table className="table completed-report-table">
@@ -1416,15 +1442,33 @@ function CompletedEventReport({ event, members }: { event: EventDetail; members:
                   <div className="completed-attendance-cell">
                     <span className={`pill ${statusClass(row.attendance)}`}>{completedAttendanceLabel(row.attendance)}</span>
                     {row.attendanceEvidence === "score" && <small>Score evidence</small>}
-                    {correcting === row.member.playerId ? <div className="completed-attendance-editor">
-                      <select autoFocus aria-label={`Attendance for ${row.member.name}`} disabled={saving === row.member.playerId} value={row.attendance === "unrecorded" ? "unknown" : row.attendance} onChange={(change) => void mark(row.member, change.target.value as AttendanceStatus)}>
-                        <option value="unknown">Not reviewed</option>
-                        <option value="present">Attended</option>
-                        <option value="absent">Did not attend</option>
-                        <option value="excused">Excused</option>
-                      </select>
-                      <button type="button" className="text-btn small" onClick={() => setCorrecting(null)}>Cancel</button>
-                    </div> : <button type="button" className="text-btn small completed-attendance-correct" onClick={() => setCorrecting(row.member.playerId)}>Correct</button>}
+                    {correcting === row.member.playerId ? <div className="completed-attendance-editor" role="group" aria-label={`Set attendance for ${row.member.name}`}>
+                      {([
+                        ["present", "Attended"],
+                        ["absent", "Did not attend"],
+                        ["excused", "Excused"],
+                        ["unknown", "Not reviewed"],
+                      ] as const).map(([status, label]) => (
+                        <button
+                          key={status}
+                          type="button"
+                          className={`completed-attendance-choice ${row.attendance === (status === "unknown" ? "unrecorded" : status) ? "selected" : ""}`}
+                          aria-pressed={row.attendance === (status === "unknown" ? "unrecorded" : status)}
+                          disabled={saving === row.member.playerId}
+                          onClick={() => void mark(row.member, status)}
+                        >{label}</button>
+                      ))}
+                      {saving === row.member.playerId && <small className="muted">Saving…</small>}
+                      <button type="button" className="text-btn small completed-attendance-cancel" disabled={saving === row.member.playerId} onClick={() => setCorrecting(null)}>Cancel</button>
+                    </div> : <button
+                      type="button"
+                      className="text-btn small completed-attendance-correct"
+                      aria-label={`${row.attendance === "unrecorded" ? "Review" : "Edit"} attendance for ${row.member.name}`}
+                      onClick={() => {
+                        setSaveError(null);
+                        setCorrecting(row.member.playerId);
+                      }}
+                    >{row.attendance === "unrecorded" ? "Review" : "Edit"}</button>}
                   </div>
                 </td>
                 {hasPhaseScores ? (

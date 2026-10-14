@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { ulid } from "ulid";
 import { parseAccountChanges, parseNewAccount, type GameAccount } from "../domain/accounts.js";
 import { ConflictError, DomainError, ForbiddenError, NotFoundError, UnauthorizedError, ValidationError } from "../domain/errors.js";
-import { parseAttendance } from "../domain/attendance.js";
+import { parseAttendance, resolvedAttendance } from "../domain/attendance.js";
 import { eventOccurrenceKey, participationOf } from "../domain/participation.js";
 import {
   EVENT_KINDS,
@@ -3083,17 +3083,14 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
             )) || phaseRecords.some(({ record }) => record?.playerPoints.some(
               (row) => row.playerId === acting && row.points === 0,
             )) === true : false;
-            const personalAttendance = scoreProvesAttendance
+            const resolved = resolvedAttendance(recordedAttendance, scoreProvesAttendance, zeroScoreProvesNoShow);
+            const personalAttendance = resolved.status === "present"
               ? "attended" as const
-              : recordedAttendance === "present"
-                ? "attended" as const
-                : recordedAttendance === "absent"
-                  ? "did_not_attend" as const
-                  : zeroScoreProvesNoShow
-                    ? "did_not_attend" as const
-                  : recordedAttendance === "excused"
-                    ? "excused" as const
-                    : "not_reviewed" as const;
+              : resolved.status === "absent"
+                ? "did_not_attend" as const
+                : resolved.status === "excused"
+                  ? "excused" as const
+                  : "not_reviewed" as const;
             return {
               results: results.map((result) => ({
                 sessionId: result.sessionId,
@@ -3108,7 +3105,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
               ...(acting ? {
                 mine: {
                   attendance: personalAttendance,
-                  attendanceEvidence: scoreProvesAttendance ? "score" as const : recordedAttendance && recordedAttendance !== "unknown" ? "record" as const : null,
+                  attendanceEvidence: resolved.evidence,
                   scores: personalScores,
                 },
               } : {}),
@@ -3395,6 +3392,11 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           const effectiveAt = current[metric as keyof typeof current]?.effectiveAt;
           return effectiveAt ? [effectiveAt] : [];
         }).toSorted().at(-1) ?? null;
+        const resolved = resolvedAttendance(
+          attendance.get(account.playerId)?.status,
+          scoredPlayers.has(account.playerId),
+          zeroScorePlayers.has(account.playerId),
+        );
         return {
           playerId: account.playerId,
           name: account.name,
@@ -3403,12 +3405,8 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
           sessionId: byPlayer.get(account.playerId)?.sessionId ?? null,
           answeredAt: byPlayer.get(account.playerId)?.answeredAt ?? null,
           registrationRole: byPlayer.get(account.playerId)?.registrationRole ?? null,
-          attended: scoredPlayers.has(account.playerId)
-            ? "present"
-            : zeroScorePlayers.has(account.playerId)
-              ? "absent"
-              : (attendance.get(account.playerId)?.status ?? null),
-          attendedByScore: scoredPlayers.has(account.playerId),
+          attended: resolved.status,
+          attendedByScore: resolved.attendedByScore,
           lineup: placeOf.get(account.playerId) ?? null,
           strengthTrend: monthlyValues(seriesOf(own, "foundry_strength"), now()),
           attendanceTrend: trailingAverage(monthlyAttendance(history.get(account.playerId) ?? [], now())),

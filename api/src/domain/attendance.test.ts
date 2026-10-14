@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseAttendance, reliabilityOf } from "./attendance.js";
+import { parseAttendance, reliabilityOf, resolvedAttendance } from "./attendance.js";
 import { ValidationError } from "./errors.js";
 
 const record = (status: "present" | "absent" | "excused" | "unknown", day: number) => ({
@@ -44,5 +44,24 @@ describe("reliabilityOf", () => {
     const recent = Array.from({ length: 10 }, (_, i) => record("absent", i + 11));
     expect(reliabilityOf([...old, ...recent], 10).rate).toBe(0); // the last ten were all missed
     expect(reliabilityOf([...old, ...recent], 20).rate).toBe(0.5);
+  });
+});
+
+describe("resolved attendance evidence", () => {
+  it("uses a positive score as definitive attendance evidence", () => {
+    expect(resolvedAttendance("absent", true, false)).toEqual({ status: "present", attendedByScore: true, evidence: "score" });
+    expect(resolvedAttendance("excused", true, false)).toEqual({ status: "present", attendedByScore: true, evidence: "score" });
+  });
+
+  it("lets a reviewed status correct zero or missing score evidence", () => {
+    expect(resolvedAttendance("present", false, true)).toEqual({ status: "present", attendedByScore: false, evidence: "record" });
+    expect(resolvedAttendance("absent", false, false)).toEqual({ status: "absent", attendedByScore: false, evidence: "record" });
+    expect(resolvedAttendance("excused", false, false)).toEqual({ status: "excused", attendedByScore: false, evidence: "record" });
+  });
+
+  it("uses score evidence when no reviewed attendance exists", () => {
+    expect(resolvedAttendance(null, true, false)).toEqual({ status: "present", attendedByScore: true, evidence: "score" });
+    expect(resolvedAttendance("unknown", false, true)).toEqual({ status: "absent", attendedByScore: false, evidence: null });
+    expect(resolvedAttendance("unknown", false, false)).toEqual({ status: null, attendedByScore: false, evidence: null });
   });
 });

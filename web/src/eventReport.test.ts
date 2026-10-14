@@ -57,7 +57,7 @@ const event = (): EventDetail => ({
     },
   }],
   members: [
-    member("1", { name: "One", answer: "yes", sessionId: "L2" }),
+    member("1", { name: "One", answer: "yes", sessionId: "L2", attended: "present", attendedByScore: true }),
     member("2", { name: "Two", answer: "yes", sessionId: "L2", attended: "absent" }),
     member("3", { name: "Three" }),
   ],
@@ -82,6 +82,8 @@ describe("completed event report", () => {
       preparation: { phaseKey: "preparation", phaseLabel: "Preparation", version: 1, coverage: "partial", scoredPlayers: 1, reportedPlayerSubtotal: 50, entries: [{ playerId: "3", name: "Three", points: 50, mine: false }] },
       castle_battle: { phaseKey: "castle_battle", phaseLabel: "Castle battle", version: 1, coverage: "partial", scoredPlayers: 1, reportedPlayerSubtotal: 80, entries: [{ playerId: "2", name: "Two", points: 80, mine: false }] },
     };
+    detail.members![1] = member("2", { name: "Two", attended: "present", attendedByScore: true });
+    detail.members![2] = member("3", { name: "Three", attended: "present", attendedByScore: true });
     const rows = completedEventRows(detail);
     expect(rows.find((row) => row.member.playerId === "2")).toMatchObject({ attendance: "present", castleBattlePoints: 80 });
     expect(rows.find((row) => row.member.playerId === "3")).toMatchObject({ attendance: "present", preparationPoints: 50 });
@@ -90,11 +92,21 @@ describe("completed event report", () => {
   it("trusts an approved officer-bot result row even when its individual score is zero", () => {
     const detail = event();
     detail.sessions[0]!.result!.playerPoints = [{ playerId: "2", name: "Two", points: 0 }];
-    detail.members![1] = member("2", { name: "Two", attendedByScore: true });
+    detail.members![1] = member("2", { name: "Two", attended: "present", attendedByScore: true });
     expect(completedEventRows(detail).find((row) => row.member.playerId === "2")).toMatchObject({
       attendance: "present",
       attendanceEvidence: "score",
       sessionScores: [{ points: 0 }],
+    });
+  });
+
+  it("trusts the attendance state already reconciled by the API", () => {
+    const detail = event();
+    detail.members![0] = member("1", { name: "One", attended: "absent", attendedByScore: false });
+    expect(completedEventRows(detail).find((row) => row.member.playerId === "1")).toMatchObject({
+      attendance: "absent",
+      attendanceEvidence: "record",
+      sessionScores: [{ points: 1234 }],
     });
   });
 });

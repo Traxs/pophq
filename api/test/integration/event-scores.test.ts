@@ -154,4 +154,38 @@ describe("SvS and KOI scoreboards", () => {
       expect.objectContaining({ playerId: "100000002", attended: "absent", attendedByScore: false }),
     ]));
   });
+
+  it("treats a later positive score as definitive attendance despite an older no-show status", async () => {
+    const staleNoShow = await h.call("PUT", `/events/${pastEventId}/attendance/100000005`, {
+      ...OFFICER,
+      body: { status: "absent" },
+    });
+    expect(staleNoShow.status).toBe(200);
+
+    const detail = await h.call("GET", `/events/${pastEventId}`, OFFICER);
+    expect(detail.body.members).toEqual(expect.arrayContaining([
+      expect.objectContaining({ playerId: "100000005", attended: "present", attendedByScore: true }),
+    ]));
+  });
+
+  it("shows a later officer attendance correction instead of stale zero-score evidence", async () => {
+    const corrected = await h.call("PUT", `/events/${pastEventId}/attendance/100000002`, {
+      ...OFFICER,
+      body: { status: "present" },
+    });
+    expect(corrected.status).toBe(200);
+
+    const detail = await h.call("GET", `/events/${pastEventId}`, OFFICER);
+    expect(detail.body.members).toEqual(expect.arrayContaining([
+      expect.objectContaining({ playerId: "100000002", attended: "present", attendedByScore: false }),
+    ]));
+
+    const list = await h.call("GET", "/events", ALT);
+    const event = (list.body.items as { eventId: string; history?: { mine?: unknown } }[])
+      .find((item) => item.eventId === pastEventId);
+    expect(event?.history?.mine).toEqual(expect.objectContaining({
+      attendance: "attended",
+      attendanceEvidence: "record",
+    }));
+  });
 });

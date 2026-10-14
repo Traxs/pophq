@@ -44,6 +44,25 @@ export function parseAttendance(input: unknown): Pick<AttendanceRecord, "status"
   };
 }
 
+/**
+ * A positive score is definitive proof that the player attended, including when it arrives after
+ * an older no-show status. Reviewed attendance remains authoritative when the score is zero or
+ * missing, so an officer can correct a zero-score import without the correction disappearing on
+ * reload. Setting a record back to `unknown` removes that review.
+ */
+export function resolvedAttendance(
+  recorded: AttendanceStatus | null | undefined,
+  scoreConfirmsPresence: boolean,
+  zeroScoreConfirmsNoShow: boolean,
+): { status: AttendanceStatus | null; attendedByScore: boolean; evidence: "record" | "score" | null } {
+  if (scoreConfirmsPresence) return { status: "present", attendedByScore: true, evidence: "score" };
+  if (recorded === "present" || recorded === "absent" || recorded === "excused") {
+    return { status: recorded, attendedByScore: false, evidence: "record" };
+  }
+  if (zeroScoreConfirmsNoShow) return { status: "absent", attendedByScore: false, evidence: null };
+  return { status: null, attendedByScore: false, evidence: null };
+}
+
 export interface Reliability {
   /** Kept commitments ÷ commitments that were checked, 0–1; undefined when nothing is known. */
   rate?: number;

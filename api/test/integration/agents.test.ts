@@ -411,6 +411,17 @@ describe("bot result agent", () => {
     );
     expect(attendance.body.attendance).toMatchObject({ status: "present", source: "screenshot", evidenceRef: "shot-1" });
 
+    const explicitStatus = await apply(
+      `/agent/history/events/${eventId}/attendance/700000003`,
+      { status: "excused", sessionId: "L1", source: "agent", recordedAt: "2026-09-06T14:05:00.000Z", note: "Officer-approved status" },
+      "history-attend-status-001",
+    );
+    expect(explicitStatus.body.attendance).toMatchObject({ status: "excused", source: "agent" });
+    const attendanceReadback = await h.call("GET", `/events/${eventId}`, agent());
+    expect(attendanceReadback.body.members).toEqual(expect.arrayContaining([
+      expect.objectContaining({ playerId: "700000003", attended: "excused", attendedByScore: false }),
+    ]));
+
     const lineup = await apply(
       `/agent/history/events/${eventId}/sessions/L1/lineup`,
       { entries: [{ playerId: "700000001", role: "starter" }], publishedAt: "2026-09-05T18:00:00.000Z", expectedVersion: 0 },

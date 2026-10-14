@@ -3700,6 +3700,12 @@ button.event-timeline-card:hover { border-color: color-mix(in srgb, var(--accent
   margin-top: 3px;
 }
 
+.completed-report-head-actions {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
 .completed-score-summaries {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3798,10 +3804,58 @@ button.event-timeline-card:hover { border-color: color-mix(in srgb, var(--accent
   gap: 5px;
 }
 
-.completed-attendance-cell select {
-  min-width: 150px;
+.completed-report-search {
+  display: grid;
+  gap: 6px;
 }
-.completed-attendance-editor { display: grid; gap: 3px; }
+
+.completed-report-search > span {
+  font-weight: 700;
+}
+
+.completed-attendance-error {
+  margin: 0;
+}
+
+.completed-attendance-editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  max-width: 390px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface-2);
+}
+
+.completed-attendance-choice {
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: .78rem;
+  font-weight: 800;
+}
+
+.completed-attendance-choice:hover,
+.completed-attendance-choice:focus-visible,
+.completed-attendance-choice.selected {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.completed-attendance-choice:disabled {
+  cursor: wait;
+  opacity: .65;
+}
+
+.completed-attendance-cancel {
+  padding: 4px 6px;
+}
 .completed-attendance-correct { padding: 0; }
 
 .completed-score-cell > span {
@@ -3853,6 +3907,12 @@ button.event-timeline-card:hover { border-color: color-mix(in srgb, var(--accent
     display: grid;
   }
 
+  .completed-report-head-actions {
+    grid-template-columns: auto 1fr;
+    justify-items: start;
+    align-items: center;
+  }
+
   .completed-score-summaries {
     grid-template-columns: 1fr;
   }
@@ -3877,6 +3937,7 @@ button.event-timeline-card:hover { border-color: color-mix(in srgb, var(--accent
   }
   .completed-report-table td:nth-child(2) { justify-self: end; }
   .completed-attendance-cell { justify-items: end; text-align: right; }
+  .completed-attendance-editor { justify-content: flex-end; max-width: min(100%, 330px); }
   .completed-score-data {
     grid-column: 1 / -1;
     display: flex !important;

@@ -105,6 +105,10 @@ describe("guarded KOI phase-score API", () => {
     const context = await h.call("GET", `/agent/events/${fixture.eventId}/phases/castle_battle/score-context`, agent());
     expect(context.body).toMatchObject({ version: 1, coverage: "partial", scoredPlayers: 32, scores: expect.arrayContaining([expect.objectContaining({ playerId: "401250554", points: 91_473_892 })]) });
     expect((context.body.scores as unknown[])).toHaveLength(32);
+    const event = await h.call("GET", `/events/${fixture.eventId}`, agent());
+    expect(event.body.members).toEqual(expect.arrayContaining([
+      expect.objectContaining({ playerId: "401250554", attended: "present", attendedByScore: true }),
+    ]));
     expect(await h.repo.getEventPhaseScores(fixture.eventId, "preparation")).toBeUndefined();
     expect(await h.repo.listResults(fixture.eventId)).toEqual([]);
     expect((await h.call("PUT", path, agent(payload))).status).toBe(409);

@@ -35,10 +35,9 @@ export function completedEventRows(event: EventDetail): CompletedEventRow[] {
     const sessionScores = resultScores.get(member.playerId) ?? [];
     const preparationPoints = preparation.get(member.playerId) ?? null;
     const castleBattlePoints = battle.get(member.playerId) ?? null;
-    const scoreEvidence = member.attendedByScore === true
-      || sessionScores.some((score) => score.points > 0)
-      || (preparationPoints ?? 0) > 0
-      || (castleBattlePoints ?? 0) > 0;
+    // The API is the authority that reconciles score evidence and reviewed attendance. Do not
+    // independently infer a different status from the raw score rows in this presentation layer.
+    const scoreEvidence = member.attendedByScore === true;
     const attendance = scoreEvidence ? "present" : attendanceOf(member.attended);
     const answerLabel = member.answer === "yes"
       ? (sessionLabels.get(member.sessionId ?? "") ?? "Signed up")
