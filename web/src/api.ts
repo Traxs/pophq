@@ -946,6 +946,7 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
       request<FortressBuffAssignmentView>("POST", `/fortress-buffs/${poolId}/assignments`, { playerId, amount }),
     confirmFortressBuffAssignment: (poolId: string, playerId: string) =>
       request<FortressBuffAssignmentView>("POST", `/fortress-buffs/${poolId}/assignments/${playerId}/confirm`),
+    rallyEventOptions: () => request<{items: Pick<EventListItem,"eventId"|"title"|"startsAt">[]}>("GET", "/metrics/rallies/events"),
     linkRallyEvent: (id:string,eventId:string|null) => request<{ok:boolean}>("PUT", `/metrics/rallies/${encodeURIComponent(id)}/event`, {eventId}),
     rallyStats: () => request<RallyStatsView>("GET", "/metrics/rallies"),
     growth: (weeks = 12, metric: StrengthMetric = "city_power", cohort: "members" | "all" = "members") =>

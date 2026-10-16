@@ -2124,6 +2124,12 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
    * Alliance growth for the officer charts (MET-01): totals over time, who grew, who stalled
    * and who never reported. Officer-only, like the roster.
    */
+  app.get("/metrics/rallies/events", async (c) => {
+    requireOfficer(c.get("principal"));
+    const events=await repo.listEvents("POP","1970-01-01T00:00:00.000Z");
+    return c.json({items:events.map(({eventId,title,startsAt})=>({eventId,title,startsAt}))});
+  });
+
   app.put("/metrics/rallies/:id/event", async (c) => {
     const p=c.get("principal");
     requireOfficer(p);

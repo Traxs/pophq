@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import type { RallyStatsView, BattleSummary, EventListItem } from "../api";
 import { useSession } from "../session";
+type RallyEventOption = Pick<EventListItem,"eventId"|"title"|"startsAt">;
 const duration = (ms:number) => `${Math.floor(ms/3600000)}h ${Math.floor(ms/60000)%60}m`;
 // Game event dates use UTC, matching the event schedule rather than the viewer's timezone.
-export function suggestedBattleEvents(events: EventListItem[], startedAt:number) {
+export function suggestedBattleEvents(events: RallyEventOption[], startedAt:number) {
  const day=new Date(startedAt).toISOString().slice(0,10);
  return [...events].sort((a,b)=>Number(b.startsAt.slice(0,10)===day)-Number(a.startsAt.slice(0,10)===day)
    || Math.abs(Date.parse(a.startsAt)-startedAt)-Math.abs(Date.parse(b.startsAt)-startedAt));
@@ -11,12 +12,12 @@ export function suggestedBattleEvents(events: EventListItem[], startedAt:number)
 export function RallyStatistics({eventId}:{eventId?:string}) {
  const {api}=useSession();
  const [stats,setStats]=useState<RallyStatsView|null>(null);
- const [events,setEvents]=useState<EventListItem[]>([]);
+ const [events,setEvents]=useState<RallyEventOption[]>([]);
  const [busy,setBusy]=useState<string|null>(null);
  const [error,setError]=useState("");
  const [refresh,setRefresh]=useState(0);
  useEffect(()=>{let mounted=true; api.rallyStats().then(data=>{if(mounted){setStats(data);setError("");}}).catch(()=>{if(mounted)setError("Battle statistics are temporarily unavailable.");});return()=>{mounted=false;};},[api,refresh]);
- useEffect(()=>{let mounted=true;api.events("1970-01-01T00:00:00.000Z").then(data=>{if(mounted)setEvents(data.items);}).catch(()=>{if(mounted)setError("Could not load events. Refresh to try again.");});return()=>{mounted=false;};},[api,refresh]);
+ useEffect(()=>{let mounted=true;api.rallyEventOptions().then(data=>{if(mounted)setEvents(data.items);}).catch(()=>{if(mounted)setError("Could not load events. Refresh to try again.");});return()=>{mounted=false;};},[api,refresh]);
  const link=async(id:string,selected:string|null)=>{
   setBusy(id);setError("");
   try {await api.linkRallyEvent(id,selected);setRefresh(n=>n+1);}
@@ -31,7 +32,7 @@ export function RallyStatistics({eventId}:{eventId?:string}) {
  })() : stats;
  return <RallyStatisticsView stats={shown} error={error} refresh={()=>setRefresh(n=>n+1)} events={events} link={link} busy={busy} />;
 }
-export function RallyStatisticsView({stats,error,refresh,events=[],link,busy=null}:{stats:RallyStatsView|null;error:string;refresh:()=>void;events?:EventListItem[];link?:(id:string,eventId:string|null)=>Promise<void>;busy?:string|null}) {
+export function RallyStatisticsView({stats,error,refresh,events=[],link,busy=null}:{stats:RallyStatsView|null;error:string;refresh:()=>void;events?:RallyEventOption[];link?:(id:string,eventId:string|null)=>Promise<void>;busy?:string|null}) {
  return <section className="card rally-statistics" aria-labelledby="rally-statistics-title">
   <div className="alliance-growth-head"><h2 id="rally-statistics-title">Castle battles</h2><button className="btn btn-quiet" onClick={refresh}>Refresh</button></div>
   <p className="muted">Rallies coordinated by POP Rally Bot. Session time runs while battle monitoring is active, including quiet periods; it does not measure individual play time.</p>
@@ -49,7 +50,7 @@ export function RallyStatisticsView({stats,error,refresh,events=[],link,busy=nul
  </section>;
 }
 
-function BattleEventLink({row,events,link,busy}:{row:BattleSummary;events:EventListItem[];link?: (id:string,eventId:string|null)=>Promise<void>;busy:boolean}) {
+function BattleEventLink({row,events,link,busy}:{row:BattleSummary;events:RallyEventOption[];link?: (id:string,eventId:string|null)=>Promise<void>;busy:boolean}) {
  const [editing,setEditing]=useState(false);
  const [selected,setSelected]=useState(row.eventId ?? "");
  useEffect(()=>setSelected(row.eventId ?? ""),[row.eventId]);

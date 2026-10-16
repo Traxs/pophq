@@ -162,6 +162,7 @@ export function SessionProvider({
       assignFortressBuff: guard(inner.assignFortressBuff),
       confirmFortressBuffAssignment: guard(inner.confirmFortressBuffAssignment),
       rallyStats: guard(inner.rallyStats),
+      rallyEventOptions: guard(inner.rallyEventOptions),
       linkRallyEvent: guard(inner.linkRallyEvent),
       growth: guard(inner.growth),
       attendanceGrowth: guard(inner.attendanceGrowth),

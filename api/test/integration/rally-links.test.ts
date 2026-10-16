@@ -22,3 +22,10 @@ it("saves, corrects and removes links without changing battle statistics",async(
   expect((await h.repo.rallyEventLinks())[0]?.eventId).toBe(eventId);
  }
 });
+
+it("offers lightweight event choices only to officers",async()=>{
+ expect((await h.call("GET","/metrics/rallies/events",{as:"player"})).status).toBe(403);
+ const response=await h.call("GET","/metrics/rallies/events",officer);
+ expect(response.status).toBe(200);
+ expect(response.body.items).toEqual(expect.arrayContaining([{eventId:"event-one",title:"event-one",startsAt:"2026-10-16T12:00:00.000Z"}]));
+});
