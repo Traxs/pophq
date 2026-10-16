@@ -172,3 +172,14 @@ describe("power reports", () => {
     expect(ignored.body).toMatchObject({ ignoredByName: "Poppy" });
   });
 });
+
+// Battle data is restricted to the officer overview, including when no records exist.
+describe("rally statistics", () => {
+ it("requires officer access and returns an explicit empty state", async () => {
+  expect((await h.call("GET", "/metrics/rallies", PLAYER)).status).toBe(403);
+  const response=await h.call("GET", "/metrics/rallies", OFFICER);
+  expect(response.status).toBe(200);
+  expect(response.body.trackingSince).toBeNull();
+  expect(response.body.recent).toEqual([]);
+ });
+});

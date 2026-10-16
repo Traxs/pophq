@@ -1,3 +1,4 @@
+import { RallyStatistics } from "../components/RallyStatistics";
 import { useEffect, useMemo, useState } from "react";
 import {
   ApiError,
@@ -111,6 +112,7 @@ export function Members() {
 
       {error && <ErrorBanner message={error} onRetry={() => setAttempt((n) => n + 1)} />}
 
+      <RallyStatistics />
       <AllianceCharts />
 
       <Sheet open={inviting} title="Invite a member" onClose={() => setInviting(false)}>

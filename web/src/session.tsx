@@ -161,6 +161,7 @@ export function SessionProvider({
       buildFortressRewardPlan: guard(inner.buildFortressRewardPlan),
       assignFortressBuff: guard(inner.assignFortressBuff),
       confirmFortressBuffAssignment: guard(inner.confirmFortressBuffAssignment),
+      rallyStats: guard(inner.rallyStats),
       growth: guard(inner.growth),
       attendanceGrowth: guard(inner.attendanceGrowth),
       eventParticipation: guard(inner.eventParticipation),

@@ -1,3 +1,4 @@
+import { emptyRallyStats, type RallyStatsView } from "../data/rallyStats.js";
 import { Hono, type Context } from "hono";
 import { createHash } from "node:crypto";
 import { ulid } from "ulid";
@@ -120,6 +121,7 @@ function scoreConfirmsAttendance(row: { points: number }, _recordedBy: string): 
 }
 
 export interface AppDeps {
+  rallyStats?: () => Promise<RallyStatsView>;
   repo: Repository;
   verifier: TokenVerifier;
   now?: () => Date;
@@ -141,7 +143,7 @@ export interface AppDeps {
 const PARTICIPATION_DAYS = 180;
 const REWARD_RECIPIENTS = 40;
 
-export function createApp({ repo, verifier, now = () => new Date(), extend, isPaused, logins, history, botIssuerGroups: rawBotIssuerGroups = async () => undefined, evidence }: AppDeps) {
+export function createApp({ repo, verifier, now = () => new Date(), extend, isPaused, logins, history, botIssuerGroups: rawBotIssuerGroups = async () => undefined, evidence, rallyStats }: AppDeps) {
   const app = new Hono<Env>().basePath("/v1");
 
   const groupsFor = async (claim: unknown, linked: ReadonlySet<string>) => {
@@ -2122,6 +2124,10 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
    * Alliance growth for the officer charts (MET-01): totals over time, who grew, who stalled
    * and who never reported. Officer-only, like the roster.
    */
+  app.get("/metrics/rallies", async (c) => {
+    requireOfficer(c.get("principal"));
+    return c.json(rallyStats ? await rallyStats() : emptyRallyStats());
+  });
   app.get("/metrics/alliance", async (c) => {
     requireOfficer(c.get("principal"));
     const alliance = (c.req.query("alliance") ?? "POP").toUpperCase();

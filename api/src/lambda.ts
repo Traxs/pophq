@@ -1,3 +1,4 @@
+import { readRallyStats } from "./data/rallyStats.js";
 // AWS Lambda entry point. Configuration comes from environment variables set by CDK;
 // they hold names and URLs only, never secret values (SEC-03).
 import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
@@ -18,7 +19,8 @@ const issuer = process.env.OIDC_ISSUER;
 if (!issuer) throw new Error("OIDC_ISSUER is not set");
 
 const config = dataConfigFromEnv();
-const repo = new Repository(createDocClient(createBaseClient(config)), config.tableName);
+const db = createDocClient(createBaseClient(config));
+const repo = new Repository(db, config.tableName);
 const killSwitch = process.env.KILL_SWITCH_PARAMETER;
 if (!killSwitch) throw new Error("KILL_SWITCH_PARAMETER is not set");
 const ssm = new SSMClient({});
@@ -39,6 +41,8 @@ if (!evidenceBucket) throw new Error("EVIDENCE_BUCKET_NAME is not set");
 
 const app = createApp({
   repo,
+  ...(process.env.RALLY_STATS_TABLE && process.env.RALLY_STATS_GUILD
+    ? { rallyStats: () => readRallyStats(db, process.env.RALLY_STATS_TABLE!, process.env.RALLY_STATS_GUILD!) } : {}),
   history: new HistoryStore(historyDb, historyTable),
   verifier: createRemoteVerifier(issuer, process.env.OIDC_AUDIENCE),
   isPaused,
