@@ -1,3 +1,4 @@
+import { RallyStatistics } from "../components/RallyStatistics";
 import { useEffect, useMemo, useState } from "react";
 import {
   ApiError,
@@ -198,6 +199,8 @@ export function EventPage({ eventId }: { eventId: string }) {
           onError={setError}
         />
       )}
+
+      {isOfficer && <RallyStatistics eventId={eventId} />}
 
       {visibleSessions.length > 0 ? (
         <ul className="stack">

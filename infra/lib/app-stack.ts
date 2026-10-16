@@ -154,6 +154,11 @@ export class AppStack extends Stack {
       resources:[this.formatArn({service:"dynamodb",resource:"table",resourceName:"wos-rally-state"})],
       conditions:{"ForAllValues:StringEquals":{"dynamodb:LeadingKeys":["BATTLE_STATS#1377550094559346771"]}},
     }));
+    api.handler.addToRolePolicy(new iam.PolicyStatement({
+      actions:["dynamodb:Query"],
+      resources:[this.formatArn({service:"dynamodb",resource:"table",resourceName:"wos-rally-state/index/BattleSessions"})],
+      conditions:{"ForAllValues:StringEquals":{"dynamodb:LeadingKeys":["1377550094559346771"]}},
+    }));
     table.grantReadWriteData(api.handler);
     history.grantReadData(api.handler);
     evidence.grantReadWrite(api.handler);

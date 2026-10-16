@@ -2124,9 +2124,32 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
    * Alliance growth for the officer charts (MET-01): totals over time, who grew, who stalled
    * and who never reported. Officer-only, like the roster.
    */
+  app.put("/metrics/rallies/:id/event", async (c) => {
+    const p=c.get("principal");
+    requireOfficer(p);
+    const input=await readJson(c.req.raw);
+    if (!input || typeof input !== "object" || Array.isArray(input)) throw new ValidationError("Choose an event or unlink this battle.");
+    const body=input as Record<string,unknown>;
+    if (body.eventId !== null && (typeof body.eventId !== "string" || !body.eventId.trim()))
+      throw new ValidationError("Choose an event or unlink this battle.");
+    const stats=rallyStats ? await rallyStats() : emptyRallyStats();
+    const id=c.req.param("id");
+    if (![...stats.recent,...(stats.current?[stats.current]:[])].some(row=>row.id===id))
+      throw new NotFoundError("Battle not found. Refresh the history and try again.");
+    if (body.eventId !== null) {
+      const event=await repo.getEvent(body.eventId);
+      if (!event || event.alliance !== "POP") throw new NotFoundError("Event not found.");
+    }
+    await repo.linkRallyEvent(id,body.eventId as string|null,{id:p.sub,via:"web",reason:"battle event link"});
+    return c.json({ok:true});
+  });
+
   app.get("/metrics/rallies", async (c) => {
     requireOfficer(c.get("principal"));
-    return c.json(rallyStats ? await rallyStats() : emptyRallyStats());
+    const stats = rallyStats ? await rallyStats() : emptyRallyStats();
+    const links = new Map((await repo.rallyEventLinks()).map(link => [link.id,link]));
+    return c.json({...stats,recent:stats.recent.map(row=>({...row,...links.get(row.id)})),
+      current:stats.current ? {...stats.current,...links.get(stats.current.id)} : null});
   });
   app.get("/metrics/alliance", async (c) => {
     requireOfficer(c.get("principal"));

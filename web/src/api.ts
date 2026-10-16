@@ -946,6 +946,7 @@ export function createApi(getToken: TokenSource, actingAs?: string) {
       request<FortressBuffAssignmentView>("POST", `/fortress-buffs/${poolId}/assignments`, { playerId, amount }),
     confirmFortressBuffAssignment: (poolId: string, playerId: string) =>
       request<FortressBuffAssignmentView>("POST", `/fortress-buffs/${poolId}/assignments/${playerId}/confirm`),
+    linkRallyEvent: (id:string,eventId:string|null) => request<{ok:boolean}>("PUT", `/metrics/rallies/${encodeURIComponent(id)}/event`, {eventId}),
     rallyStats: () => request<RallyStatsView>("GET", "/metrics/rallies"),
     growth: (weeks = 12, metric: StrengthMetric = "city_power", cohort: "members" | "all" = "members") =>
       request<AllianceGrowth>("GET", `/metrics/alliance?weeks=${weeks}&metric=${metric}&cohort=${cohort}`),
@@ -1064,6 +1065,7 @@ export interface RallyStatsView {
   current: BattleSummary | null; recent: BattleSummary[];
 }
 export interface BattleSummary {
+ eventId?:string|null; linkedBy?:string; linkedAt?:string;
  id:string; startedAt:number; lastSeenAt:number; endedAt?:number;
  durationMs:number; attacks:number; counters:number; incoming:number;
 }
