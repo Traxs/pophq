@@ -250,3 +250,5 @@ Never commit secrets. The pre-commit hook and CI both run gitleaks; see [SECURIT
 ## License
 
 [MIT](LICENSE)
+
+The officer Members overview includes Castle battles statistics from POP Rally Bot. Production reads only `BATTLE_STATS#1377550094559346771` in `wos-rally-state`, using IAM `GetItem` access restricted to that key. There is no shared token, polling job, or worker wake-up. Empty historical data is shown explicitly; tracking starts with the bot telemetry release. Session duration includes quiet monitoring and is not individual in-game play time. The latest 50 session summaries and all-time totals are independent of the bot's temporary battle configuration.

@@ -43,6 +43,12 @@ describe("AppStack", () => {
     template = Template.fromStack(stack);
   });
 
+  it("limits rally statistics access to GetItem on POP's aggregate record", () => {
+    template.hasResourceProperties("AWS::IAM::Policy", { PolicyDocument: { Statement: Match.arrayWith([
+      Match.objectLike({Action:"dynamodb:GetItem",Effect:"Allow",Condition:{"ForAllValues:StringEquals":{"dynamodb:LeadingKeys":["BATTLE_STATS#1377550094559346771"]}}})
+    ]) } });
+  });
+
   it("fails synth on a new, unacknowledged cdk-nag finding", () => {
     const app = nagApp();
     const stack = new AppStack(app, "Test", { env: PROD, webAssetPath: fakeWebDist() });

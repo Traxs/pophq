@@ -147,6 +147,13 @@ export class AppStack extends Stack {
       evidence.bucketName,
       guard.alertsTopic,
     );
+    api.handler.addEnvironment("RALLY_STATS_TABLE", "wos-rally-state");
+    api.handler.addEnvironment("RALLY_STATS_GUILD", "1377550094559346771");
+    api.handler.addToRolePolicy(new iam.PolicyStatement({
+      actions:["dynamodb:GetItem"],
+      resources:[this.formatArn({service:"dynamodb",resource:"table",resourceName:"wos-rally-state"})],
+      conditions:{"ForAllValues:StringEquals":{"dynamodb:LeadingKeys":["BATTLE_STATS#1377550094559346771"]}},
+    }));
     table.grantReadWriteData(api.handler);
     history.grantReadData(api.handler);
     evidence.grantReadWrite(api.handler);

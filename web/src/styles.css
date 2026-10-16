@@ -4360,3 +4360,9 @@ button.event-timeline-card:hover { border-color: color-mix(in srgb, var(--accent
   .event-phase-schedule { grid-template-columns: 1fr; }
   .event-phase-schedule .pill { justify-self: start; }
 }
+
+.rally-statistics { padding: 20px; margin: 20px 0; }
+.rally-statistics-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px; margin: 20px 0; }
+.rally-statistics-totals strong { display: block; font-size: 1.8rem; }
+.rally-statistics-totals span { color: var(--muted); }
+.rally-statistics .table-scroll { overflow-x: auto; }
