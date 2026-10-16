@@ -87,7 +87,7 @@ export class Repository {
   ) {}
 
   async rallyEventLinks(): Promise<{id:string;eventId:string|null;linkedBy:string;linkedAt:string}[]> {
-    const rows = await this.queryAll({KeyConditionExpression:"PK = :pk",ExpressionAttributeValues:{":pk":"RALLY_LINKS#POP"}});
+    const rows = await this.queryAll({ConsistentRead:true,KeyConditionExpression:"PK = :pk",ExpressionAttributeValues:{":pk":"RALLY_LINKS#POP"}});
     return rows.map(row => ({id:String(row.id),eventId:row.eventId === null ? null : String(row.eventId),linkedBy:String(row.linkedBy),linkedAt:String(row.linkedAt)}));
   }
 
