@@ -42,7 +42,7 @@ if (!evidenceBucket) throw new Error("EVIDENCE_BUCKET_NAME is not set");
 const app = createApp({
   repo,
   ...(process.env.RALLY_STATS_TABLE && process.env.RALLY_STATS_GUILD
-    ? { rallyStats: () => readRallyStats(db, process.env.RALLY_STATS_TABLE!, process.env.RALLY_STATS_GUILD!) } : {}),
+    ? { rallyStats: () => readRallyStats(db, process.env.RALLY_STATS_TABLE!, process.env.RALLY_STATS_GUILD!, true) } : {}),
   history: new HistoryStore(historyDb, historyTable),
   verifier: createRemoteVerifier(issuer, process.env.OIDC_AUDIENCE),
   isPaused,

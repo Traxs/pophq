@@ -86,6 +86,16 @@ export class Repository {
     private readonly clock: () => Date = () => new Date(),
   ) {}
 
+  async rallyEventLinks(): Promise<{id:string;eventId:string|null;linkedBy:string;linkedAt:string}[]> {
+    const rows = await this.queryAll({ConsistentRead:true,KeyConditionExpression:"PK = :pk",ExpressionAttributeValues:{":pk":"RALLY_LINKS#POP"}});
+    return rows.map(row => ({id:String(row.id),eventId:row.eventId === null ? null : String(row.eventId),linkedBy:String(row.linkedBy),linkedAt:String(row.linkedAt)}));
+  }
+
+  async linkRallyEvent(id:string,eventId:string|null,actor:Actor): Promise<void> {
+    await this.db.send(new PutCommand({TableName:this.table,Item:{PK:"RALLY_LINKS#POP",SK:id,
+      id,eventId,linkedBy:actor.id,linkedAt:this.clock().toISOString()}}));
+  }
+
   async createAccount(account: GameAccount, actor: Actor): Promise<void> {
     const now = this.clock();
     try {

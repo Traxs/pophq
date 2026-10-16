@@ -4366,3 +4366,6 @@ button.event-timeline-card:hover { border-color: color-mix(in srgb, var(--accent
 .rally-statistics-totals strong { display: block; font-size: 1.8rem; }
 .rally-statistics-totals span { color: var(--muted); }
 .rally-statistics .table-scroll { overflow-x: auto; }
+.rally-statistics a { color: var(--accent); }
+.rally-statistics td:last-child { min-width: 220px; }
+.rally-statistics td:last-child > span { display: block; margin-bottom: 6px; }
