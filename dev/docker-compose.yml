@@ -5,7 +5,7 @@ name: pophq-dev
 services:
   dynamodb:
     # Official Amazon DynamoDB Local, with Streams support.
-    image: amazon/dynamodb-local:3.3.1
+    image: amazon/dynamodb-local:3.3.2
     command: ["-jar", "DynamoDBLocal.jar", "-inMemory", "-sharedDb"]
     ports:
       - "8000:8000"
