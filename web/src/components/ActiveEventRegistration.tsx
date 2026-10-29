@@ -23,6 +23,15 @@ export function unansweredRegistrationEvents(items: readonly EventListItem[], no
   return activeRegistrationEvents(items, now).filter((event) => event.myAnswer === null);
 }
 
+/** The time relevant to this player: their chosen legion, rather than the event's default time. */
+export function activeRegistrationTime(event: EventListItem): { label: string | null; startsAt: string } {
+  if (event.myAnswer === "yes" && event.mySessionId) {
+    const session = event.sessions.find((item) => item.id === event.mySessionId);
+    if (session) return { label: session.label, startsAt: session.startsAt };
+  }
+  return { label: null, startsAt: event.startsAt };
+}
+
 export function HomeRegistrationPrompt({ events, onOpen, now = new Date() }: { events: EventListItem[] | null | undefined; onOpen: () => void; now?: Date }) {
   if (events === null) return null;
   if (events === undefined) return <div className="card skeleton active-events-home-loading" aria-label="Loading active event registrations" aria-busy="true" />;
@@ -58,20 +67,23 @@ export function ActiveEventRail({ events, onOpen, now = new Date() }: { events: 
         </div>
       </div>
       <ul className="active-event-rail-list">
-        {active.map((event) => (
-          <li key={event.eventId}>
-            <button type="button" onClick={() => onOpen(event.eventId)}>
-              <span>
-                <strong>{KIND_LABELS[event.kind]}</strong>
-                <small>{eventDayTime(event.startsAt)}</small>
-              </span>
-              <span className={`active-event-status ${event.myAnswer === null ? "active-event-status-open" : "active-event-status-done"}`}>
-                {event.myAnswer === null ? "Respond" : event.myAnswer === "no" ? "Not attending" : "Answered"}
-              </span>
-            </button>
-            {event.myAnswer === null && <small className="active-event-deadline">Closes {untilText(event.deadlineAt)}</small>}
-          </li>
-        ))}
+        {active.map((event) => {
+          const timing = activeRegistrationTime(event);
+          return (
+            <li key={event.eventId}>
+              <button type="button" onClick={() => onOpen(event.eventId)}>
+                <span>
+                  <strong>{KIND_LABELS[event.kind]}</strong>
+                  <small>{timing.label ? `${timing.label} · ` : ""}{eventDayTime(timing.startsAt)}</small>
+                </span>
+                <span className={`active-event-status ${event.myAnswer === null ? "active-event-status-open" : "active-event-status-done"}`}>
+                  {event.myAnswer === null ? "Respond" : event.myAnswer === "no" ? "Not attending" : "Answered"}
+                </span>
+              </button>
+              {event.myAnswer === null && <small className="active-event-deadline">Closes {untilText(event.deadlineAt)}</small>}
+            </li>
+          );
+        })}
       </ul>
     </aside>
   );

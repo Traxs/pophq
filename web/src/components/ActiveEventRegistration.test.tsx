@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { EventListItem } from "../api";
-import { ActiveEventRail, HomeRegistrationPrompt, activeRegistrationEvents, unansweredRegistrationEvents } from "./ActiveEventRegistration";
+import { ActiveEventRail, HomeRegistrationPrompt, activeRegistrationEvents, activeRegistrationTime, unansweredRegistrationEvents } from "./ActiveEventRegistration";
 
 const event = (changes: Partial<EventListItem> = {}): EventListItem => ({
   eventId: "foundry",
@@ -44,6 +44,22 @@ describe("active event registration summaries", () => {
     expect(home).toContain("Foundry and Canyon need your response");
     expect(rail).toContain("2 events need your response");
     expect(rail.match(/Respond/g)).toHaveLength(2);
+  });
+
+  it("shows the answered legion and its actual time instead of the event default", () => {
+    const answered = event({
+      startsAt: "2026-11-01T12:00:00.000Z",
+      myAnswer: "yes",
+      mySessionId: "L1",
+      sessions: [
+        { id: "L1", label: "Legion 1", startsAt: "2026-11-01T19:00:00.000Z" },
+        { id: "L2", label: "Legion 2", startsAt: "2026-11-01T12:00:00.000Z" },
+      ],
+    });
+    expect(activeRegistrationTime(answered)).toEqual({ label: "Legion 1", startsAt: "2026-11-01T19:00:00.000Z" });
+    const rail = renderToStaticMarkup(<ActiveEventRail events={[answered]} now={now} onOpen={() => undefined} />);
+    expect(rail).toContain("Legion 1 · Sun 1 Nov, 19:00 UTC");
+    expect(rail).not.toContain("Sun 1 Nov, 12:00 UTC");
   });
 
   it("hides the Home prompt once everything is answered", () => {
