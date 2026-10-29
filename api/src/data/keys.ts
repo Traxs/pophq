@@ -35,12 +35,6 @@ export const accountAliasKey = (playerId: string, normalizedName: string) => ({
   SK: `ALIAS#${encodeURIComponent(normalizedName)}`,
 });
 
-/** Race-safe ownership claim for a canonical or alternate name inside one alliance. */
-export const accountNameClaimKey = (alliance: string, normalizedName: string) => ({
-  PK: `ACCOUNTNAME#${alliance}`,
-  SK: `NAME#${encodeURIComponent(normalizedName)}`,
-});
-
 /** Immutable officer log for account relationship and alias changes. */
 export const identityAuditKey = (playerId: string, auditId: string) => ({
   PK: `ACCOUNT#${playerId}`,

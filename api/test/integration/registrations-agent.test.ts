@@ -24,6 +24,8 @@ describe("guarded bot event registrations", () => {
       ["710000008", "Commander C", "R3"],
       ["710000009", "Mouse", "R3"],
       ["710000010", "Cade", "R3"],
+      ["710000011", "Twin Name", "R3"],
+      ["710000012", "Twin Name", "R3"],
     ] as const) {
       await h.repo.createAccount(parseNewAccount({ playerId, name, rank }), actor);
     }
@@ -141,6 +143,21 @@ describe("guarded bot event registrations", () => {
     }, { "idempotency-key": "foundry-oct3-stale" }));
     expect(stale.status).toBe(409);
     expect(await h.repo.getAnswer(eventId, "710000005")).toMatchObject({ sessionId: "L2" });
+  });
+
+  it("registers only the supplied exact Player ID when display names are identical", async () => {
+    const body = { registrations: [{ playerId: "710000011", answer: "yes", sessionId: "L1" }] };
+    const preview = await h.call("PUT", `/agent/events/${eventId}/registrations`, agent(body));
+    expect(preview).toMatchObject({ status: 200, body: { diff: [{ after: { playerId: "710000011" } }] } });
+    const applied = await h.call("PUT", `/agent/events/${eventId}/registrations?apply=true`, agent({
+      ...body,
+      approved: true,
+      expectedHash: preview.body.expectedHash,
+      reason: "Register one exact ID from duplicate display names",
+    }, { "idempotency-key": "duplicate-name-exact-registration" }));
+    expect(applied.status).toBe(200);
+    expect(await h.repo.getAnswer(eventId, "710000011")).toMatchObject({ answer: "yes", sessionId: "L1" });
+    expect(await h.repo.getAnswer(eventId, "710000012")).toBeUndefined();
   });
 
   it("accepts the approved Foundry/Canyon roster shape without touching Traxes", async () => {

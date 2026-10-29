@@ -895,7 +895,7 @@ function ResultEditor({
         <label className="field"><span>Opponent combatants</span><input type="number" min="0" max="100" value={opponents} onChange={(e) => setOpponents(e.target.value)} /></label>
       </div>
       <label className="field"><span>Notes</span><textarea rows={3} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} /></label>
-      {players.length > 0 && <div className="strategy-assignment-editor">{players.map((player) => <label key={player.playerId} className="field"><span>{player.name} points</span><input type="number" min="0" value={points[player.playerId] ?? ""} onChange={(e) => setPoints((old) => ({ ...old, [player.playerId]: e.target.value }))} /></label>)}</div>}
+      {players.length > 0 && <div className="strategy-assignment-editor">{players.map((player) => <label key={player.playerId} className="field"><span>{player.name} · {player.playerId} points</span><input type="number" min="0" value={points[player.playerId] ?? ""} onChange={(e) => setPoints((old) => ({ ...old, [player.playerId]: e.target.value }))} /></label>)}</div>}
       <div className="row-actions">
         <button type="button" className="btn btn-primary btn-small" disabled={saving || ourScore === "" || opponentScore === ""} onClick={() => {
           setSaving(true);
@@ -1051,7 +1051,7 @@ function StrategyEditor({
                 <select value={row.rallyLeadPlayerId} onChange={(event) => change(row.playerId, { rallyLeadPlayerId: event.target.value })}>
                   <option value="">Choose a rally lead</option>
                   {rallyLeads.filter((lead) => lead.playerId !== row.playerId).map((lead) => (
-                    <option key={lead.playerId} value={lead.playerId}>{lead.name}</option>
+                    <option key={lead.playerId} value={lead.playerId}>{lead.name} · {lead.playerId}</option>
                   ))}
                 </select>
               </label> : !rallyMode && <label>

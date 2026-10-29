@@ -63,7 +63,7 @@ The packaged preview-only 13-row case is [POPHQ-confirmed-aliases-fixture.json](
 
 The packaged seven-account KOI case is [POPHQ-seven-shell-accounts-fixture.json](POPHQ-seven-shell-accounts-fixture.json). It is account-reconciliation input only; its pending points are deliberately not an approved score write.
 
-`playerId` must be the exact numeric game ID. Set it to `null` when the source has no verified ID; the API preserves an unresolved evidence record and does not invent an account. Names are used only for conflict detection and source-backed aliases—never as a fuzzy match key. `sourceCorrections` preserve observed typos/transcription corrections inside evidence and do not create aliases. Pending points are provenance only and are not imported by this endpoint.
+`playerId` must be the exact numeric game ID. Set it to `null` when the source has no verified ID; the API preserves an unresolved evidence record and does not invent an account. Names and aliases are labels, not unique identity keys: different Player IDs may legitimately share the same canonical name or alias. They are never used as a fuzzy match key. `sourceCorrections` preserve observed typos/transcription corrections inside evidence and do not create aliases. Pending points are provenance only and are not imported by this endpoint.
 
 ## Preview and review
 
@@ -81,7 +81,7 @@ The preview returns `expectedHash`, `applicable`, an exhaustive row per input, a
 
 Each explicit alias also has one decision: `add_alias`, `already_present`, `already_resolves_cosmetically`, `conflict`, or `invalid_source`. Review `existingAliases`, `aliasAdditions`, `aliasReviews`, `batchIssues`, and `transactionOperations`. `aliasesToAdd: 0` is not an alias repair even when evidence is added. Repeated aliases may add distinct source provenance without duplicating the operational alias.
 
-Matching uses NFKC, case folding and collapsed whitespace only. Punctuation and digits remain significant. There is no fuzzy, substring, dropped-number, or homoglyph matching. A normalized name claimed by another Player ID blocks the whole atomic apply.
+Matching uses NFKC, case folding and collapsed whitespace only. Punctuation and digits remain significant. There is no fuzzy, substring, dropped-number, or homoglyph matching. A matching label on another Player ID is allowed, but it makes name-only resolution ambiguous; exact-ID writes stay deterministic.
 
 Verify the response's `effects` flags are all `false`. Review every before/after account, alias, evidence record, and issue. A preview performs no writes.
 
@@ -98,7 +98,7 @@ python3 scripts/s26.py reconcile-accounts POPHQ-seven-shell-accounts-fixture.jso
   --idempotency-key koi-2026-09-26-account-shells-v1
 ```
 
-Apply is one atomic batch. It requires `approved: true` (added by the CLI), a reason, the reviewed hash, and an 8–100 character idempotency key. Retrying exactly the same request with the same key is safe. Never reuse the key for changed data. A stale preview, duplicate ID, name/alias collision, changed existing account, or lost officer authority blocks all writes.
+Apply is one atomic batch. It requires `approved: true` (added by the CLI), a reason, the reviewed hash, and an 8–100 character idempotency key. Retrying exactly the same request with the same key is safe. Never reuse the key for changed data. A stale preview, duplicate ID, changed existing exact-ID account, unsafe alias source, or lost officer authority blocks all writes. Reusing a label on a different Player ID does not.
 
 `expectedHash` binds the complete current-state preview (including decisions, before/after accounts, aliases and evidence). The idempotency receipt separately binds the exact approved apply payload—including the reason and expected hash—to the supplied key. Equal empty-state hashes never make different payloads interchangeable. After an uncertain network outcome, read back the account and retry only the identical payload with the same key; never switch keys blindly.
 
@@ -114,7 +114,7 @@ This returns the exact account, whether it now has a login, its aliases, `aliasS
 python3 scripts/s26.py resolve-account-name Wenzyporsche
 ```
 
-The resolver returns `resolved` only for one unambiguous exact/cosmetic key and explains whether the basis is `canonical` or `alias`. An empty or ambiguous result must stop automatic import matching. A later verified sign-in link attaches to the existing Player ID; the account and its historical evidence remain unchanged.
+The resolver returns `resolved` only for one unambiguous exact/cosmetic key and explains whether the basis is `canonical` or `alias`. It returns one candidate per Player ID plus `provenance` for every canonical/alias label that matched that account. An empty or ambiguous result must stop automatic import matching and present all candidates with their Player IDs. A later verified sign-in link attaches to the existing Player ID; the account and its historical evidence remain unchanged.
 
 ## Scores remain separate
 

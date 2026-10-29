@@ -1,5 +1,8 @@
+import { PutCommand } from "@aws-sdk/lib-dynamodb";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import aliasFixture from "../fixtures/POPHQ-confirmed-aliases-fixture.json" with { type: "json" };
+import { accountAliasKey } from "../../src/data/keys.js";
+import { searchKey } from "../../src/domain/identity.js";
 import type { Group } from "../../src/domain/principal.js";
 import { createHarness, type Harness } from "./harness.js";
 
@@ -100,7 +103,7 @@ describe("guarded operational alias reconciliation", () => {
     expect((await h.call("GET", "/agent/accounts/740000003/reconciliation", agent())).body.aliasSources).toHaveLength(1);
   });
 
-  it("blocks missing targets, cross-account claims, duplicate IDs and stale collision previews without partial writes", async () => {
+  it("blocks missing targets and duplicate IDs while allowing cross-account labels", async () => {
     await h.repo.addAlias("740000004", "Claimed Name", "Verified existing claim", actor);
     const invalid = await h.call("POST", "/agent/accounts/reconcile", agent(batch("blocked-aliases", [
       { sourceId: "missing", playerId: "749999999", name: "Missing", aliases: [{ name: "Missing Alias", source: source("missing.json") }] },
@@ -108,10 +111,10 @@ describe("guarded operational alias reconciliation", () => {
       { sourceId: "duplicate-a", playerId: "740000003", name: "Arya Stark", aliases: [{ name: "One", source: source("one.json") }] },
       { sourceId: "duplicate-b", playerId: "740000003", name: "Arya Stark", aliases: [{ name: "Two", source: source("two.json") }] },
     ])));
-    expect(invalid.body).toMatchObject({ applicable: false, counts: { conflicts: 4, aliasConflicts: 2 } });
+    expect(invalid.body).toMatchObject({ applicable: false, counts: { conflicts: 3, aliasConflicts: 1 } });
     const invalidRows = invalid.body.rows as { aliasReviews: Record<string, unknown>[] }[];
     expect(invalidRows[0]!.aliasReviews[0]).toMatchObject({ decision: "invalid_source" });
-    expect(invalidRows[1]!.aliasReviews[0]).toMatchObject({ decision: "conflict", conflictingPlayerIds: ["740000004"] });
+    expect(invalidRows[1]!.aliasReviews[0]).toMatchObject({ decision: "add_alias", conflictingPlayerIds: [] });
     expect(await h.repo.listAliases("740000002")).toHaveLength(1);
 
     const raceBody = batch("race-preview", [{ sourceId: "race", playerId: "740000002", name: "Wenzy", aliases: [{ name: "Race Name", source: source("race.json") }] }]);
@@ -119,12 +122,15 @@ describe("guarded operational alias reconciliation", () => {
     expect(preview.body.applicable).toBe(true);
     await h.repo.addAlias("740000004", "Race Name", "Claim appeared after preview", actor);
     const raced = await h.call("POST", "/agent/accounts/reconcile?apply=true", agent({ ...raceBody, expectedHash: preview.body.expectedHash, approved: true, reason: "Stale reviewed preview" }, { "idempotency-key": "race-preview-v1" }));
-    expect(raced.status).toBe(409);
-    expect((await h.repo.listAliases("740000002")).map((alias) => alias.name)).not.toContain("Race Name");
-    expect((await h.repo.listHistoricalRecords("alias")).filter((record) => record.sourceId === "race")).toEqual([]);
+    expect(raced.status).toBe(201);
+    expect((await h.repo.listAliases("740000002")).map((alias) => alias.name)).toContain("Race Name");
+    expect((await h.repo.listHistoricalRecords("alias")).filter((record) => record.sourceId === "race")).toHaveLength(1);
+    const ambiguous = await h.call("GET", "/agent/accounts/resolve-name?name=Race%20Name", agent());
+    expect(ambiguous).toMatchObject({ status: 200, body: { ambiguous: true, resolved: null } });
+    expect((ambiguous.body.matches as { playerId: string }[]).map((candidate) => candidate.playerId)).toEqual(["740000002", "740000004"]);
   });
 
-  it("allows only one of two concurrent cross-account claims and leaves no partial loser evidence", async () => {
+  it("allows two concurrent exact IDs to share an alias and preserves both evidence records", async () => {
     const first = batch("concurrent-first", [{ sourceId: "concurrent-first", playerId: "740000002", name: "Wenzy", aliases: [{ name: "Concurrent Claim", source: source("first.json") }] }]);
     const second = batch("concurrent-second", [{ sourceId: "concurrent-second", playerId: "740000003", name: "Arya Stark", aliases: [{ name: "Concurrent Claim", source: source("second.json") }] }]);
     const [firstPreview, secondPreview] = await Promise.all([
@@ -137,11 +143,42 @@ describe("guarded operational alias reconciliation", () => {
       h.call("POST", "/agent/accounts/reconcile?apply=true", agent({ ...first, expectedHash: firstPreview.body.expectedHash, approved: true, reason: "Concurrent claim test one" }, { "idempotency-key": "concurrent-claim-one" })),
       h.call("POST", "/agent/accounts/reconcile?apply=true", agent({ ...second, expectedHash: secondPreview.body.expectedHash, approved: true, reason: "Concurrent claim test two" }, { "idempotency-key": "concurrent-claim-two" })),
     ]);
-    expect(outcomes.map((outcome) => outcome.status).toSorted()).toEqual([201, 409]);
+    expect(outcomes.map((outcome) => outcome.status).toSorted()).toEqual([201, 201]);
     const owners = await Promise.all(["740000002", "740000003"].map(async (id) => ({ id, aliases: (await h.repo.listAliases(id)).map((alias) => alias.name) })));
-    expect(owners.filter((owner) => owner.aliases.includes("Concurrent Claim"))).toHaveLength(1);
+    expect(owners.filter((owner) => owner.aliases.includes("Concurrent Claim"))).toHaveLength(2);
     const evidence = (await h.repo.listHistoricalRecords("alias")).filter((record) => record.sourceId.startsWith("concurrent-"));
-    expect(evidence).toHaveLength(1);
+    expect(evidence).toHaveLength(2);
+    const resolved = await h.call("GET", "/agent/accounts/resolve-name?name=Concurrent%20Claim", agent());
+    expect(resolved).toMatchObject({ status: 200, body: { ambiguous: true, resolved: null } });
+  });
+
+  it("deduplicates one Player ID when canonical and legacy alias provenance both match", async () => {
+    await h.db.send(new PutCommand({
+      TableName: h.tableName,
+      Item: {
+        ...accountAliasKey("740000002", searchKey("Wenzy")),
+        type: "account-alias",
+        name: "WENZY",
+        addedAt: "2026-01-01T00:00:00.000Z",
+        addedBy: "legacy-import",
+      },
+    }));
+    const resolved = await h.call("GET", "/agent/accounts/resolve-name?name=wenzy", agent());
+    expect(resolved).toMatchObject({
+      status: 200,
+      body: {
+        ambiguous: false,
+        resolved: {
+          playerId: "740000002",
+          basis: "canonical",
+          provenance: [
+            { matchedName: "Wenzy", basis: "canonical" },
+            { matchedName: "WENZY", basis: "alias" },
+          ],
+        },
+      },
+    });
+    expect(resolved.body.matches).toHaveLength(1);
   });
 
   it("validates provenance and authorization and keeps matching exact rather than fuzzy", async () => {
@@ -182,7 +219,7 @@ describe("guarded operational alias reconciliation", () => {
           dryRun: true,
           applicable: true,
           counts: { reuse: 13, conflicts: 0, aliasesToAdd: 11, cosmeticAliasNoops: 2, aliasConflicts: 0, evidenceToAdd: 13 },
-          transactionOperations: 60,
+          transactionOperations: 49,
         },
       });
       expect(preview.body.rows).toHaveLength(13);

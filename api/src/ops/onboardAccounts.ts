@@ -49,8 +49,7 @@ const Batch = z.object({
   alliance: z.literal("POP").default("POP"),
   eventId: z.string().trim().min(3).max(80).optional(),
   phaseKey: z.enum(["preparation", "castle_battle"]).optional(),
-  // Nineteen is the largest batch that still fits DynamoDB's 100-operation atomic
-  // transaction in the worst case (account + alias/audit + two evidence records + receipt).
+  // Nineteen keeps reviewed batches compact and below DynamoDB's 100-operation atomic limit.
   entries: z.array(Entry).min(1).max(19),
 });
 
@@ -261,21 +260,12 @@ function historicalNameRecord(batch: AccountOnboardingBatch, entry: AccountOnboa
 
 /**
  * Builds an exhaustive, non-mutating reconciliation plan. Exact Player IDs are the only account
- * match key; names are used solely for conflict and alias checks.
+ * match key; names and aliases are labels that may legitimately resolve to multiple accounts.
  */
 export async function planAccountOnboarding(repo: Repository, batch: AccountOnboardingBatch): Promise<AccountOnboardingPlan> {
   const accounts = await repo.listAccounts(batch.alliance);
   const accountsById = new Map(accounts.map((account) => [account.playerId, account]));
   const aliasesById = new Map(await Promise.all(accounts.map(async (account) => [account.playerId, await repo.listAliases(account.playerId)] as const)));
-  const claims = new Map<string, Set<string>>();
-  for (const account of accounts) {
-    for (const name of [account.name, ...(aliasesById.get(account.playerId) ?? []).map((alias) => alias.name)]) {
-      const key = searchKey(name);
-      const ids = claims.get(key) ?? new Set<string>();
-      ids.add(account.playerId);
-      claims.set(key, ids);
-    }
-  }
   const [evidenceRecords, aliasRecords] = await Promise.all([
     repo.listHistoricalRecords("evidence"),
     repo.listHistoricalRecords("alias"),
@@ -297,26 +287,15 @@ export async function planAccountOnboarding(repo: Repository, batch: AccountOnbo
     if (existing && searchKey(existing.name) !== searchKey(entry.name) && !aliasKeys.has(searchKey(entry.name))) {
       issues.push(`Existing canonical name is ${existing.name}; ${entry.name} is not a recorded alias.`);
     }
-    if (entry.playerId) {
-      const canonicalClaims = claims.get(searchKey(entry.name));
-      if (canonicalClaims && [...canonicalClaims].some((id) => id !== entry.playerId)) {
-        issues.push(`Name ${entry.name} is already attached to another Player ID.`);
-      }
-    }
-
     const aliasReviews: AccountAliasReview[] = [];
     const plannedAliasKeys = new Set(aliasKeys);
     for (const alias of entry.aliases ?? []) {
       const normalizedName = searchKey(alias.name);
-      const otherClaims = [...(claims.get(normalizedName) ?? [])].filter((id) => id !== entry.playerId);
       let decision: AccountAliasDecision;
       let issue: string | undefined;
       if (!entry.playerId || !existing) {
         decision = "invalid_source";
         issue = "Alias repair requires an existing exact Player ID; no shell account is created for an alias request.";
-      } else if (otherClaims.length > 0) {
-        decision = "conflict";
-        issue = `Alias ${alias.name} is already attached to another Player ID.`;
       } else if (normalizedName === searchKey(existing.name)) {
         decision = "already_resolves_cosmetically";
       } else if (plannedAliasKeys.has(normalizedName)) {
@@ -324,9 +303,6 @@ export async function planAccountOnboarding(repo: Repository, batch: AccountOnbo
       } else {
         decision = "add_alias";
         plannedAliasKeys.add(normalizedName);
-        const plannedClaims = claims.get(normalizedName) ?? new Set<string>();
-        plannedClaims.add(entry.playerId);
-        claims.set(normalizedName, plannedClaims);
       }
       const evidence = aliasEvidenceRecord(batch, entry, alias);
       aliasReviews.push({
@@ -335,7 +311,7 @@ export async function planAccountOnboarding(repo: Repository, batch: AccountOnbo
         decision,
         source: alias.source,
         ...(evidence ? { evidenceRecordId: evidence.recordId } : {}),
-        conflictingPlayerIds: otherClaims,
+        conflictingPlayerIds: [],
         ...(issue ? { issue } : {}),
       });
       if (issue) issues.push(issue);
@@ -359,10 +335,7 @@ export async function planAccountOnboarding(repo: Repository, batch: AccountOnbo
     const aliasAdditions: string[] = aliasReviews.filter((alias) => alias.decision === "add_alias").map((alias) => alias.name);
     const historicalName = entry.historicalSpreadsheetEvidence?.name;
     if (entry.playerId && historicalName && searchKey(historicalName) !== searchKey(existing?.name ?? entry.name)) {
-      const otherClaims = claims.get(searchKey(historicalName));
-      if (otherClaims && [...otherClaims].some((id) => id !== entry.playerId)) {
-        issues.push(`Historical name ${historicalName} is already attached to another Player ID.`);
-      } else if (!plannedAliasKeys.has(searchKey(historicalName))) {
+      if (!plannedAliasKeys.has(searchKey(historicalName))) {
         aliasAdditions.push(historicalName);
         plannedAliasKeys.add(searchKey(historicalName));
       }
@@ -419,7 +392,7 @@ export async function planAccountOnboarding(repo: Repository, batch: AccountOnbo
     aliasConflicts: rows.flatMap((row) => row.aliasReviews).filter((alias) => alias.decision === "conflict" || alias.decision === "invalid_source").length,
     evidenceToAdd: writes.evidence.length,
   };
-  const transactionOperations = writes.expectedAccounts.length + writes.accounts.length * 2 + writes.aliases.length * 3 + writes.evidence.length + 1;
+  const transactionOperations = writes.expectedAccounts.length + writes.accounts.length + writes.aliases.length * 2 + writes.evidence.length + 1;
   const batchIssues = transactionOperations > 100
     ? [`This batch requires ${transactionOperations} atomic operations; the maximum is 100. Split it into smaller reviewed batches.`]
     : [];

@@ -40,7 +40,6 @@ import {
   accountLinkLockKey,
   accountIdentityGroupKey,
   accountAliasKey,
-  accountNameClaimKey,
   allianceIndexKey,
   eventIndexKey,
   eventKey,
@@ -100,28 +99,21 @@ export class Repository {
     const now = this.clock();
     try {
       await this.db.send(
-        new TransactWriteCommand({ TransactItems: [
-          { Put: {
-            TableName: this.table,
-            Item: {
-              ...accountKey(account.playerId),
-              ...allianceIndexKey(account.alliance, searchKey(account.name), account.playerId),
-              type: "account",
-              ...account,
-              ...newItemMeta(actor, now),
-            },
-            ConditionExpression: "attribute_not_exists(PK)",
-          } },
-          { Put: {
-            TableName: this.table,
-            Item: { ...accountNameClaimKey(account.alliance, searchKey(account.name)), type: "account-name-claim", playerId: account.playerId, name: account.name, kind: "canonical" },
-            ConditionExpression: "attribute_not_exists(PK)",
-          } },
-        ] }),
+        new PutCommand({
+          TableName: this.table,
+          Item: {
+            ...accountKey(account.playerId),
+            ...allianceIndexKey(account.alliance, searchKey(account.name), account.playerId),
+            type: "account",
+            ...account,
+            ...newItemMeta(actor, now),
+          },
+          ConditionExpression: "attribute_not_exists(PK)",
+        }),
       );
     } catch (err) {
-      if (cancellationCodes(err)?.some((code) => code === "ConditionalCheckFailed")) {
-        throw new ConflictError(`Player ID ${account.playerId} or name ${account.name} already exists.`);
+      if (err instanceof ConditionalCheckFailedException) {
+        throw new ConflictError(`Player ID ${account.playerId} already exists.`);
       }
       throw err;
     }
@@ -134,46 +126,6 @@ export class Repository {
   async updateAccount(account: GameAccount, actor: Actor): Promise<void> {
     const current = await this.getAccount(account.playerId);
     if (!current) throw new NotFoundError(`Game account ${account.playerId} not found.`);
-    const changesNameKey = current.alliance !== account.alliance || searchKey(current.name) !== searchKey(account.name);
-    if (changesNameKey) {
-      const claims = await this.resolveAccountName(account.alliance, account.name);
-      if (claims.some((claim) => claim.playerId !== account.playerId)) {
-        throw new ConflictError(`Name ${account.name} already belongs to another Player ID.`);
-      }
-      try {
-        await this.db.send(new TransactWriteCommand({ TransactItems: [
-          { Put: {
-            TableName: this.table,
-            Item: {
-              ...accountKey(account.playerId),
-              ...allianceIndexKey(account.alliance, searchKey(account.name), account.playerId),
-              type: "account",
-              ...account,
-              ...newItemMeta(actor, this.clock()),
-            },
-            ConditionExpression: "attribute_exists(PK)",
-          } },
-          { Put: {
-            TableName: this.table,
-            Item: { ...accountNameClaimKey(account.alliance, searchKey(account.name)), type: "account-name-claim", playerId: account.playerId, name: account.name, kind: "canonical" },
-            ConditionExpression: "attribute_not_exists(PK) OR playerId = :playerId",
-            ExpressionAttributeValues: { ":playerId": account.playerId },
-          } },
-          { Delete: {
-            TableName: this.table,
-            Key: accountNameClaimKey(current.alliance, searchKey(current.name)),
-            ConditionExpression: "attribute_not_exists(PK) OR playerId = :playerId",
-            ExpressionAttributeValues: { ":playerId": account.playerId },
-          } },
-        ] }));
-        return;
-      } catch (err) {
-        if (cancellationCodes(err)?.some((code) => code === "ConditionalCheckFailed")) {
-          throw new ConflictError("The account name changed or was claimed while you were saving. Refresh and try again.");
-        }
-        throw err;
-      }
-    }
     try {
       await this.db.send(
         new PutCommand({
@@ -202,17 +154,33 @@ export class Repository {
   }
 
   /** Exact supported resolver used by imports; it never fuzzy-matches or drops punctuation/digits. */
-  async resolveAccountName(alliance: string, name: string): Promise<{ playerId: string; canonicalName: string; matchedName: string; basis: "canonical" | "alias" }[]> {
+  async resolveAccountName(alliance: string, name: string): Promise<{
+    playerId: string;
+    canonicalName: string;
+    matchedName: string;
+    basis: "canonical" | "alias";
+    provenance: { matchedName: string; basis: "canonical" | "alias" }[];
+  }[]> {
     const normalized = searchKey(name);
     const accounts = await this.listAccounts(alliance);
     const aliases = new Map(await Promise.all(accounts.map(async (account) => [account.playerId, await this.listAliases(account.playerId)] as const)));
-    return accounts.flatMap((account): { playerId: string; canonicalName: string; matchedName: string; basis: "canonical" | "alias" }[] => {
+    return accounts.flatMap((account) => {
+      const provenance: { matchedName: string; basis: "canonical" | "alias" }[] = [];
       if (searchKey(account.name) === normalized) {
-        return [{ playerId: account.playerId, canonicalName: account.name, matchedName: account.name, basis: "canonical" }];
+        provenance.push({ matchedName: account.name, basis: "canonical" });
       }
-      const alias = aliases.get(account.playerId)?.find((candidate) => searchKey(candidate.name) === normalized);
-      return alias ? [{ playerId: account.playerId, canonicalName: account.name, matchedName: alias.name, basis: "alias" }] : [];
-    });
+      for (const alias of aliases.get(account.playerId) ?? []) {
+        if (searchKey(alias.name) === normalized) provenance.push({ matchedName: alias.name, basis: "alias" });
+      }
+      const preferred = provenance[0];
+      return preferred ? [{
+        playerId: account.playerId,
+        canonicalName: account.name,
+        matchedName: preferred.matchedName,
+        basis: preferred.basis,
+        provenance,
+      }] : [];
+    }).sort((a, b) => a.playerId.localeCompare(b.playerId));
   }
 
   // ---- Invite-only onboarding --------------------------------------------------------------
@@ -1018,28 +986,19 @@ export class Repository {
       });
     }
     for (const account of changes.accounts) {
-      transactItems.push(
-        {
-          Put: {
-            TableName: this.table,
-            Item: {
-              ...accountKey(account.playerId),
-              ...allianceIndexKey(account.alliance, searchKey(account.name), account.playerId),
-              type: "account",
-              ...account,
-              ...newItemMeta(actor, now),
-            },
-            ConditionExpression: "attribute_not_exists(PK)",
+      transactItems.push({
+        Put: {
+          TableName: this.table,
+          Item: {
+            ...accountKey(account.playerId),
+            ...allianceIndexKey(account.alliance, searchKey(account.name), account.playerId),
+            type: "account",
+            ...account,
+            ...newItemMeta(actor, now),
           },
+          ConditionExpression: "attribute_not_exists(PK)",
         },
-        {
-          Put: {
-            TableName: this.table,
-            Item: { ...accountNameClaimKey(account.alliance, searchKey(account.name)), type: "account-name-claim", playerId: account.playerId, name: account.name, kind: "canonical" },
-            ConditionExpression: "attribute_not_exists(PK)",
-          },
-        },
-      );
+      });
     }
     for (const alias of changes.aliases) {
       const meta = newItemMeta(actor, now);
@@ -1053,14 +1012,6 @@ export class Repository {
         performedBy: actor.id,
       };
       transactItems.push(
-        {
-          Put: {
-            TableName: this.table,
-            Item: { ...accountNameClaimKey(alias.alliance, searchKey(alias.name)), type: "account-name-claim", playerId: alias.playerId, name: alias.name, kind: "alias" },
-            ConditionExpression: "attribute_not_exists(PK) OR playerId = :playerId",
-            ExpressionAttributeValues: { ":playerId": alias.playerId },
-          },
-        },
         {
           Put: {
             TableName: this.table,
@@ -1680,8 +1631,6 @@ export class Repository {
     const account = await this.getAccount(playerId);
     if (!account) throw new NotFoundError(`Game account ${playerId} not found.`);
     if (searchKey(account.name) === searchKey(name)) throw new ConflictError("That is already the account's current name.");
-    const claims = await this.resolveAccountName(account.alliance, name);
-    if (claims.some((claim) => claim.playerId !== playerId)) throw new ConflictError("That alternate name belongs to another Player ID.");
     const now = this.clock();
     const meta = newItemMeta(actor, now);
     const audit: IdentityAuditRecord = {
@@ -1690,12 +1639,11 @@ export class Repository {
     };
     try {
       await this.db.send(new TransactWriteCommand({ TransactItems: [
-        { Put: { TableName: this.table, Item: { ...accountNameClaimKey(account.alliance, searchKey(name)), type: "account-name-claim", playerId, name, kind: "alias" }, ConditionExpression: "attribute_not_exists(PK) OR playerId = :playerId", ExpressionAttributeValues: { ":playerId": playerId } } },
         { Put: { TableName: this.table, Item: { ...accountAliasKey(playerId, searchKey(name)), type: "account-alias", name, addedAt: now.toISOString(), addedBy: actor.id, ...meta }, ConditionExpression: "attribute_not_exists(PK)" } },
         { Put: { TableName: this.table, Item: { ...identityAuditKey(playerId, audit.auditId), type: "identity-audit", ...audit, ...meta } } },
       ] }));
     } catch (err) {
-      if (cancellationCodes(err)?.some((code) => code === "ConditionalCheckFailed")) throw new ConflictError("That alternate name is already recorded or belongs to another Player ID.");
+      if (cancellationCodes(err)?.some((code) => code === "ConditionalCheckFailed")) throw new ConflictError("That alternate name is already recorded for this Player ID.");
       throw err;
     }
     return audit;

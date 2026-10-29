@@ -3,6 +3,7 @@ import { ApiError, type Answer, type EventDetail, type EventListItem, type Event
 import { ErrorBanner } from "../components/Chrome";
 import { ActiveEventRail } from "../components/ActiveEventRegistration";
 import { EventResponseStatus } from "../components/EventResponseStatus";
+import { PlayerIdentityLabel } from "../components/PlayerIdentityLabel";
 import { EventSignupShare } from "../components/EventSignupShare";
 import { EventPersonalPerformance } from "../components/EventPersonalPerformance";
 import { RegistrationRolePicker } from "../components/RegistrationRolePicker";
@@ -713,7 +714,7 @@ function BreakdownTable({
               const attendance = latestKnown(m.attendanceTrend);
               return (
                 <tr key={m.playerId}>
-                  <td>{m.name}</td>
+                  <td><PlayerIdentityLabel name={m.name} playerId={m.playerId} /></td>
                   <td className="muted">{m.rank ?? "–"}</td>
                   <td><EventResponseStatus member={m} sessions={sessions} /></td>
                   <td className="num">{valueOf(m, metric) === null ? "–" : full(valueOf(m, metric)!)}</td>

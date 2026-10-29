@@ -2,10 +2,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { EventMember } from "../api";
 import { EventResponseStatus } from "../components/EventResponseStatus";
+import { PlayerIdentityLabel } from "../components/PlayerIdentityLabel";
 
-const member = (registrationRole?: "substitute"): EventMember => ({
-  playerId: "399200126",
-  name: "xXsarahXx",
+const member = (registrationRole?: "substitute", playerId = "399200126", name = "xXsarahXx"): EventMember => ({
+  playerId,
+  name,
   rank: "R3",
   answer: "yes",
   sessionId: "L2",
@@ -40,5 +41,15 @@ describe("event response status", () => {
   it("does not label an ordinary registration as a substitute", () => {
     const html = renderToStaticMarkup(<EventResponseStatus member={member()} sessions={sessions} />);
     expect(html).not.toContain(">Sub<");
+  });
+
+  it("shows Player IDs so identical display names stay distinguishable", () => {
+    const html = renderToStaticMarkup(<>
+      <PlayerIdentityLabel name="Wee Gobshite" playerId="815153409" />
+      <PlayerIdentityLabel name="Wee Gobshite" playerId="495767784" />
+    </>);
+    expect(html.match(/Wee Gobshite/g)).toHaveLength(2);
+    expect(html).toContain("815153409");
+    expect(html).toContain("495767784");
   });
 });

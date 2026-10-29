@@ -1,8 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { ulid } from "ulid";
 import sevenFixture from "../fixtures/POPHQ-seven-shell-accounts-fixture.json" with { type: "json" };
 import scoreFixture from "../fixtures/KOI-castle-battle-scores-fixture.json" with { type: "json" };
 import type { Group } from "../../src/domain/principal.js";
 import type { LoginDirectory } from "../../src/ops/invite.js";
+import { parseReport } from "../../src/domain/measurements.js";
 import { createHarness, type Harness } from "./harness.js";
 
 describe("guarded login-free account onboarding", () => {
@@ -188,6 +190,56 @@ describe("guarded login-free account onboarding", () => {
     expect(await h.repo.getAccount("730000001")).toMatchObject({ rank: "R3", status: "active", note: "Keep me" });
   });
 
+  it("creates distinct exact Player IDs that share a canonical name and resolves the label as ambiguous", async () => {
+    await h.repo.createAccount({ playerId: "730000020", name: "Same Frost", alliance: "POP", rank: "R3", status: "active", note: "Original stays unchanged" }, actor);
+    await h.repo.addAlias("730000020", "Alias Frost", "Existing alias used for collision coverage", actor);
+    const body = batch("duplicate-canonical-names", [
+      { sourceId: "same-existing", playerId: "730000020", name: "Same Frost", identityEvidence: "verified exact Player ID" },
+      { sourceId: "same-new-one", playerId: "730000021", name: "Same Frost", identityEvidence: "verified exact Player ID" },
+      { sourceId: "same-new-two", playerId: "730000022", name: "Same Frost", identityEvidence: "verified exact Player ID" },
+      { sourceId: "alias-name-new", playerId: "730000023", name: "Alias Frost", identityEvidence: "verified exact Player ID" },
+    ]);
+    const preview = await h.call("POST", "/agent/accounts/reconcile", agent(body));
+    expect(preview).toMatchObject({
+      status: 200,
+      body: { dryRun: true, applicable: true, counts: { create: 3, reuse: 1, conflicts: 0 } },
+    });
+    expect(await h.repo.getAccount("730000021")).toBeUndefined();
+
+    const applied = await h.call("POST", "/agent/accounts/reconcile?apply=true", agent({
+      ...body,
+      expectedHash: preview.body.expectedHash,
+      approved: true,
+      reason: "Reviewed three exact IDs sharing one display name",
+    }, { "idempotency-key": "duplicate-canonical-names-v1" }));
+    expect(applied.status).toBe(201);
+    expect(await h.repo.getAccount("730000020")).toMatchObject({ name: "Same Frost", note: "Original stays unchanged" });
+    expect(await h.repo.getAccount("730000021")).toMatchObject({ playerId: "730000021", name: "Same Frost" });
+    expect(await h.repo.getAccount("730000022")).toMatchObject({ playerId: "730000022", name: "Same Frost" });
+    expect(await h.repo.getAccount("730000023")).toMatchObject({ playerId: "730000023", name: "Alias Frost" });
+
+    const resolved = await h.call("GET", "/agent/accounts/resolve-name?name=Same%20Frost", agent());
+    expect(resolved).toMatchObject({ status: 200, body: { ambiguous: true, resolved: null } });
+    expect((resolved.body.matches as { playerId: string }[]).map((candidate) => candidate.playerId)).toEqual([
+      "730000020", "730000021", "730000022",
+    ]);
+
+    const aliasCollision = await h.call("GET", "/agent/accounts/resolve-name?name=Alias%20Frost", agent());
+    expect(aliasCollision).toMatchObject({ status: 200, body: { ambiguous: true, resolved: null } });
+    expect(aliasCollision.body.matches).toEqual([
+      expect.objectContaining({ playerId: "730000020", basis: "alias" }),
+      expect.objectContaining({ playerId: "730000023", basis: "canonical" }),
+    ]);
+
+    await h.repo.addReport(parseReport(
+      { values: [{ metric: "city_power", value: 123_456_789 }] },
+      { playerId: "730000021", reportId: ulid(), source: "officer", now: new Date("2026-10-29T12:00:00.000Z") },
+    ), actor);
+    expect(await h.repo.listReports("730000021")).toHaveLength(1);
+    expect(await h.repo.listReports("730000020")).toHaveLength(0);
+    expect(await h.repo.listReports("730000022")).toHaveLength(0);
+  });
+
   it("preserves a UUID-only source as unresolved evidence without inventing an account", async () => {
     const body = batch("unresolved-source", [{
       sourceId: "legacy-uuid-only-17",
@@ -211,7 +263,7 @@ describe("guarded login-free account onboarding", () => {
     ]));
   });
 
-  it("reports duplicate IDs, conflicting exact accounts and alias collisions before writes", async () => {
+  it("reports duplicate IDs and conflicting exact accounts while allowing reused labels", async () => {
     await h.repo.createAccount({ playerId: "730000002", name: "Already Known", alliance: "POP", status: "active" }, actor);
     await h.repo.createAccount({ playerId: "730000003", name: "Claimed Alias", alliance: "POP", status: "active" }, actor);
     const conflicts = await h.call("POST", "/agent/accounts/reconcile", agent(batch("identity-conflicts", [
@@ -220,8 +272,12 @@ describe("guarded login-free account onboarding", () => {
       { sourceId: "existing-name", playerId: "730000002", name: "Different Name", identityEvidence: "owner" },
       { sourceId: "alias-collision", playerId: "730000005", name: "New Shell", identityEvidence: "owner", historicalSpreadsheetEvidence: { row: 1, name: "Claimed Alias", status: "historical_source_claim" } },
     ])));
-    expect(conflicts.body).toMatchObject({ applicable: false, counts: { conflicts: 4 } });
-    expect((conflicts.body.rows as { issues: string[] }[]).flatMap((row) => row.issues).join(" ")).toMatch(/more than once|canonical name|another Player ID/i);
+    expect(conflicts.body).toMatchObject({ applicable: false, counts: { create: 1, conflicts: 3 } });
+    expect((conflicts.body.rows as { issues: string[] }[]).flatMap((row) => row.issues).join(" ")).toMatch(/more than once|canonical name/i);
+    expect((conflicts.body.rows as { sourceId: string; decision: string; aliasAdditions: string[] }[]).find((row) => row.sourceId === "alias-collision")).toMatchObject({
+      decision: "create_shell",
+      aliasAdditions: ["Claimed Alias"],
+    });
     expect(await h.repo.getAccount("730000004")).toBeUndefined();
     expect(await h.repo.getAccount("730000005")).toBeUndefined();
   });

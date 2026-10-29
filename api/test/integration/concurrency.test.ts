@@ -41,6 +41,17 @@ describe("concurrent writes", () => {
     expect(outcome).toEqual({ ok: 1, conflicts: N - 1, other: [] });
   });
 
+  it("creates different Player IDs with the same canonical name in parallel", async () => {
+    const outcome = await race(Array.from({ length: N }, (_, index) => () => h.repo.createAccount(
+      parseNewAccount({ playerId: String(300000100 + index), name: "Shared Racer" }),
+      actor,
+    )));
+    expect(outcome).toEqual({ ok: N, conflicts: 0, other: [] });
+    const matches = await h.repo.resolveAccountName("POP", "Shared Racer");
+    expect(matches).toHaveLength(N);
+    expect(new Set(matches.map((match) => match.playerId)).size).toBe(N);
+  });
+
   it("links a game account to only one login under parallel requests (ID-12)", async () => {
     await h.repo.createAccount(parseNewAccount({ playerId: "300000002", name: "Linked" }), actor);
     const outcome = await race(
