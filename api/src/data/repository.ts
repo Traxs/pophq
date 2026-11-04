@@ -1951,6 +1951,12 @@ export class Repository {
     return items.map(toAccessAudit);
   }
 
+  // Kept outside PROFILE so editing account details cannot reset the report fence.
+  async reportRevision(playerId: string): Promise<number> {
+    const res = await this.db.send(new GetCommand({TableName: this.table, Key: {PK: `ACCOUNT#${playerId}`, SK: "REPORT_REVISION"}, ConsistentRead: true, ProjectionExpression: "reportRevision"}));
+    return Number(res.Item?.reportRevision ?? 0);
+  }
+
   /**
    * Adds an immutable report. One transaction:
    *  - the account must exist and accept data (active or guest; FM-12),
@@ -1958,7 +1964,7 @@ export class Repository {
    *  - a correction marks the report it supersedes, which must belong to the same account
    *    and not already be superseded, so two concurrent corrections can't both win.
    */
-  async addReport(report: Report, actor: Actor): Promise<void> {
+  async addReport(report: Report, actor: Actor, agent?: { tokenId: string; key: string; bodyHash: string; response: unknown; revision: number }): Promise<void> {
     const now = this.clock();
     const meta = newItemMeta(actor, now);
     const items: NonNullable<ConstructorParameters<typeof TransactWriteCommand>[0]["TransactItems"]> = [
@@ -1990,14 +1996,26 @@ export class Repository {
         },
       });
     }
+    items.push({Update: {
+      TableName: this.table, Key: {PK: `ACCOUNT#${report.playerId}`, SK: "REPORT_REVISION"},
+      UpdateExpression: "SET #type = :counter, reportRevision = if_not_exists(reportRevision, :zero) + :one",
+      ExpressionAttributeNames: {"#type": "type"},
+      ...(agent ? {ConditionExpression: "reportRevision = :revision OR (attribute_not_exists(reportRevision) AND :revision = :zero)"} : {}),
+      ExpressionAttributeValues: {":counter": "counter", ":zero": 0, ":one": 1, ...(agent ? {":revision": agent.revision} : {})},
+    }});
+    if (agent) items.push({ Put: { TableName: this.table,
+      Item: {...idempotencyKey(agent.tokenId, agent.key), type: "agent-idempotency", bodyHash: agent.bodyHash, response: agent.response, createdAt: now.toISOString(), expiresAtEpoch: Math.floor(now.getTime()/1000) + 86400},
+      ConditionExpression: "attribute_not_exists(PK)",
+    }});
     try {
       await this.db.send(new TransactWriteCommand({ TransactItems: items }));
     } catch (err) {
       const reasons = cancellationCodes(err);
       if (reasons?.[0] === "ConditionalCheckFailed") {
-        throw new ConflictError(`Game account ${report.playerId} doesn't exist or doesn't accept new data.`);
+        throw new ConflictError(`Game account ${report.playerId} changed since preview or does not accept new data.`);
       }
       if (reasons?.[1] === "ConditionalCheckFailed") throw new ConflictError("This report was already submitted.");
+      if (agent && reasons?.some(r => r === "ConditionalCheckFailed")) throw new ConflictError("Reports changed since preview or were submitted concurrently. Retry with the same idempotency key or preview again.");
       if (reasons?.[2] === "ConditionalCheckFailed") {
         throw new ConflictError("The report to correct doesn't exist for this account or was already corrected.");
       }
@@ -2487,6 +2505,7 @@ export class Repository {
 
   async listReports(playerId: string): Promise<Report[]> {
     const items = await this.queryAll({
+      ConsistentRead: true,
       KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
       ExpressionAttributeValues: { ":pk": `ACCOUNT#${playerId}`, ":sk": "REPORT#" },
     });
@@ -2494,7 +2513,7 @@ export class Repository {
   }
 
   async getReport(playerId: string, reportId: string): Promise<Report | undefined> {
-    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: reportKey(playerId, reportId) }));
+    const res = await this.db.send(new GetCommand({ TableName: this.table, Key: reportKey(playerId, reportId), ConsistentRead: true }));
     return res.Item ? toReport(res.Item) : undefined;
   }
 
@@ -2502,7 +2521,7 @@ export class Repository {
   async setReportIgnored(playerId: string, reportId: string, ignored: boolean, actor: Actor, actorName: string): Promise<Report> {
     const meta = newItemMeta(actor, this.clock());
     try {
-      const res = await this.db.send(new UpdateCommand({
+      await this.db.send(new TransactWriteCommand({TransactItems: [{Update: {
         TableName: this.table,
         Key: reportKey(playerId, reportId),
         UpdateExpression: ignored
@@ -2522,11 +2541,13 @@ export class Repository {
           ":one": 1,
           ...(ignored ? { ":byName": actorName, ":ignoreReason": actor.reason } : {}),
         },
-        ReturnValues: "ALL_NEW",
-      }));
-      return toReport(res.Attributes ?? {});
+      }}, {Update: {TableName: this.table, Key: {PK: `ACCOUNT#${playerId}`, SK: "REPORT_REVISION"},
+        UpdateExpression: "SET #type = :counter, reportRevision = if_not_exists(reportRevision, :zero) + :one",
+      ExpressionAttributeNames: {"#type": "type"},
+        ExpressionAttributeValues: {":counter": "counter", ":zero":0, ":one":1}}}]}));
+      return (await this.getReport(playerId, reportId))!;
     } catch (err) {
-      if (err instanceof ConditionalCheckFailedException) {
+      if (err instanceof ConditionalCheckFailedException || cancellationCodes(err)?.includes("ConditionalCheckFailed")) {
         throw new ConflictError(ignored ? "That report is already ignored or no longer exists." : "That report is not ignored or no longer exists.");
       }
       throw err;

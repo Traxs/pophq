@@ -101,6 +101,13 @@ def main() -> None:
     resolve_name = sub.add_parser("resolve-account-name", help="Resolve one exact canonical name or recorded alias")
     resolve_name.add_argument("name")
     resolve_name.add_argument("--alliance", default="POP")
+    troops = sub.add_parser("put-troops", help="Preview or apply troop FC / Helios for one exact Player ID")
+    troops.add_argument("player_id")
+    troops.add_argument("json_file", help="JSON file, or - for stdin")
+    troops.add_argument("--apply", action="store_true")
+    troops.add_argument("--reason")
+    troops.add_argument("--idempotency-key")
+    troops.add_argument("--expected-hash")
     reconcile = sub.add_parser("reconcile-accounts", help="Preview or apply exact-ID login-free account onboarding")
     reconcile.add_argument("json_file", help="JSON fixture file, or - for stdin")
     reconcile.add_argument("--batch-id", required=True, help="Stable reconciliation batch identifier")
@@ -191,6 +198,16 @@ def main() -> None:
     elif args.command == "resolve-account-name":
         query = urllib.parse.urlencode({"name": args.name, "alliance": args.alliance})
         result = request("GET", f"/agent/accounts/resolve-name?{query}")
+    elif args.command == "put-troops":
+        if args.apply and (not args.reason or not args.idempotency_key or not args.expected_hash):
+            raise SystemExit("--apply requires --reason, --idempotency-key and --expected-hash.")
+        payload = load_payload(args.json_file)
+        if args.apply:
+            payload["reason"] = args.reason
+            payload["expectedHash"] = args.expected_hash
+            payload["approved"] = True
+        suffix = "?apply=true" if args.apply else ""
+        result = request("POST", f"/agent/accounts/{urllib.parse.quote(args.player_id, safe='')}/troops{suffix}", payload, args.idempotency_key)
     elif args.command == "reconcile-accounts":
         if args.apply and (not args.reason or not args.idempotency_key or not args.expected_hash):
             raise SystemExit("--apply requires --reason, --idempotency-key and --expected-hash.")

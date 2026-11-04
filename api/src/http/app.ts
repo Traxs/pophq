@@ -1,3 +1,4 @@
+import { planBotTroops } from "../domain/botTroops.js";
 import { emptyRallyStats, type RallyStatsView } from "../data/rallyStats.js";
 import { Hono, type Context } from "hono";
 import { createHash } from "node:crypto";
@@ -852,6 +853,38 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     });
   });
 
+  app.post("/agent/accounts/:pid/troops", async (c) => {
+    const { token } = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "troops:write", now(), botIssuerGroups);
+    await requireBotIssuerR4(token.issuedBy);
+    const pid = parsePlayerId(c.req.param("pid"));
+    const body = (await readJson(c.req.raw)) as Record<string, unknown>;
+    const write = agentWriteRequest(body, c.req.query("apply") === "true", c.req.header("idempotency-key"), "troop data");
+    // Bind replay identity to the exact account as well as the submitted payload.
+    write.bodyHash = stateHash({pid, body});
+    if (write.apply) {
+      const replay = await repo.getIdempotentChange(token.tokenId, write.key);
+      if (replay) {
+        if (replay.bodyHash !== write.bodyHash) throw new ConflictError("That Idempotency-Key was already used for different data.");
+        return c.json({...(replay.response as Record<string, unknown>), replayed: true});
+      }
+      if (body.approved !== true) throw new ValidationError("Applying troop data requires approval of the reviewed preview.");
+    }
+    const account = await repo.getAccount(pid);
+    if (!account) throw new NotFoundError("Exact Player ID not found.");
+    if (!["active", "guest", "unknown"].includes(account.status)) throw new ConflictError("This account does not accept new data.");
+    const revision = await repo.reportRevision(pid);
+    const reports = await repo.listReports(pid);
+    const {report, review} = planBotTroops(body, pid, reports, now());
+    const expectedHash = stateHash({pid, revision, effectiveAt: review.effectiveAt, sourceReference: review.sourceReference, values: review.values, reports});
+    if (!write.apply) return c.json({dryRun: true, expectedHash, ...review});
+    if (write.expectedHash !== expectedHash) throw new ConflictError("Troop data or the requested changes differ from the preview. Preview again before applying.");
+    report.reportId = ulid();
+    const response = {dryRun: false, replayed: false, report};
+    await repo.addReport(report, agentActor(token.tokenId, write.reason), {...write, tokenId: token.tokenId, response, revision});
+    c.header("x-change-id", write.key);
+    return c.json(response, 201);
+  });
+
   /** Preview or atomically apply exact-ID login-free shell onboarding and source evidence. */
   app.post("/agent/accounts/reconcile", async (c) => {
     const { token } = await authenticateAgent(repo, c.req.header("authorization"), c.req.header("origin"), "accounts:write", now(), botIssuerGroups);
@@ -1639,7 +1672,7 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     const active = (await repo.listAgentTokens(p.sub)).filter((token) => !token.revokedAt && Date.parse(token.expiresAt) > now().getTime());
     if (active.length >= 5) throw new ConflictError("You already have five active bot tokens. Revoke one first.");
     const issued = issueAgentToken(await readJson(c.req.raw), p.sub, now());
-    if (issued.record.scopes.includes("rewards:write") || issued.record.scopes.includes("accounts:write")) {
+    if (issued.record.scopes.includes("rewards:write") || issued.record.scopes.includes("accounts:write") || issued.record.scopes.includes("troops:write")) {
       await requireBotIssuerR4(p.sub);
     }
     await repo.createAgentToken(issued.record);

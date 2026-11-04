@@ -65,6 +65,7 @@ export function effectiveBotScopes(record: AgentTokenRecord): AgentScope[] {
     ...(record.scopes.includes("registrations:write") ? ["registrations:write" as const] : []),
     ...(record.scopes.includes("history:write") ? ["history:write" as const] : []),
     ...(record.scopes.includes("rewards:write") ? ["rewards:write" as const] : []),
+    ...(record.scopes.includes("troops:write") ? ["troops:write" as const] : []),
     ...(record.scopes.includes("accounts:write") ? ["accounts:write" as const] : []),
   ];
 }

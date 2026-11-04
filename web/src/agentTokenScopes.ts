@@ -7,6 +7,7 @@ export interface AgentWriteSelections {
   history: boolean;
   rewards: boolean;
   accounts: boolean;
+  troops?: boolean;
 }
 
 /** The exact scope payload sent by the token form. Read access is always included. */
@@ -18,6 +19,7 @@ export function requestedAgentScopes(selected: AgentWriteSelections): AgentScope
     ...(selected.registrations ? ["registrations:write" as const] : []),
     ...(selected.history ? ["history:write" as const] : []),
     ...(selected.rewards ? ["rewards:write" as const] : []),
+    ...(selected.troops ? ["troops:write" as const] : []),
     ...(selected.accounts ? ["accounts:write" as const] : []),
   ];
 }

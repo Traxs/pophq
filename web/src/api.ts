@@ -197,7 +197,7 @@ export interface RedeemedOnboardingInvitation {
   credentials?: { username: string; password: string };
 }
 
-export type AgentScope = "all:read" | "results:read" | "results:write" | "events:write" | "registrations:write" | "history:write" | "rewards:write" | "accounts:write";
+export type AgentScope = "all:read" | "results:read" | "results:write" | "events:write" | "registrations:write" | "history:write" | "rewards:write" | "accounts:write" | "troops:write";
 export interface AgentTokenInfo {
   tokenId: string;
   name: string;

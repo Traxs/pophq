@@ -75,3 +75,7 @@ With `rewards:write`, a bot issued by a current POP R4/R5 may register the struc
 ## Historical backfill workflow
 
 With `history:write`, import exact records one at a time so a package can resume at a precise source row. Live models cover typed measurements, signups, attendance, lineups and tactics. Immutable preserved records cover aliases, account relationships, membership, registrations, selections, assignments, rounded performance and evidence metadata; evidence bytes are hash-verified and privately stored. Preview and review every record before apply. Follow [references/history-api.md](references/history-api.md), retain a local applied/quarantined manifest, and never guess missing website IDs.
+
+## Troop reports
+
+With explicit `troops:write`, a current POP R4/R5-issued bot may append source-backed, exact-ID troop FC and Helios observations. Preview first and apply only the approved diff. See [references/troops-api.md](references/troops-api.md) for payloads, validation, and `put-troops`. Omitted fields are preserved; this does not change troops in the game.
