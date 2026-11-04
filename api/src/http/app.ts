@@ -2150,6 +2150,19 @@ export function createApp({ repo, verifier, now = () => new Date(), extend, isPa
     return c.json({ok:true});
   });
 
+  app.put("/metrics/rallies/:id/visibility", async (c) => {
+    const p=c.get("principal"); requireOfficer(p);
+    const body=await readJson(c.req.raw) as {hidden?:unknown} | null;
+    if (!body || typeof body.hidden !== "boolean") throw new ValidationError("Choose whether to hide this session.");
+    const stats=rallyStats ? await rallyStats() : emptyRallyStats();
+    const id=c.req.param("id");
+    const row=[...stats.recent,...(stats.current?[stats.current]:[])].find(row=>row.id===id);
+    if (!row) throw new NotFoundError("Battle session not found.");
+    if (body.hidden && !row.endedAt) throw new ConflictError("End the active session before hiding it.");
+    await repo.hideRallySession(id,body.hidden,{id:p.sub,via:"web",reason:body.hidden ? "Hide test or irrelevant battle session" : "Restore battle session"});
+    return c.json({ok:true});
+  });
+
   app.get("/metrics/rallies", async (c) => {
     requireOfficer(c.get("principal"));
     const stats = rallyStats ? await rallyStats() : emptyRallyStats();

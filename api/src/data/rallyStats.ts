@@ -1,5 +1,6 @@
 import { GetCommand, QueryCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 export interface BattleSummary {
+ hidden?: boolean;
   eventId?: string | null; linkedBy?: string; linkedAt?: string;
   id: string; startedAt: number; lastSeenAt: number; endedAt?: number;
   durationMs: number; attacks: number; counters: number; incoming: number;

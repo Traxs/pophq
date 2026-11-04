@@ -85,14 +85,22 @@ export class Repository {
     private readonly clock: () => Date = () => new Date(),
   ) {}
 
-  async rallyEventLinks(): Promise<{id:string;eventId:string|null;linkedBy:string;linkedAt:string}[]> {
+  async rallyEventLinks(): Promise<{id:string;eventId:string|null;linkedBy:string;linkedAt:string;hidden:boolean}[]> {
     const rows = await this.queryAll({ConsistentRead:true,KeyConditionExpression:"PK = :pk",ExpressionAttributeValues:{":pk":"RALLY_LINKS#POP"}});
-    return rows.map(row => ({id:String(row.id),eventId:row.eventId === null ? null : String(row.eventId),linkedBy:String(row.linkedBy),linkedAt:String(row.linkedAt)}));
+    return rows.map(row => ({id:String(row.id),eventId:typeof row.eventId === "string" ? row.eventId : null,linkedBy:String(row.linkedBy ?? ""),linkedAt:String(row.linkedAt ?? ""),hidden:row.hidden === true}));
   }
 
   async linkRallyEvent(id:string,eventId:string|null,actor:Actor): Promise<void> {
-    await this.db.send(new PutCommand({TableName:this.table,Item:{PK:"RALLY_LINKS#POP",SK:id,
-      id,eventId,linkedBy:actor.id,linkedAt:this.clock().toISOString()}}));
+    await this.db.send(new UpdateCommand({TableName:this.table,Key:{PK:"RALLY_LINKS#POP",SK:id},
+      UpdateExpression:"SET id = :id, eventId = :event, linkedBy = :by, linkedAt = :at",
+      ExpressionAttributeValues:{":id":id,":event":eventId,":by":actor.id,":at":this.clock().toISOString()}}));
+  }
+
+  async hideRallySession(id:string,hidden:boolean,actor:Actor): Promise<void> {
+    await this.db.send(new UpdateCommand({TableName:this.table,Key:{PK:"RALLY_LINKS#POP",SK:id},
+      UpdateExpression:"SET id = :id, #hidden = :hidden, updatedBy = :by, updatedAt = :at, #reason = :reason",
+      ExpressionAttributeNames:{"#reason":"reason","#hidden":"hidden"},
+      ExpressionAttributeValues:{":id":id,":hidden":hidden,":by":actor.id,":at":this.clock().toISOString(),":reason":actor.reason}}));
   }
 
   async createAccount(account: GameAccount, actor: Actor): Promise<void> {
