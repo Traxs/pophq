@@ -16,6 +16,7 @@ export function AgentTokens() {
   const [registrationsWrite, setRegistrationsWrite] = useState(false);
   const [historyWrite, setHistoryWrite] = useState(false);
   const [rewardsWrite, setRewardsWrite] = useState(true);
+  const [troopsWrite, setTroopsWrite] = useState(false);
   const [accountsWrite, setAccountsWrite] = useState(false);
   const [secret, setSecret] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -27,7 +28,7 @@ export function AgentTokens() {
     setBusy(true);
     setError(null);
     try {
-      const scopes = requestedAgentScopes({ results: write, events: eventsWrite, registrations: registrationsWrite, history: historyWrite, rewards: rewardsWrite, accounts: accountsWrite });
+      const scopes = requestedAgentScopes({ results: write, events: eventsWrite, registrations: registrationsWrite, history: historyWrite, rewards: rewardsWrite, accounts: accountsWrite, troops: troopsWrite });
       const issued = await api.issueAgentToken({ name, scopes, expiresInDays: days });
       const missing = missingIssuedScopes(scopes, issued.scopes);
       if (missing.length > 0) {
@@ -46,7 +47,7 @@ export function AgentTokens() {
   };
 
   const scopeLabel = (scope: AgentScope) =>
-    scope === "results:write" ? "Update results" : scope === "events:write" ? "Manage events" : scope === "registrations:write" ? "Manage registrations" : scope === "history:write" ? "Import history" : scope === "rewards:write" ? "Register rewards" : scope === "accounts:write" ? "Onboard account shells" : "Read data";
+    scope === "results:write" ? "Update results" : scope === "events:write" ? "Manage events" : scope === "registrations:write" ? "Manage registrations" : scope === "history:write" ? "Import history" : scope === "rewards:write" ? "Register rewards" : scope === "troops:write" ? "Update troop FC / Helios" : scope === "accounts:write" ? "Onboard account shells" : "Read data";
 
   return (
     <section className="card bot-token-panel" aria-labelledby="agent-token-title">
@@ -63,6 +64,7 @@ export function AgentTokens() {
         <label className="checkbox-row"><input type="checkbox" checked={historyWrite} onChange={(e) => setHistoryWrite(e.target.checked)} /><span>Allow historical data imports <span className="muted">(strength, signups, attendance, lineups and tactics)</span></span></label>
         <label className="checkbox-row"><input type="checkbox" checked={rewardsWrite} onChange={(e) => setRewardsWrite(e.target.checked)} /><span>Allow Fortress reward registration <span className="muted">(R4/R5 only; preview remains the default)</span></span></label>
         <label className="checkbox-row"><input type="checkbox" checked={accountsWrite} onChange={(e) => setAccountsWrite(e.target.checked)} /><span>Allow login-free account onboarding <span className="muted">(exact Player IDs only; preview remains the default)</span></span></label>
+        <label className="checkbox-row"><input type="checkbox" checked={troopsWrite} onChange={(e) => setTroopsWrite(e.target.checked)} /><span>Allow troop FC and Helios updates <span className="muted">(R4/R5 only; exact Player IDs and reviewed preview required)</span></span></label>
         <div className="bot-token-actions">
           <button type="button" className="btn btn-primary btn-small" disabled={busy || !name.trim()} onClick={() => void issue()}>{busy ? "Issuing…" : "Issue token"}</button>
         </div>

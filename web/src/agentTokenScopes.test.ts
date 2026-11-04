@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { missingIssuedScopes, requestedAgentScopes } from "./agentTokenScopes";
 
 describe("bot token scope issuance", () => {
+  it("grants troop writes only when explicitly selected", () => {
+    const selected = {results:false,events:false,registrations:false,history:false,rewards:false,accounts:false};
+    expect(requestedAgentScopes(selected)).toEqual(["all:read"]);
+    expect(requestedAgentScopes({...selected,troops:true})).toEqual(["all:read","troops:write"]);
+  });
   it("includes account onboarding when its checkbox is selected", () => {
     expect(requestedAgentScopes({ results: true, events: true, registrations: true, history: true, rewards: true, accounts: true })).toEqual([
       "all:read",
