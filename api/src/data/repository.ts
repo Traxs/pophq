@@ -2012,7 +2012,7 @@ export class Repository {
     } catch (err) {
       const reasons = cancellationCodes(err);
       if (reasons?.[0] === "ConditionalCheckFailed") {
-        throw new ConflictError(`Game account ${report.playerId} changed since preview or does not accept new data.`);
+        throw new ConflictError(`Game account ${report.playerId} doesn't exist or doesn't accept new data.`);
       }
       if (reasons?.[1] === "ConditionalCheckFailed") throw new ConflictError("This report was already submitted.");
       if (agent && reasons?.some(r => r === "ConditionalCheckFailed")) throw new ConflictError("Reports changed since preview or were submitted concurrently. Retry with the same idempotency key or preview again.");
