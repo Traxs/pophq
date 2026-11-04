@@ -112,7 +112,7 @@ export function Members() {
 
       {error && <ErrorBanner message={error} onRetry={() => setAttempt((n) => n + 1)} />}
 
-      <RallyStatistics />
+      <details className="card"><summary>Bot battle sessions · link events or manage history</summary><RallyStatistics /></details>
       <AllianceCharts />
 
       <Sheet open={inviting} title="Invite a member" onClose={() => setInviting(false)}>

@@ -29,3 +29,16 @@ it("offers lightweight event choices only to officers",async()=>{
  expect(response.status).toBe(200);
  expect(response.body.items).toEqual(expect.arrayContaining([{eventId:"event-one",title:"event-one",startsAt:"2026-10-16T12:00:00.000Z"}]));
 });
+
+it("hides and restores whole sessions without losing statistics or event links",async()=>{
+ expect((await h.call("PUT","/metrics/rallies/battle/visibility",{as:"player",body:{hidden:true}})).status).toBe(403);
+ expect((await h.call("PUT","/metrics/rallies/missing/visibility",{...officer,body:{hidden:true}})).status).toBe(404);
+ expect((await h.call("PUT","/metrics/rallies/battle/visibility",{...officer,body:{hidden:"true"}})).status).toBe(400);
+ expect((await h.call("PUT","/metrics/rallies/battle/visibility",{...officer,body:{hidden:true}})).status).toBe(200);
+ await h.call("PUT","/metrics/rallies/battle/event",{...officer,body:{eventId:"event-one"}});
+ let result=await h.call("GET","/metrics/rallies",officer);
+ expect(result.body.recent).toEqual([expect.objectContaining({...battle,hidden:true,eventId:"event-one"})]);
+ await h.call("PUT","/metrics/rallies/battle/visibility",{...officer,body:{hidden:false}});
+ result=await h.call("GET","/metrics/rallies",officer);
+ expect(result.body.recent).toEqual([expect.objectContaining({...battle,hidden:false,eventId:"event-one"})]);
+});
